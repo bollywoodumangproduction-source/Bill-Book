@@ -1,0 +1,173 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Smooth theme transitions — scoped to avoid re-render flicker */
+body,
+body::before,
+body::after {
+  transition: background-color 0.3s ease, color 0.15s ease;
+}
+
+/* Hide floating Bolt badges/banners and protect nav from overlap */
+a[href*="bolt.new"],
+div[class*="bolt"],
+iframe[src*="bolt"] {
+  display: none !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.5); }
+
+/* ============================================================
+   PRINT STYLES — A4 portrait, clean professional black-on-white
+   Uses #printable-bill-sheet as the universal printable container.
+   The bill sheet is portaled to <body>, so #root (the app UI)
+   is hidden entirely via display:none during print.
+   ============================================================ */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  /* Reset page chrome */
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Universal high-contrast black-on-white */
+  * {
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide the entire app UI (sidebar, header, dashboard, modals, backdrops) */
+  #root,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Show only the printable bill sheet and its children */
+  #printable-bill-sheet {
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    z-index: 9999999 !important;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+    font-size: 10pt !important;
+    line-height: 1.35 !important;
+  }
+
+  #printable-bill-sheet * {
+    color: #000000 !important;
+    background: #ffffff !important;
+    border-color: #000000 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    opacity: 1 !important;
+  }
+
+  #printable-bill-sheet .bill-page {
+    page-break-after: avoid;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    overflow: hidden;
+  }
+
+  #printable-bill-sheet table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 9pt !important;
+  }
+
+  #printable-bill-sheet table th,
+  #printable-bill-sheet table td {
+    border: 1px solid #000000 !important;
+    padding: 3px 5px !important;
+  }
+
+  #printable-bill-sheet img {
+    max-width: 100% !important;
+    page-break-inside: avoid;
+  }
+
+  #printable-partner-statement-sheet {
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    font-family: system-ui, sans-serif !important;
+    font-size: 9pt !important;
+  }
+
+  #printable-partner-statement-sheet * {
+    color: #000000 !important;
+    background: #ffffff !important;
+    border-color: #000000 !important;
+  }
+
+  #printable-partner-statement-sheet table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  #printable-partner-statement-sheet th,
+  #printable-partner-statement-sheet td {
+    border: 1px solid #000000 !important;
+    padding: 4px !important;
+    text-align: left !important;
+  }
+}
+
+/* Bill text selectability */
+#printable-bill-sheet,
+#printable-bill-sheet * {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+/* Keep the portaled bill hidden on screen, visible only when printing */
+@media screen {
+  #printable-bill-sheet {
+    display: none !important;
+  }
+
+  #printable-partner-statement-sheet {
+    display: none !important;
+  }
+}
