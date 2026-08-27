@@ -21,6 +21,9 @@ import {
   Lock,
   Unlock,
   RotateCcw,
+  RefreshCw,
+  Download,
+  ExternalLink,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type {
@@ -29,6 +32,11 @@ import type {
   BookingDeliverables,
   BookingAlbumRow,
   BookingVideoRow,
+  BookingCustomItem,
+  Partner,
+  ShootAssignment,
+  BookingPaymentDetails,
+  BookingPaymentInstallment,
   BookingPaperRow,
   StudioSettings,
 } from '@/lib/types';
@@ -53,9 +61,9 @@ import { Modal } from '@/components/ui/Modal';
 import { Field, inputClass, selectClass } from '@/components/ui/Field';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { MasterPinDialog } from '@/components/ui/MasterPinDialog';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { useRefresh } from '@/context/RefreshContext';
-import { DutyRoster } from '@/components/DutyRoster';
 
 const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'rose' | 'sky' | 'slate'> = {
   CONFIRMED: 'amber',
@@ -71,6 +79,14 @@ const DEFAULT_DELIVERABLES: BookingDeliverables = {
 };
 
 const toNum = (v: string | number | undefined) => { const n = Number(v); return isNaN(n) ? 0 : n; };
+
+const bookingDue = (booking: Pick<Booking, 'total_amount' | 'discount' | 'advance_paid'>) =>
+  toNum(booking.total_amount) - toNum(booking.discount) - toNum(booking.advance_paid);
+
+function recycleDaysRemaining(deletedAt: string | null | undefined): number {
+  if (!deletedAt) return 90;
+  return Math.max(0, 90 - Math.floor((Date.now() - new Date(deletedAt).getTime()) / 86400000));
+}
 
 function uid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -126,7 +142,9 @@ export function Bookings() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [detailBooking, setDetailBooking] = useState<Booking | null>(null);
   const [successBooking, setSuccessBooking] = useState<Booking | null>(null);
-  const [view, setView] = useState<'bookings' | 'roster'>('bookings');
+  const [view, setView] = useState<'active' | 'archived' | 'recycle'>('active');
+  const [showPin, setShowPin] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<'soft' | 'permanent'>('soft');
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('bookings').select('*').order('shoot_date');
@@ -138,15 +156,19 @@ export function Bookings() {
 
   const filtered = bookings.filter((b) => {
     const q = search.toLowerCase();
-    return (b.client_name ?? '').toLowerCase().includes(q) || (b.event_function ?? '').toLowerCase().includes(q) || (b.booking_no ?? '').toLowerCase().includes(q);
+    const lifecycleMatch = view === 'recycle' ? !!b.deleted_at : view === 'archived' ? !!b.archived_at && !b.deleted_at : !b.archived_at && !b.deleted_at;
+    return lifecycleMatch && ((b.client_name ?? '').toLowerCase().includes(q) || (b.event_function ?? '').toLowerCase().includes(q) || (b.booking_no ?? '').toLowerCase().includes(q));
   });
 
   const handleDelete = async () => {
     if (!deleteId) return;
-    await supabase.from('bookings').delete().eq('id', deleteId);
-    toast('Booking deleted', 'success');
-    load();
+    await supabase.from('bookings').update({ deleted_at: new Date().toISOString() }).eq('id', deleteId);
+    toast('Booking moved to Recycle Bin', 'success');
+    setDeleteId(null); setShowPin(false); load();
   };
+
+  const restoreBooking = async (id: string) => { await supabase.from('bookings').update({ archived_at: null, deleted_at: null }).eq('id', id); toast('Booking restored to Active', 'success'); load(); };
+  const permanentlyDeleteBooking = async () => { if (!deleteId) return; await supabase.from('bookings').delete().eq('id', deleteId); toast('Booking permanently deleted', 'success'); setDeleteId(null); setShowPin(false); load(); };
 
   const copyBookingSummary = async (b: Booking) => {
     const text = buildBookingSummaryText(b, settings);
@@ -169,19 +191,6 @@ export function Bookings() {
         </button>
       </div>
 
-      <div className="flex gap-1 border-b border-slate-200 dark:border-white/10">
-        {([['bookings', 'Bookings'], ['roster', 'Duty Roster']] as const).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setView(key)}
-            className={`border-b-2 px-3 py-2 text-sm font-medium transition-colors ${view === key ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {view === 'roster' ? <DutyRoster bookings={bookings} bookingsLoading={loading} /> : <>
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
@@ -191,6 +200,7 @@ export function Bookings() {
           className={`${inputClass} pl-10`}
         />
       </div>
+      <div className="flex gap-2"><button onClick={() => setView('active')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'active' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Active</button><button onClick={() => setView('archived')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'archived' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Archived</button><button onClick={() => setView('recycle')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'recycle' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Recycle Bin</button></div>
 
       {loading ? (
         <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
@@ -199,9 +209,12 @@ export function Bookings() {
       ) : (
         <div className="space-y-2.5">
           {filtered.map((b) => (
-            <button
+            <div
               key={b.id}
               onClick={() => setDetailBooking(b)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setDetailBooking(b); }}
+              role="button"
+              tabIndex={0}
               className="group flex w-full items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-amber-500/30 hover:bg-amber-50/50 dark:border-white/10 dark:bg-slate-900/50 dark:hover:border-amber-500/20 dark:hover:bg-slate-900"
             >
               <div className="min-w-0 flex-1">
@@ -215,7 +228,8 @@ export function Bookings() {
               </div>
               <div className="text-right">
                 <p className="text-sm font-semibold text-slate-900 dark:text-white">{formatINR(Number(b.total_amount))}</p>
-                <p className="text-xs text-rose-500 dark:text-rose-400">{formatINR(Number(b.net_due))} due</p>
+                <p className="text-xs text-rose-500 dark:text-rose-400">{formatINR(bookingDue(b))} due</p>
+                {view === 'recycle' && <p className="text-[11px] text-amber-600 dark:text-amber-400">Expires in {recycleDaysRemaining(b.deleted_at)} days</p>}
               </div>
               <button
                 onClick={(e) => { e.stopPropagation(); copyBookingSummary(b); }}
@@ -225,11 +239,12 @@ export function Bookings() {
                 <Copy className="h-4 w-4" />
               </button>
               <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-amber-500 dark:group-hover:text-amber-400" />
-            </button>
+              {view !== 'active' && <button onClick={(e) => { e.stopPropagation(); restoreBooking(b.id); }} className="text-xs text-emerald-600 dark:text-emerald-400">Restore</button>}
+              {view === 'recycle' && <button onClick={(e) => { e.stopPropagation(); setDeleteId(b.id); setPendingDelete('permanent'); setShowPin(true); }} className="text-xs text-rose-500">Delete Forever</button>}
+            </div>
           ))}
         </div>
       )}
-      </>}
 
       <BookingForm
         open={showForm}
@@ -243,6 +258,7 @@ export function Bookings() {
           <BookingSuccessModal
             booking={successBooking}
             onClose={() => setSuccessBooking(null)}
+            onView={() => { setDetailBooking(successBooking); setSuccessBooking(null); }}
           />
         </ErrorBoundary>
       )}
@@ -260,13 +276,13 @@ export function Bookings() {
             booking={detailBooking}
             onClose={() => { setDetailBooking(null); load(); }}
             onEdit={() => { setEditing(detailBooking); setDetailBooking(null); setShowForm(true); }}
-            onDelete={() => { setDeleteId(detailBooking.id); setDetailBooking(null); }}
+            onDelete={() => { setDeleteId(detailBooking.id); setPendingDelete('soft'); setShowPin(true); setDetailBooking(null); }}
           />
         </ErrorBoundary>
       )}
 
       <ConfirmDialog
-        open={!!deleteId}
+        open={false}
         onClose={() => setDeleteId(null)}
         onConfirm={handleDelete}
         title="Delete Booking"
@@ -274,6 +290,7 @@ export function Bookings() {
         confirmLabel="Delete"
         danger
       />
+      <MasterPinDialog open={showPin} settings={settings} onClose={() => { setShowPin(false); setDeleteId(null); }} onVerified={() => { if (pendingDelete === 'permanent') permanentlyDeleteBooking(); else handleDelete(); }} />
     </div>
   );
 }
@@ -295,6 +312,7 @@ interface BookingDraftData {
   events: EventFunction[];
   albumRows: BookingAlbumRow[];
   videoRows: BookingVideoRow[];
+  customItems: BookingCustomItem[];
   deliverables: BookingDeliverables;
   baseAmount: string;
   totalAmount: string;
@@ -304,6 +322,7 @@ interface BookingDraftData {
 
 function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClose: () => void; editing: Booking | null; onSaved: (saved: Booking) => void }) {
   const { toast } = useToast();
+  const { settings } = useSettings();
   const draftKey = editing ? `booking-edit-${editing.id}` : 'booking-new';
 
   const [clientName, setClientName] = useDraftState<string>(`${draftKey}-clientName`, '');
@@ -314,11 +333,19 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
   const [events, setEvents] = useDraftState<EventFunction[]>(`${draftKey}-events`, []);
   const [albumRows, setAlbumRows] = useDraftState<BookingAlbumRow[]>(`${draftKey}-albumRows`, []);
   const [videoRows, setVideoRows] = useDraftState<BookingVideoRow[]>(`${draftKey}-videoRows`, []);
+  const [customItems, setCustomItems] = useDraftState<BookingCustomItem[]>(`${draftKey}-customItems`, []);
   const [deliverables, setDeliverables] = useDraftState<BookingDeliverables>(`${draftKey}-deliverables`, { ...DEFAULT_DELIVERABLES });
   const [baseAmount, setBaseAmount] = useDraftState<string>(`${draftKey}-baseAmount`, '');
   const [totalAmount, setTotalAmount] = useDraftState<string>(`${draftKey}-totalAmount`, '');
   const [discount, setDiscount] = useDraftState<string>(`${draftKey}-discount`, '');
   const [advancePaid, setAdvancePaid] = useDraftState<string>(`${draftKey}-advancePaid`, '');
+  const [paymentMode, setPaymentMode] = useDraftState<string>(`${draftKey}-paymentMode`, 'Cash');
+  const [paymentDate, setPaymentDate] = useDraftState<string>(`${draftKey}-paymentDate`, todayISO());
+  const [customPaymentNote, setCustomPaymentNote] = useDraftState<string>(`${draftKey}-customPaymentNote`, '');
+  const [paidAmount, setPaidAmount] = useDraftState<string>(`${draftKey}-paidAmount`, '');
+  const [paymentHistory, setPaymentHistory] = useDraftState<BookingPaymentInstallment[]>(`${draftKey}-paymentHistory`, []);
+  const [showPaymentQr, setShowPaymentQr] = useState(false);
+  const [paymentVerified, setPaymentVerified] = useState(false);
 
   const clearDraft = () => {
     setClientName('');
@@ -329,11 +356,19 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
     setEvents([]);
     setAlbumRows([]);
     setVideoRows([]);
+    setCustomItems([]);
     setDeliverables({ ...DEFAULT_DELIVERABLES });
     setBaseAmount('');
     setTotalAmount('');
     setDiscount('');
     setAdvancePaid('');
+    setPaymentMode('Cash');
+    setPaymentDate(todayISO());
+    setCustomPaymentNote('');
+    setPaidAmount('');
+    setPaymentHistory([]);
+    setShowPaymentQr(false);
+    setPaymentVerified(false);
   };
 
   useEffect(() => {
@@ -372,6 +407,13 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
         rate: r.rate ?? '',
         total: r.total ?? '',
       })));
+      setCustomItems((d.custom_items ?? []).map((item) => ({
+        id: item.id ?? uid(),
+        name: item.name ?? '',
+        qty: item.qty ?? '1',
+        rate: item.rate ?? '',
+        amount: item.amount ?? String(toNum(item.qty ?? '1') * toNum(item.rate)),
+      })));
       setDeliverables({
         raw_video: d.raw_video ?? false,
         raw_selected_photos: d.raw_selected_photos ?? false,
@@ -382,12 +424,36 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
       setTotalAmount(editing && Number(editing.total_amount) ? String(editing.total_amount) : '');
       setDiscount(editing && Number(editing.discount) ? String(editing.discount) : '');
       setAdvancePaid(editing && Number(editing.advance_paid) ? String(editing.advance_paid) : '');
+      const payment = d.payment_details;
+      setPaymentMode(payment?.payment_mode === 'UPI / PhonePe / GPay' ? 'QR Code' : (payment?.payment_mode ?? 'Cash'));
+      setPaymentDate(payment?.payment_date ?? todayISO());
+      setCustomPaymentNote(payment?.custom_note ?? '');
+      setPaidAmount(payment?.paid_amount ?? (editing && Number(editing.advance_paid) ? String(editing.advance_paid) : ''));
+      setPaymentHistory(payment?.payment_history ?? (editing && Number(editing.advance_paid) ? [{ id: uid(), payment_date: payment?.payment_date ?? todayISO(), payment_mode: payment?.payment_mode ?? 'Cash', custom_note: payment?.custom_note ?? 'Legacy payment record', paid_amount: String(editing.advance_paid) }] : []));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing]);
 
+  useEffect(() => {
+    const historyTotal = paymentHistory.reduce((sum, payment) => sum + toNum(payment.paid_amount), 0);
+    if (paymentHistory.length > 0 && String(historyTotal) !== advancePaid) setAdvancePaid(String(historyTotal));
+  }, [paymentHistory, advancePaid, setAdvancePaid]);
+
+  useEffect(() => {
+    setShowPaymentQr(false);
+    setPaymentVerified(false);
+  }, [open, editing]);
+
   const addEvent = () => {
-    setEvents([...events, { name: 'Haldi', date: '', time: '' }]);
+    setEvents([...events, {
+      name: 'Haldi',
+      date: '',
+      time: '',
+      start_time: '',
+      end_time: '',
+      end_date_shift: 'same_date',
+      venue: '',
+    }]);
   };
   const updateEvent = (i: number, patch: Partial<EventFunction>) => {
     setEvents(events.map((e, idx) => idx === i ? { ...e, ...patch } : e));
@@ -449,15 +515,44 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
   };
   const removeVideoRow = (i: number) => setVideoRows((rows) => rows.filter((_, idx) => idx !== i));
 
+  const addCustomItem = () => setCustomItems((items) => [...items, { id: uid(), name: '', qty: '1', rate: '', amount: '' }]);
+  const updateCustomItem = (i: number, patch: Partial<BookingCustomItem>) => {
+    setCustomItems((items) => items.map((item, idx) => {
+      if (idx !== i) return item;
+      const updated = { ...item, ...patch };
+      updated.amount = String(toNum(updated.qty) * toNum(updated.rate));
+      return updated;
+    }));
+  };
+  const removeCustomItem = (i: number) => setCustomItems((items) => items.filter((_, idx) => idx !== i));
+
   const toggleDeliverable = (key: 'raw_video' | 'raw_selected_photos' | 'raw_all_photos' | 'raw_edited_photos') => {
     setDeliverables((d) => ({ ...d, [key]: !d[key] }));
   };
 
+  const syncDeliveryData = useCallback(() => {
+    const hasAlbumItems = albumRows.length > 0;
+    const hasVideoItems = videoRows.length > 0;
+    if (!hasAlbumItems && !hasVideoItems) return;
+
+    setDeliverables((current) => ({
+      ...current,
+      raw_video: current.raw_video || hasVideoItems,
+      raw_selected_photos: current.raw_selected_photos || hasAlbumItems,
+      raw_edited_photos: current.raw_edited_photos || hasAlbumItems || hasVideoItems,
+    }));
+  }, [albumRows.length, videoRows.length]);
+
+  useEffect(() => {
+    syncDeliveryData();
+  }, [syncDeliveryData, albumRows, videoRows, customItems]);
+
   const lineItemsTotal = useMemo(() => {
     const albumTotal = albumRows.reduce((s, r) => s + computeAlbumTotal(r), 0);
     const videoTotal = videoRows.reduce((s, r) => s + computeVideoTotal(r), 0);
-    return albumTotal + videoTotal;
-  }, [albumRows, videoRows]);
+    const customItemsTotal = customItems.reduce((s, item) => s + toNum(item.amount), 0);
+    return albumTotal + videoTotal + customItemsTotal;
+  }, [albumRows, videoRows, customItems]);
 
   const computedTotal = lineItemsTotal;
   const totalAmountNum = totalAmount !== '' ? toNum(totalAmount) : computedTotal;
@@ -472,7 +567,7 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSave = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || !paymentVerified) return;
     if (!clientName || !clientMobile) { toast('Name and mobile are required', 'error'); return; }
     setIsSubmitting(true);
     const { data: existing } = await supabase.from('bookings').select('*');
@@ -485,12 +580,25 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
       events,
       shoot_date: primaryDate,
       shoot_time: primaryTime,
-      venue,
+      venue: events.find((event) => event.venue)?.venue ?? venue,
       booking_status: bookingStatus,
+      archived_at: bookingStatus === 'COMPLETED' ? (editing?.archived_at ?? new Date().toISOString()) : null,
       total_amount: totalAmountNum,
       discount: toNum(discount),
-      advance_paid: toNum(advancePaid),
-      deliverables_data: { ...deliverables, album_rows: albumRows, video_rows: videoRows },
+      advance_paid: paymentHistory.reduce((sum, payment) => sum + toNum(payment.paid_amount), 0),
+      deliverables_data: {
+        ...deliverables,
+        album_rows: albumRows,
+        video_rows: videoRows,
+        custom_items: customItems,
+        payment_details: {
+          payment_mode: paymentMode,
+          payment_date: paymentDate,
+          custom_note: customPaymentNote,
+          paid_amount: paidAmount,
+          payment_history: paymentHistory,
+        } satisfies BookingPaymentDetails,
+      },
       base_amount: toNum(baseAmount),
       is_login_allowed: editing?.is_login_allowed ?? false,
       client_password: editing?.client_password ?? clientMobile,
@@ -507,6 +615,41 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
     clearDraft();
     setIsSubmitting(false);
     if (savedBooking) onSaved(savedBooking);
+  };
+
+  const handlePayNow = () => {
+    if (toNum(paidAmount) <= 0) {
+      toast('Enter an amount greater than zero before paying', 'error');
+      return;
+    }
+    const installment: BookingPaymentInstallment = {
+      id: uid(),
+      payment_date: paymentDate,
+      payment_mode: paymentMode,
+      custom_note: customPaymentNote,
+      paid_amount: paidAmount,
+    };
+    setPaymentHistory((history) => [...history, installment]);
+    setAdvancePaid(paidAmount);
+    setPaymentVerified(true);
+    setShowPaymentQr(false);
+    toast('Payment recorded and verified', 'success');
+  };
+
+  const startAnotherPayment = () => {
+    setPaidAmount('');
+    setCustomPaymentNote('');
+    setPaymentDate(todayISO());
+    setPaymentVerified(false);
+  };
+
+  const sendPaymentReceipt = (payment: BookingPaymentInstallment) => {
+    let phone = clientMobile.replace(/\D/g, '');
+    if (phone.length === 10) phone = `91${phone}`;
+    const currentAdvance = paymentHistory.reduce((sum, item) => sum + toNum(item.paid_amount), 0);
+    const remainingDue = totalAmountNum - toNum(discount) - currentAdvance;
+    const message = `*Payment Receipt*\nClient: ${clientName || 'Client'}\nDate: ${formatDate(payment.payment_date)}\nAmount Paid: ${formatINR(toNum(payment.paid_amount))}\nPayment Mode: ${payment.payment_mode}\nNote: ${payment.custom_note || '—'}\nRemaining Due: ${formatINR(remainingDue)}`;
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
   };
 
   const handleClose = () => {
@@ -529,11 +672,8 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
             </Field>
           </div>
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="Client Address">
+            <Field label="Client Address" className="sm:col-span-2">
               <input value={clientAddress} onChange={(e) => setClientAddress(e.target.value)} className={inputClass} placeholder="Client address" />
-            </Field>
-            <Field label="Event Address">
-              <input value={venue} onChange={(e) => setVenue(e.target.value)} className={inputClass} placeholder="Event / venue address" />
             </Field>
             <Field label="Status">
               <select value={bookingStatus} onChange={(e) => setBookingStatus(e.target.value)} className={selectClass}>
@@ -559,27 +699,70 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
           ) : (
             <div className="space-y-2">
               {events.map((e, i) => (
-                <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 p-2.5 dark:border-white/5 dark:bg-white/5">
-                  <select
-                    value={e.name}
-                    onChange={(ev) => updateEvent(i, { name: ev.target.value })}
-                    className={`${selectClass} w-40 shrink-0`}
-                  >
-                    {BOOKING_FUNCTION_NAMES.map((fn) => <option key={fn} value={fn}>{fn}</option>)}
-                  </select>
-                  {e.name === 'Custom' && (
-                    <input
-                      value={e.customName ?? ''}
-                      onChange={(ev) => updateEvent(i, { customName: ev.target.value })}
-                      placeholder="Custom function name"
-                      className={`${inputClass} min-w-[120px] flex-1`}
-                    />
-                  )}
-                  <input type="date" value={e.date} onChange={(ev) => updateEvent(i, { date: ev.target.value })} className={`${inputClass} shrink-0`} />
-                  <input type="time" value={e.time} onChange={(ev) => updateEvent(i, { time: ev.target.value })} className={`${inputClass} w-28 shrink-0`} />
-                  <button onClick={() => removeEvent(i)} className="shrink-0 rounded p-1 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                <div key={i} className="rounded-lg border border-slate-100 bg-slate-50 p-2.5 dark:border-white/5 dark:bg-white/5">
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <select
+                      value={e.name}
+                      onChange={(ev) => updateEvent(i, { name: ev.target.value })}
+                      className={`${selectClass} w-40 shrink-0`}
+                    >
+                      {BOOKING_FUNCTION_NAMES.map((fn) => <option key={fn} value={fn}>{fn}</option>)}
+                    </select>
+                    {e.name === 'Custom' && (
+                      <input
+                        value={e.customName ?? ''}
+                        onChange={(ev) => updateEvent(i, { customName: ev.target.value })}
+                        placeholder="Custom function name"
+                        className={`${inputClass} min-w-[120px] flex-1`}
+                      />
+                    )}
+                    <button onClick={() => removeEvent(i)} className="ml-auto shrink-0 rounded p-1 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10" title="Delete function">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <Field label="Function Date">
+                      <input type="date" value={e.date} onChange={(ev) => updateEvent(i, { date: ev.target.value })} className={inputClass} />
+                    </Field>
+                    <Field label="Starting Function Time">
+                      <div className="space-y-1.5">
+                        <input
+                          type="time"
+                          value={e.start_time ?? e.time}
+                          onChange={(ev) => updateEvent(i, { start_time: ev.target.value, time: ev.target.value })}
+                          className={inputClass}
+                        />
+                      </div>
+                    </Field>
+                    <Field label="Ending Function Time">
+                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5 dark:border-white/10 dark:bg-slate-900/50">
+                        <input
+                          type="time"
+                          value={e.end_time ?? ''}
+                          onChange={(ev) => updateEvent(i, { end_time: ev.target.value })}
+                          className={`${inputClass} min-w-0 flex-1 border-0 bg-transparent px-1.5 py-1.5 focus:bg-transparent dark:bg-transparent dark:focus:bg-transparent`}
+                        />
+                        <select
+                          value={e.end_date_shift === 'next_date' ? 'after_day' : (e.end_date_shift ?? 'same_date')}
+                          onChange={(ev) => updateEvent(i, { end_date_shift: ev.target.value as EventFunction['end_date_shift'] })}
+                          className={`${selectClass} w-auto min-w-[118px] border-0 bg-transparent px-1.5 py-1.5 text-xs focus:bg-transparent dark:bg-transparent dark:focus:bg-transparent`}
+                        >
+                          <option value="same_date">Same Date</option>
+                          <option value="after_day">After Day</option>
+                        </select>
+                      </div>
+                    </Field>
+                  </div>
+                  <div className="mt-3">
+                    <Field label="Event Venue">
+                      <input
+                        value={e.venue ?? ''}
+                        onChange={(ev) => updateEvent(i, { venue: ev.target.value })}
+                        className={inputClass}
+                        placeholder="Function-specific venue location"
+                      />
+                    </Field>
+                  </div>
                 </div>
               ))}
             </div>
@@ -800,18 +983,121 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
           )}
         </div>
 
-        {/* 5. DELIVERY DATA */}
+        {/* 5. CUSTOM SERVICES / ADDITIONAL ITEMS */}
         <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
-          <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">Delivery Data</h3>
-          <div className="flex flex-wrap gap-4">
-            <DeliverableCheckbox label="Raw Video" checked={!!deliverables.raw_video} onChange={() => toggleDeliverable('raw_video')} />
-            <DeliverableCheckbox label="Selected Photos" checked={!!deliverables.raw_selected_photos} onChange={() => toggleDeliverable('raw_selected_photos')} />
-            <DeliverableCheckbox label="All Photos" checked={!!deliverables.raw_all_photos} onChange={() => toggleDeliverable('raw_all_photos')} />
-            <DeliverableCheckbox label="Finished / Edited Photos" checked={!!deliverables.raw_edited_photos} onChange={() => toggleDeliverable('raw_edited_photos')} />
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Custom Services / Additional Items</h3>
+            <button
+              onClick={addCustomItem}
+              className="flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 dark:text-amber-400"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add Item
+            </button>
+          </div>
+          {customItems.length === 0 ? (
+            <p className="py-3 text-center text-xs text-slate-400">No additional items added yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {customItems.map((item, i) => (
+                <div key={item.id} className="grid grid-cols-1 gap-2 rounded-lg border border-slate-100 bg-slate-50 p-2.5 dark:border-white/5 dark:bg-white/5 sm:grid-cols-12 sm:items-end">
+                  <Field label="Item Name / Description" className="sm:col-span-5">
+                    <input value={item.name} onChange={(e) => updateCustomItem(i, { name: e.target.value })} className={inputClass} placeholder="Additional service or item" />
+                  </Field>
+                  <Field label="Quantity" className="sm:col-span-2">
+                    <input type="number" min={1} value={item.qty} onChange={(e) => updateCustomItem(i, { qty: e.target.value })} className={inputClass} />
+                  </Field>
+                  <Field label="Rate / Price per unit" className="sm:col-span-2">
+                    <input type="number" min={0} value={item.rate} onChange={(e) => updateCustomItem(i, { rate: e.target.value })} className={inputClass} placeholder="Rate (₹)" />
+                  </Field>
+                  <div className="sm:col-span-2">
+                    <span className="mb-1.5 block text-xs font-medium text-slate-500 dark:text-slate-400">Amount</span>
+                    <div className={`${inputClass} font-semibold text-slate-700 dark:text-slate-200`}>{formatINR(toNum(item.amount))}</div>
+                  </div>
+                  <button onClick={() => removeCustomItem(i)} className="flex items-center justify-center pb-2 text-slate-400 hover:text-rose-500 sm:col-span-1" title="Delete item">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 6. DELIVERY DATA */}
+        <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Delivery Data</h3>
+            <button
+              type="button"
+              onClick={syncDeliveryData}
+              className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 dark:text-amber-400"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Refresh / Sync
+            </button>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+            <div className="flex flex-col gap-4">
+              <DeliverableCheckbox label="Raw Video" checked={!!deliverables.raw_video} onChange={() => toggleDeliverable('raw_video')} />
+              <DeliverableCheckbox label="Selected Photos" checked={!!deliverables.raw_selected_photos} onChange={() => toggleDeliverable('raw_selected_photos')} />
+              <DeliverableCheckbox label="All Photos" checked={!!deliverables.raw_all_photos} onChange={() => toggleDeliverable('raw_all_photos')} />
+              <DeliverableCheckbox label="Finished / Edited Photos" checked={!!deliverables.raw_edited_photos} onChange={() => toggleDeliverable('raw_edited_photos')} />
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+            <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">Package &amp; Media Sync Sheet</h3>
+            {albumRows.length === 0 && videoRows.length === 0 && customItems.filter((item) => item.name.trim()).length === 0 ? (
+              <p className="text-xs text-slate-400">No deliverables added yet. Select package or click Refresh.</p>
+            ) : (
+              <div className="space-y-3 text-xs text-slate-600 dark:text-slate-300">
+                {albumRows.length > 0 && (
+                  <div>
+                    <p className="mb-1 font-semibold text-amber-600 dark:text-amber-400">Albums</p>
+                    <div className="space-y-1.5">
+                      {albumRows.map((row) => (
+                        <div key={row.id} className="rounded border border-slate-200 bg-slate-50 p-2 dark:border-white/10 dark:bg-white/5">
+                          <p className="font-medium text-slate-800 dark:text-slate-100">{row.album_type}</p>
+                          <p>{row.size} · {row.papers.reduce((total, paper) => total + toNum(paper.sheets), 0)} sheets · {row.cover}</p>
+                          {row.papers.length > 0 && <p className="text-slate-500 dark:text-slate-400">{row.papers.map((paper) => paper.paper_type).join(', ')}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {videoRows.length > 0 && (
+                  <div>
+                    <p className="mb-1 font-semibold text-amber-600 dark:text-amber-400">Videos</p>
+                    <div className="space-y-1.5">
+                      {videoRows.map((row) => (
+                        <div key={row.id} className="rounded border border-slate-200 bg-slate-50 p-2 dark:border-white/10 dark:bg-white/5">
+                          <p className="font-medium text-slate-800 dark:text-slate-100">{row.video_service}</p>
+                          <p>{row.quality} · Qty {row.qty || '0'}</p>
+                          <p className="text-slate-500 dark:text-slate-400">Output: {row.quality}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {customItems.some((item) => item.name.trim()) && (
+                  <div>
+                    <p className="mb-1 font-semibold text-amber-600 dark:text-amber-400">Additional Items</p>
+                    <div className="space-y-1.5">
+                      {customItems.filter((item) => item.name.trim()).map((item) => (
+                        <div key={item.id} className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 p-2 dark:border-white/10 dark:bg-white/5">
+                          <span>{item.name} x{item.qty || '0'}</span>
+                          <span className="font-medium">{formatINR(toNum(item.amount))}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           </div>
         </div>
 
-        {/* 6. BILLING SUMMARY */}
+        {/* 7. BILLING SUMMARY */}
         <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
           <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">Billing Summary</h3>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -838,7 +1124,7 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
               <input
                 type="number"
                 value={advancePaid}
-                onChange={(e) => setAdvancePaid(e.target.value)}
+                onChange={(e) => { setAdvancePaid(e.target.value); setPaidAmount(e.target.value); setPaymentVerified(false); }}
                 onFocus={(e) => { if (toNum(e.target.value) === 0) e.target.value = ''; }}
                 className={inputClass}
               />
@@ -863,12 +1149,130 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
           </div>
         </div>
 
+        {/* 8. PAYMENT MODE & TRANSACTION DETAILS */}
+        <div className="rounded-lg border border-slate-800 bg-[#0d1322] p-4">
+          <h3 className="mb-3 text-sm font-semibold text-white">Payment Mode &amp; Transaction Details</h3>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="Payment Mode">
+              <select value={paymentMode} onChange={(e) => { setPaymentMode(e.target.value); setShowPaymentQr(false); }} disabled={paymentVerified} className={selectClass}>
+                <option>QR Code</option>
+                <option>Cash</option>
+                <option>Bank Transfer</option>
+                <option>Cheque</option>
+                <option>Card</option>
+              </select>
+            </Field>
+            <Field label="Payment Date">
+              <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} disabled={paymentVerified} className={inputClass} />
+            </Field>
+            <Field label="Custom Note / Remarks">
+              <input
+                value={customPaymentNote}
+                onChange={(e) => setCustomPaymentNote(e.target.value)}
+                disabled={paymentVerified}
+                className={inputClass}
+                placeholder="Txn ID or reference"
+              />
+            </Field>
+            <Field label="Amount Paid (₹)">
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  value={paidAmount}
+                  onChange={(e) => { setPaidAmount(e.target.value); setAdvancePaid(e.target.value); setPaymentVerified(false); }}
+                  onFocus={(e) => { if (toNum(e.target.value) === 0) e.target.value = ''; }}
+                  disabled={paymentVerified}
+                  className={`${inputClass} min-w-0 flex-1`}
+                  placeholder="Amount paid"
+                />
+                <button
+                  type="button"
+                  onClick={handlePayNow}
+                  disabled={paymentVerified}
+                  className="shrink-0 rounded-lg bg-emerald-500 px-2.5 py-2 text-xs font-semibold text-slate-950 transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  ⚡ Pay Now
+                </button>
+              </div>
+            </Field>
+          </div>
+          {paymentHistory.length > 0 && (
+            <div className="mt-4 border-t border-slate-800 pt-3">
+              <h4 className="mb-2 text-xs font-semibold text-slate-200">Payment History</h4>
+              <div className="overflow-x-auto rounded-lg border border-slate-800">
+                <table className="w-full min-w-[650px] text-left text-xs">
+                  <thead className="bg-slate-900 text-slate-400">
+                    <tr>
+                      <th className="px-2.5 py-2">Payment Date</th>
+                      <th className="px-2.5 py-2">Payment Mode</th>
+                      <th className="px-2.5 py-2">Custom Note / Reason</th>
+                      <th className="px-2.5 py-2 text-right">Amount Paid (₹)</th>
+                      <th className="px-2.5 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paymentHistory.map((payment) => (
+                      <tr key={payment.id} className="border-t border-slate-800 text-slate-300">
+                        <td className="px-2.5 py-2">{formatDate(payment.payment_date)}</td>
+                        <td className="px-2.5 py-2">{payment.payment_mode}</td>
+                        <td className="max-w-[220px] truncate px-2.5 py-2">{payment.custom_note || '—'}</td>
+                        <td className="px-2.5 py-2 text-right font-semibold text-emerald-400">{formatINR(toNum(payment.paid_amount))}</td>
+                        <td className="px-2.5 py-2 text-right">
+                          <button type="button" onClick={() => sendPaymentReceipt(payment)} className="whitespace-nowrap text-emerald-400 hover:text-emerald-300">Send WhatsApp Receipt</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {paymentMode === 'QR Code' && toNum(paidAmount) > 0 && (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setShowPaymentQr((visible) => !visible)}
+                disabled={paymentVerified}
+                className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {showPaymentQr ? '🙈 Hide QR Code' : '👁️ Show QR Code'}
+              </button>
+              {showPaymentQr && (
+                <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-slate-700 bg-slate-900 p-3">
+                  {settings?.upi_id ? (
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`upi://pay?pa=${settings.upi_id}&am=${toNum(paidAmount)}&cu=INR`)}`}
+                      alt="Payment QR code"
+                      className="h-40 w-40"
+                    />
+                  ) : (
+                    <p className="text-xs text-slate-400">Add a studio UPI ID in Settings to generate this QR code.</p>
+                  )}
+                  <div className="text-xs text-slate-300">
+                    <p className="font-medium text-white">Scan to pay {formatINR(toNum(paidAmount))}</p>
+                    {settings?.upi_id && <p className="mt-1 text-slate-400">UPI: {settings.upi_id}</p>}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {paymentVerified && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm font-medium text-emerald-300">
+              <span>✅ Payment Recorded &amp; Verified</span>
+              <button type="button" onClick={startAnotherPayment} className="text-xs text-emerald-200 underline hover:text-white">Add another installment</button>
+            </div>
+          )}
+          <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-200">
+            <span className="font-medium">Last Due Balance:</span> {formatINR(netDue)}
+          </div>
+        </div>
+
         {/* Footer Actions */}
         <div className="flex justify-end gap-3 pt-1">
           <button onClick={handleClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
           <button
             onClick={handleSave}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !paymentVerified}
             className="flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:from-amber-400 hover:to-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSubmitting ? (
@@ -902,12 +1306,18 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
   const { triggerRefresh } = useRefresh();
   const safeEvents = booking.events ?? [];
   const safeDeliverables = booking.deliverables_data ?? DEFAULT_DELIVERABLES;
-  const netDue = Number(booking.net_due ?? 0);
+  const netDue = bookingDue(booking);
   const delivList = formatDeliverablesList(safeDeliverables);
   const [showPassword, setShowPassword] = useState(false);
   const [loginAllowed, setLoginAllowed] = useState(booking.is_login_allowed ?? false);
   const [currentPassword, setCurrentPassword] = useState(booking.client_password ?? booking.client_mobile);
-  const [showBillPreview, setShowBillPreview] = useState(false);
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [assignments, setAssignments] = useState<ShootAssignment[]>([]);
+  const [assignmentPartner, setAssignmentPartner] = useState('');
+  const [assignmentFunction, setAssignmentFunction] = useState('');
+  const [assignmentRole, setAssignmentRole] = useState('Traditional Photo');
+  const [reportingTime, setReportingTime] = useState('');
+  const [isBillPreviewOpen, setIsBillPreviewOpen] = useState(false);
 
   const toggleLoginAccess = async () => {
     const newVal = !loginAllowed;
@@ -923,6 +1333,74 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
     await supabase.from('bookings').update({ client_password: defaultPwd, password_changed: false }).eq('id', booking.id);
     triggerRefresh();
     toast('Password reset to client mobile number', 'success');
+  };
+
+  useEffect(() => {
+    const loadAssignments = async () => {
+      const [{ data: partnerData }, { data: assignmentData }] = await Promise.all([
+        supabase.from('partners').select('*').in('status', ['Active', 'On Leave', 'Inactive', 'Archived']).order('name'),
+        supabase.from('shoot_assignments').select('*').eq('booking_id', booking.id),
+      ]);
+      setPartners((partnerData ?? []) as Partner[]);
+      setAssignments((assignmentData ?? []) as ShootAssignment[]);
+    };
+    loadAssignments();
+  }, [booking.id]);
+
+  const addAssignment = async () => {
+    const partner = partners.find((item) => item.id === assignmentPartner);
+    if (!partner || !assignmentFunction) return;
+    const alreadyAssigned = assignments.some((item) => item.partner_id === partner.id && item.function_name === assignmentFunction);
+    if (alreadyAssigned) { toast('This staff member is already assigned to that function', 'error'); return; }
+    const currentEvent = safeEvents.find((event) => event.name === assignmentFunction);
+    if (currentEvent?.date) {
+      if (partner.status === 'On Leave' && partner.leave_start && partner.leave_end && currentEvent.date >= partner.leave_start && currentEvent.date <= partner.leave_end) {
+        toast(`${partner.name} is on leave for ${formatDate(currentEvent.date)}`, 'error');
+        return;
+      }
+      const { data: otherAssignments } = await supabase.from('shoot_assignments').select('booking_id').eq('partner_id', partner.id).neq('booking_id', booking.id);
+      const bookingIds = [...new Set((otherAssignments ?? []).map((item) => item.booking_id))];
+      if (bookingIds.length > 0) {
+        const { data: otherBookings } = await supabase.from('bookings').select('id, events').in('id', bookingIds);
+        const clash = (otherBookings ?? []).some((other) => ((other.events as EventFunction[] | null) ?? []).some((event) => event.date === currentEvent.date));
+        if (clash) { toast(`${partner.name} already has a same-day booking`, 'error'); return; }
+      }
+    }
+    const { data, error } = await supabase.from('shoot_assignments').insert({
+      booking_id: booking.id,
+      partner_id: partner.id,
+      function_name: assignmentFunction,
+      role: assignmentRole,
+      reporting_time: reportingTime,
+    }).select().single();
+    if (error) { toast('Could not save assignment', 'error'); return; }
+    setAssignments((current) => [...current, data as ShootAssignment]);
+    setAssignmentPartner('');
+  };
+
+  const removeAssignment = async (id: string) => {
+    await supabase.from('shoot_assignments').delete().eq('id', id);
+    setAssignments((current) => current.filter((item) => item.id !== id));
+  };
+
+  const sendDutySlip = () => {
+    let phone = booking.client_mobile.replace(/\D/g, '');
+    if (phone.length === 10) phone = `91${phone}`;
+    const slip = assignments.map((assignment) => {
+      const event = safeEvents.find((item) => item.name === assignment.function_name);
+      const staff = partners.find((item) => item.id === assignment.partner_id);
+      return `Function: ${assignment.function_name}\nDate: ${event?.date ? formatDate(event.date) : formatDate(booking.shoot_date)}\nReporting: ${assignment.reporting_time || event?.start_time || event?.time || '—'}\nVenue: ${event?.venue || booking.venue || '—'}\nAssigned Role: ${assignment.role}\nAssigned Staff: ${staff?.name || '—'}`;
+    }).join('\n\n');
+    const message = `*Shoot Duty Slip*\nClient: ${booking.client_name}\nHost Contact: ${booking.client_mobile}\n\n${slip || `Function: ${booking.event_function}\nDate: ${formatDate(booking.shoot_date)}\nReporting: ${booking.shoot_time || '—'}\nVenue: ${booking.venue || '—'}`}`;
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+  };
+
+  const sendIndividualDutySlip = (assignment: ShootAssignment, staff: Partner) => {
+    let phone = staff.mobile.replace(/\D/g, '');
+    if (phone.length === 10) phone = `91${phone}`;
+    const event = safeEvents.find((item) => item.name === assignment.function_name);
+    const message = `*Shoot Duty Slip*\nClient: ${booking.client_name}\nHost Contact: ${booking.client_mobile}\nFunction: ${assignment.function_name}\nDate: ${event?.date ? formatDate(event.date) : formatDate(booking.shoot_date)}\nReporting Time: ${assignment.reporting_time || event?.start_time || event?.time || '—'}\nRole: ${assignment.role}\nVenue: ${event?.venue || booking.venue || '—'}`;
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
   };
 
   const sendWhatsApp = () => {
@@ -997,6 +1475,29 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
           </div>
         </div>
       )}
+
+      {/* Operational duty roster; intentionally kept out of client-facing views. */}
+      <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Duty Roster</h3>
+          <span className="text-xs text-slate-500 dark:text-slate-400">Admin only</span>
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <select value={assignmentFunction} onChange={(e) => setAssignmentFunction(e.target.value)} className={selectClass}>
+            <option value="">Select function</option>
+            {safeEvents.map((event, index) => <option key={`${event.name}-${index}`} value={event.name}>{event.name}</option>)}
+          </select>
+          <select value={assignmentPartner} onChange={(e) => setAssignmentPartner(e.target.value)} className={selectClass}>
+            <option value="">Assign staff</option>
+            {partners.filter((partner) => partner.status === 'Active' || partner.status === 'On Leave').map((partner) => <option key={partner.id} value={partner.id}>{partner.name}{partner.status === 'On Leave' ? ' · On Leave' : ''}</option>)}
+          </select>
+          <select value={assignmentRole} onChange={(e) => setAssignmentRole(e.target.value)} className={selectClass}>
+            <option>Traditional Photo</option><option>Candid Photo</option><option>Traditional Video</option><option>Candid Video</option>
+          </select>
+          <div className="flex gap-2"><input type="time" value={reportingTime} onChange={(e) => setReportingTime(e.target.value)} className={`${inputClass} min-w-0`} /><button onClick={addAssignment} className="shrink-0 rounded-lg bg-amber-500 px-3 text-xs font-semibold text-slate-900">Assign</button></div>
+        </div>
+        {assignments.length > 0 && <div className="mt-3 space-y-2">{assignments.map((assignment) => { const partner = partners.find((item) => item.id === assignment.partner_id); return <div key={assignment.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-white/10 dark:bg-white/5"><span className="text-slate-700 dark:text-slate-200">{partner?.name ?? 'Assigned staff'} · {assignment.function_name} · {assignment.role}{assignment.reporting_time ? ` · Report ${assignment.reporting_time}` : ''}</span><div className="flex items-center gap-2">{partner && <button onClick={() => sendIndividualDutySlip(assignment, partner)} className="text-emerald-600 hover:text-emerald-500 dark:text-emerald-400" title="Share duty on WhatsApp"><MessageCircle className="h-3.5 w-3.5" /></button>}<button onClick={() => removeAssignment(assignment.id)} className="text-rose-500 hover:text-rose-400" title="Remove assignment"><Trash2 className="h-3.5 w-3.5" /></button></div></div>; })}</div>}
+      </div>
 
       {/* Delivery Data */}
       {delivList.length > 0 && (
@@ -1087,17 +1588,20 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
         <button onClick={onEdit} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
           <Edit3 className="h-4 w-4" /> Edit
         </button>
-        <button onClick={() => setShowBillPreview(true)} className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-sky-700">
-          <Eye className="h-4 w-4" /> View Bill
-        </button>
         <button onClick={sendWhatsApp} className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-600">
           <MessageCircle className="h-4 w-4" /> Send WhatsApp Bill
+        </button>
+        <button onClick={sendDutySlip} className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-4 py-2.5 text-sm font-medium text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10">
+          <MessageCircle className="h-4 w-4" /> WhatsApp Duty Slip
         </button>
         <button onClick={copyBillSummary} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
           <Copy className="h-4 w-4" /> Copy Bill Summary
         </button>
         <button onClick={() => window.print()} className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 hover:bg-amber-400">
           <Printer className="h-4 w-4" /> Print A4 Bill
+        </button>
+        <button onClick={() => setIsBillPreviewOpen(true)} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700">
+          <Eye className="h-4 w-4" /> View Bill
         </button>
       </div>
     </div>
@@ -1108,19 +1612,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
       <Modal open={true} onClose={onClose} title={`${booking.booking_no} — ${booking.client_name}`} size="lg">
         {modalBody}
       </Modal>
-      <Modal open={showBillPreview} onClose={() => setShowBillPreview(false)} title={`Bill Preview — ${booking.booking_no}`} size="xl">
-        <div className="-m-5 bg-slate-100 p-3 dark:bg-slate-950 sm:p-5">
-          <BillInvoice booking={booking} settings={settings} />
-          <div className="no-print mt-4 flex justify-end gap-3">
-            <button onClick={() => setShowBillPreview(false)} className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5">
-              Close
-            </button>
-            <button onClick={() => window.print()} className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 hover:bg-amber-400">
-              <Printer className="h-4 w-4" /> Print Bill
-            </button>
-          </div>
-        </div>
-      </Modal>
+      <BillPreviewModal booking={booking} settings={settings} open={isBillPreviewOpen} onClose={() => setIsBillPreviewOpen(false)} />
       {createPortal(
         <div id="printable-bill-sheet" aria-hidden>
           <BillInvoice booking={booking} settings={settings} />
@@ -1131,13 +1623,47 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
   );
 }
 
+function BillPreviewModal({ booking, settings, open, onClose }: { booking: Booking; settings: StudioSettings | null; open: boolean; onClose: () => void }) {
+  const copyPublicLink = async () => {
+    const link = `${window.location.origin}/view/${booking.id}`;
+    const copied = await copyToClipboard(link);
+    window.alert(copied ? 'Public invoice link copied.' : 'Could not copy public invoice link.');
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Invoice Preview" size="xl" dismissible={false}>
+      <div className="bg-slate-950/80 p-2 sm:p-4">
+        <BillInvoice booking={booking} settings={settings} />
+      </div>
+      <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-white/10 pt-4">
+        <button onClick={onClose} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 dark:border-white/10 dark:text-slate-300">
+          ✖ Close
+        </button>
+        <button onClick={() => window.print()} className="flex items-center gap-2 rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-600">
+          🖨️ Print Now
+        </button>
+        <button onClick={() => window.print()} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-amber-400">
+          <Download className="h-4 w-4" /> Download / Save
+        </button>
+        <button onClick={copyPublicLink} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+          <ExternalLink className="h-4 w-4" /> Copy Public Link
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 function buildBookingSummaryText(booking: Booking, settings: StudioSettings | null, safeEvents?: EventFunction[], delivList?: string[]): string {
   const ev = safeEvents ?? booking.events ?? [];
   const dl = delivList ?? formatDeliverablesList(booking.deliverables_data ?? DEFAULT_DELIVERABLES);
   const fnList = ev.length > 0
     ? ev.map((e) => {
         const label = e.name === 'Custom' && e.customName ? e.customName : e.name;
-        return `  - ${label}: ${formatDate(e.date)} ${e.time || ''}`;
+        const startTime = e.start_time ?? e.time;
+        const time = startTime || e.end_time ? `${startTime || '—'} - ${e.end_time || '—'}` : '—';
+        const venue = e.venue || booking.venue || '—';
+        const dateShift = e.end_date_shift === 'next_date' ? ' (ends next date)' : '';
+        return `  - ${label}: ${formatDate(e.date)}${dateShift}, ${time}, Venue: ${venue}`;
       }).join('\n')
     : `  - ${booking.event_function}: ${formatDate(booking.shoot_date)} ${booking.shoot_time || ''}`;
   const delivText = dl.length > 0 ? dl.map((d) => `  - ${d}`).join('\n') : '  None';
@@ -1160,11 +1686,10 @@ function buildBookingSummaryText(booking: Booking, settings: StudioSettings | nu
   );
 }
 
-function BookingSuccessModal({ booking, onClose }: { booking: Booking; onClose: () => void }) {
+function BookingSuccessModal({ booking, onClose, onView }: { booking: Booking; onClose: () => void; onView: () => void }) {
   const { settings } = useSettings();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
-  const [showBillPreview, setShowBillPreview] = useState(false);
 
   const handlePrint = () => {
     setTimeout(() => window.print(), 300);
@@ -1224,7 +1749,7 @@ function BookingSuccessModal({ booking, onClose }: { booking: Booking; onClose: 
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <button
-            onClick={() => setShowBillPreview(true)}
+            onClick={onView}
             className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
           >
             <Eye className="h-4 w-4" /> View Bill
@@ -1259,19 +1784,6 @@ function BookingSuccessModal({ booking, onClose }: { booking: Booking; onClose: 
           <X className="h-4 w-4" /> Done / Close
         </button>
       </div>
-      <Modal open={showBillPreview} onClose={() => setShowBillPreview(false)} title={`Bill Preview — ${booking.booking_no}`} size="xl" dismissible={false}>
-        <div className="-m-5 bg-slate-100 p-3 dark:bg-slate-950 sm:p-5">
-          <BillInvoice booking={booking} settings={settings} />
-          <div className="no-print mt-4 flex justify-end gap-3">
-            <button onClick={() => setShowBillPreview(false)} className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-white/5">
-              Close Preview
-            </button>
-            <button onClick={handlePrint} className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 hover:bg-amber-400">
-              <Printer className="h-4 w-4" /> Print A4 Bill
-            </button>
-          </div>
-        </div>
-      </Modal>
     </Modal>
   );
 }

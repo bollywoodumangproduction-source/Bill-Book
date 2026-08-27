@@ -19,6 +19,7 @@ export interface StudioSettings {
   films_logo_url: string;
   production_logo_url: string;
   terms_conditions: string;
+  master_pin: string;
 }
 
 export interface EventFunction {
@@ -26,6 +27,10 @@ export interface EventFunction {
   customName?: string;
   date: string;
   time: string;
+  start_time?: string;
+  end_time?: string;
+  end_date_shift?: 'same_date' | 'after_day' | 'next_date';
+  venue?: string;
 }
 
 export interface BookingPaperRow {
@@ -58,9 +63,35 @@ export interface BookingVideoRow {
   total: string;
 }
 
+export interface BookingCustomItem {
+  id: string;
+  name: string;
+  qty: string;
+  rate: string;
+  amount: string;
+}
+
+export interface BookingPaymentDetails {
+  payment_mode: string;
+  payment_date: string;
+  custom_note: string;
+  paid_amount: string;
+  payment_history?: BookingPaymentInstallment[];
+}
+
+export interface BookingPaymentInstallment {
+  id: string;
+  payment_date: string;
+  payment_mode: string;
+  custom_note: string;
+  paid_amount: string;
+}
+
 export interface BookingDeliverables {
   album_rows?: BookingAlbumRow[];
   video_rows?: BookingVideoRow[];
+  custom_items?: BookingCustomItem[];
+  payment_details?: BookingPaymentDetails;
   raw_video?: boolean;
   raw_selected_photos?: boolean;
   raw_all_photos?: boolean;
@@ -96,6 +127,8 @@ export interface Booking {
   client_password: string;
   password_changed: boolean;
   created_at: string;
+  archived_at?: string | null;
+  deleted_at?: string | null;
 }
 
 export interface VideoRow {
@@ -160,12 +193,16 @@ export interface StudioLabOrder {
   payment_mode: string;
   payment_date: string;
   payment_note: string;
+  payment_history?: LabPaymentInstallment[];
+  promised_delivery_date?: string;
   order_status: string;
   delivery_mode: string;
   parcel_tracking_details: string;
   video_rows: VideoRow[];
   album_rows: AlbumRow[];
   created_at: string;
+  archived_at?: string | null;
+  deleted_at?: string | null;
 }
 
 export type LedgerEntryType = 'LAB_WORK_DEBIT' | 'SHOOT_DUTY_CREDIT' | 'PAYMENT_SETTLED';
@@ -180,6 +217,7 @@ export interface PhotographerLedgerEntry {
   payment_mode: string;
   payment_date: string;
   created_at: string;
+  deleted_at?: string | null;
 }
 
 export type PaymentMode = 'Cash' | 'UPI' | 'Bank';
@@ -196,10 +234,11 @@ export interface Payment {
   date: string;
   note: string;
   created_at: string;
+  deleted_at?: string | null;
 }
 
 export type PartnerCategory = 'Studio Freelancer' | 'Photographer Freelancer' | 'Other';
-export type PartnerStatus = 'Active' | 'Inactive' | 'Archived' | 'Trash';
+export type PartnerStatus = 'Active' | 'On Leave' | 'Inactive' | 'Archived' | 'Trash';
 
 export interface Partner {
   id: string;
@@ -209,11 +248,30 @@ export interface Partner {
   studio_address: string;
   category: PartnerCategory;
   status: PartnerStatus;
-  availability_status?: 'Active' | 'Busy' | 'On Leave';
   note: string;
   trashed_at: string | null;
   created_at: string;
   updated_at: string;
+  leave_start: string | null;
+  leave_end: string | null;
+}
+
+export interface ShootAssignment {
+  id: string;
+  booking_id: string;
+  partner_id: string;
+  function_name: string;
+  role: string;
+  reporting_time: string;
+  created_at: string;
+}
+
+export interface LabPaymentInstallment {
+  id: string;
+  amount: number;
+  payment_date: string;
+  payment_mode: string;
+  note: string;
 }
 
 export type DirectTxnType = 'Given' | 'Received';

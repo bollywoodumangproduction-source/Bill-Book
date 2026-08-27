@@ -36,8 +36,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       ]);
 
       const allBookings = (bookings ?? []) as Booking[];
-      setTodaysBookings(allBookings.filter((b) => isToday(b.shoot_date)));
-      setUpcomingBookings(allBookings.filter((b) => isUpcoming(b.shoot_date)).slice(0, 5));
+      const activeBookings = allBookings.filter((b) => !b.archived_at && !b.deleted_at);
+      setTodaysBookings(activeBookings.filter((b) => isToday(b.shoot_date)));
+      setUpcomingBookings(activeBookings.filter((b) => isUpcoming(b.shoot_date)).slice(0, 5));
       setActiveLabOrders((lab ?? []) as StudioLabOrder[]);
       setTotalDue(allBookings.reduce((s, b) => s + Number(b.net_due ?? 0), 0));
       setLoading(false);

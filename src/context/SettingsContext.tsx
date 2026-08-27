@@ -32,6 +32,7 @@ const fallbackSettings: StudioSettings = {
   films_logo_url: '',
   production_logo_url: '',
   terms_conditions: '',
+  master_pin: '',
 };
 
 export function SettingsProvider({ children }: { children: ReactNode }) {

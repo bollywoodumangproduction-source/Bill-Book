@@ -51,6 +51,7 @@ export function SettingsPage() {
   const [studioEmail, setStudioEmail] = useState('');
 
   const [upiId, setUpiId] = useState('');
+  const [masterPin, setMasterPin] = useState('');
 
   const [stampImageUrl, setStampImageUrl] = useState('');
   const [terms, setTerms] = useState(DEFAULT_TERMS);
@@ -104,6 +105,7 @@ export function SettingsPage() {
     setBranchAddress(settings.branch_address ?? '');
     setStudioEmail(settings.email ?? '');
     setUpiId(settings.upi_id ?? '');
+    setMasterPin(settings.master_pin ?? '');
   }, [settings]);
 
   useEffect(() => {
@@ -136,6 +138,7 @@ export function SettingsPage() {
       alternate_phone: alternatePhone,
       branch_address: branchAddress,
       upi_id: upiId,
+      master_pin: masterPin,
       films_logo_url: filmsLogoUrl,
       production_logo_url: productionLogoUrl,
       stamp_image_url: stampImageUrl,
@@ -257,6 +260,17 @@ export function SettingsPage() {
           </Field>
           <Field label="Email Address">
             <input value={studioEmail} onChange={(e) => setStudioEmail(e.target.value)} placeholder="bollywoodumanginfo@gmail.com" className={inputClass} />
+          </Field>
+          <Field label="Master PIN (4 or 6 digits)">
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={6}
+              value={masterPin}
+              onChange={(e) => setMasterPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="Required for sensitive actions"
+              className={inputClass}
+            />
           </Field>
         </div>
       </div>

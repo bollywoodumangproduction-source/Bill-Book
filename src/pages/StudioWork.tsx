@@ -19,9 +19,12 @@ import {
   Printer,
   Copy,
   CheckCircle2,
+  Download,
+  FileText,
+  Wallet,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner } from '@/lib/types';
+import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment } from '@/lib/types';
 import { formatINR, formatDate } from '@/lib/format';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -43,16 +46,25 @@ import { Modal } from '@/components/ui/Modal';
 import { Field, inputClass, selectClass } from '@/components/ui/Field';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { MasterPinDialog } from '@/components/ui/MasterPinDialog';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { useRefresh } from '@/context/RefreshContext';
 
 const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
+  Pending: 'slate',
+  'In Design': 'amber',
+  'Printed/Ready': 'sky',
   Processing: 'amber',
   Ready: 'sky',
   Delivered: 'emerald',
 };
 
 const toNum = (v: string | number | undefined) => { const n = Number(v); return isNaN(n) ? 0 : n; };
+
+function recycleDaysRemaining(deletedAt: string | null | undefined): number {
+  if (!deletedAt) return 90;
+  return Math.max(0, 90 - Math.floor((Date.now() - new Date(deletedAt).getTime()) / 86400000));
+}
 
 function uid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -92,6 +104,48 @@ function emptyClient(): LabClientRow {
   return { id: uid(), client_name: '', event_address: '', video_rows: [], album_rows: [], video_total: 0, album_total: 0 };
 }
 
+function normalizeLabOrder(raw: Partial<StudioLabOrder>): StudioLabOrder {
+  const clients = (Array.isArray(raw.clients) ? raw.clients : []).map((client) => ({
+    ...emptyClient(),
+    ...client,
+    video_rows: Array.isArray(client.video_rows) ? client.video_rows : [],
+    album_rows: (Array.isArray(client.album_rows) ? client.album_rows : []).map((album) => ({
+      ...EMPTY_ALBUM_ROW,
+      ...album,
+      papers: Array.isArray(album.papers) ? album.papers : [],
+    })),
+  }));
+  return {
+    ...raw,
+    id: raw.id ?? '',
+    order_no: raw.order_no ?? '',
+    partner_id: raw.partner_id ?? null,
+    partner_name: raw.partner_name ?? '',
+    studio_name: raw.studio_name ?? '',
+    studio_mobile: raw.studio_mobile ?? '',
+    studio_address: raw.studio_address ?? '',
+    project_name: raw.project_name ?? '',
+    work_type: raw.work_type ?? '',
+    clients,
+    total_album_bill: raw.total_album_bill ?? 0,
+    total_video_bill: raw.total_video_bill ?? 0,
+    current_order_total: raw.current_order_total ?? 0,
+    previous_back_due: raw.previous_back_due ?? 0,
+    master_total: raw.master_total ?? 0,
+    advance_paid: raw.advance_paid ?? 0,
+    net_final_due: raw.net_final_due ?? 0,
+    payment_mode: raw.payment_mode ?? '',
+    payment_date: raw.payment_date ?? '',
+    payment_note: raw.payment_note ?? '',
+    order_status: raw.order_status ?? 'Pending',
+    delivery_mode: raw.delivery_mode ?? 'By Hand',
+    parcel_tracking_details: raw.parcel_tracking_details ?? '',
+    video_rows: Array.isArray(raw.video_rows) ? raw.video_rows : [],
+    album_rows: Array.isArray(raw.album_rows) ? raw.album_rows : [],
+    created_at: raw.created_at ?? '',
+  } as StudioLabOrder;
+}
+
 export function LabOrders() {
   const { toast } = useToast();
   const { settings } = useSettings();
@@ -106,10 +160,15 @@ export function LabOrders() {
   const [viewBillOrder, setViewBillOrder] = useState<StudioLabOrder | null>(null);
   const [printOrder, setPrintOrder] = useState<StudioLabOrder | null>(null);
   const [successOrder, setSuccessOrder] = useState<StudioLabOrder | null>(null);
+  const [settleOrder, setSettleOrder] = useState<StudioLabOrder | null>(null);
+  const [viewSlipOrder, setViewSlipOrder] = useState<StudioLabOrder | null>(null);
+  const [view, setView] = useState<'active' | 'archived' | 'recycle'>('active');
+  const [showPin, setShowPin] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<'soft' | 'permanent'>('soft');
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('studio_lab_orders').select('*').order('created_at');
-    setOrders((data ?? []) as StudioLabOrder[]);
+    setOrders((data ?? []).map((order) => normalizeLabOrder(order as Partial<StudioLabOrder>)));
     setLoading(false);
   }, []);
 
@@ -119,15 +178,19 @@ export function LabOrders() {
     const q = search.toLowerCase();
     const matchSearch = (o.studio_name ?? '').toLowerCase().includes(q) || (o.project_name ?? '').toLowerCase().includes(q) || (o.order_no ?? '').toLowerCase().includes(q) || (o.partner_name ?? '').toLowerCase().includes(q);
     const matchStatus = statusFilter === 'all' || o.order_status === statusFilter;
-    return matchSearch && matchStatus;
+    const lifecycleMatch = view === 'recycle' ? !!o.deleted_at : view === 'archived' ? !!o.archived_at && !o.deleted_at : !o.archived_at && !o.deleted_at;
+    return lifecycleMatch && matchSearch && matchStatus;
   });
 
   const handleDelete = async () => {
     if (!deleteId) return;
-    await supabase.from('studio_lab_orders').delete().eq('id', deleteId);
-    toast('Order deleted', 'success');
-    load();
+    await supabase.from('studio_lab_orders').update({ deleted_at: new Date().toISOString() }).eq('id', deleteId);
+    toast('Order moved to Recycle Bin', 'success');
+    setDeleteId(null); setShowPin(false); load();
   };
+
+  const restoreOrder = async (id: string) => { await supabase.from('studio_lab_orders').update({ archived_at: null, deleted_at: null }).eq('id', id); toast('Order restored to Active', 'success'); load(); };
+  const permanentlyDeleteOrder = async () => { if (!deleteId) return; await supabase.from('studio_lab_orders').delete().eq('id', deleteId); toast('Order permanently deleted', 'success'); setDeleteId(null); setShowPin(false); load(); };
 
   const copyOrderSummary = async (o: StudioLabOrder) => {
     const text = buildLabOrderSummaryText(o, settings);
@@ -165,6 +228,7 @@ export function LabOrders() {
           {LAB_ORDER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
+      <div className="flex gap-2"><button onClick={() => setView('active')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'active' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Active</button><button onClick={() => setView('archived')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'archived' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Archived</button><button onClick={() => setView('recycle')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'recycle' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Recycle Bin</button></div>
 
       {loading ? (
         <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
@@ -183,11 +247,12 @@ export function LabOrders() {
                     <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{o.project_name}</p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">{o.order_no}</p>
                   </div>
+                  {view === 'recycle' && <span className="text-[11px] text-amber-600 dark:text-amber-400">Expires in {recycleDaysRemaining(o.deleted_at)} days</span>}
                   <div className="flex gap-1">
                     <button onClick={() => { setEditing(o); setShowForm(true); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-amber-500 dark:hover:bg-white/10 dark:hover:text-amber-400">
                       <Edit3 className="h-3.5 w-3.5" />
                     </button>
-                    <button onClick={() => setDeleteId(o.id)} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-rose-500 dark:hover:bg-white/10 dark:hover:text-rose-400">
+                    <button onClick={() => { setDeleteId(o.id); setPendingDelete('soft'); setShowPin(true); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-rose-500 dark:hover:bg-white/10 dark:hover:text-rose-400">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -233,11 +298,25 @@ export function LabOrders() {
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
+                  {view !== 'active' && <button onClick={() => restoreOrder(o.id)} className="rounded-lg border border-emerald-500/30 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">Restore</button>}
+                  {view === 'recycle' && <button onClick={() => { setDeleteId(o.id); setPendingDelete('permanent'); setShowPin(true); }} className="rounded-lg border border-rose-500/30 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">Delete Forever</button>}
                   <button
                     onClick={() => setViewBillOrder(o)}
                     className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
                   >
                     <Eye className="h-3.5 w-3.5" /> View Bill
+                  </button>
+                  <button
+                    onClick={() => setViewSlipOrder(o)}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+                  >
+                    <FileText className="h-3.5 w-3.5" /> View Slip
+                  </button>
+                  <button
+                    onClick={() => setSettleOrder(o)}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-sky-500/30 px-3 py-2 text-xs font-medium text-sky-600 transition-colors hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-500/10"
+                  >
+                    <Wallet className="h-3.5 w-3.5" /> Settle Balance
                   </button>
                   <button
                     onClick={() => sendLabWhatsApp(o, settings)}
@@ -270,6 +349,8 @@ export function LabOrders() {
       <ErrorBoundary>
         <ViewBillModal order={viewBillOrder} onClose={() => setViewBillOrder(null)} settings={settings} onCopySummary={copyOrderSummary} />
       </ErrorBoundary>
+      <LabWorkSlipModal order={viewSlipOrder} onClose={() => setViewSlipOrder(null)} settings={settings} />
+      {settleOrder && <LabSettlementModal order={settleOrder} onClose={() => setSettleOrder(null)} onSaved={() => { setSettleOrder(null); load(); }} />}
       {successOrder && (
         <ErrorBoundary>
           <LabOrderSuccessModal
@@ -287,7 +368,7 @@ export function LabOrders() {
       )}
       {printOrder && <PrintTrigger order={printOrder} onDone={() => setPrintOrder(null)} />}
       <ConfirmDialog
-        open={!!deleteId}
+        open={false}
         onClose={() => setDeleteId(null)}
         onConfirm={handleDelete}
         title="Delete Order"
@@ -295,6 +376,7 @@ export function LabOrders() {
         confirmLabel="Delete"
         danger
       />
+      <MasterPinDialog open={showPin} settings={settings} onClose={() => { setShowPin(false); setDeleteId(null); }} onVerified={() => { if (pendingDelete === 'permanent') permanentlyDeleteOrder(); else handleDelete(); }} />
     </div>
   );
 }
@@ -322,8 +404,33 @@ function sendLabWhatsApp(o: StudioLabOrder, settings: StudioSettings | null) {
 }
 
 function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: StudioLabOrder | null; onClose: () => void; settings: StudioSettings | null; onCopySummary: (o: StudioLabOrder) => void }) {
+  const [paymentHistory, setPaymentHistory] = useState<LabPaymentInstallment[]>([]);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDate, setPaymentDate] = useState(todayISO());
+  const [paymentMode, setPaymentMode] = useState('Cash');
+  const [paymentNote, setPaymentNote] = useState('');
+  useEffect(() => {
+    if (!order) return;
+    setPaymentHistory(order.payment_history ?? (order.advance_paid ? [{ id: uid(), amount: toNum(order.advance_paid), payment_date: order.payment_date || '', payment_mode: order.payment_mode || 'Cash', note: order.payment_note || 'Existing payment' }] : []));
+  }, [order]);
   if (!order) return null;
-  const clients = order.clients ?? [];
+  const clients = (order.clients ?? []).map((client) => ({
+    ...emptyClient(),
+    ...client,
+    video_rows: Array.isArray(client.video_rows) ? client.video_rows : [],
+    album_rows: (Array.isArray(client.album_rows) ? client.album_rows : []).map((album) => ({ ...EMPTY_ALBUM_ROW, ...album, papers: Array.isArray(album.papers) ? album.papers : [] })),
+  }));
+  const totalPaid = paymentHistory.reduce((sum, payment) => sum + toNum(payment.amount), 0);
+  const labDue = toNum(order.master_total) - totalPaid;
+
+  const recordPayment = async () => {
+    const amount = toNum(paymentAmount);
+    if (amount <= 0) return;
+    const payment: LabPaymentInstallment = { id: uid(), amount, payment_date: paymentDate, payment_mode: paymentMode, note: paymentNote };
+    const nextHistory = [...paymentHistory, payment];
+    const { error } = await supabase.from('studio_lab_orders').update({ payment_history: nextHistory, advance_paid: totalPaid + amount, net_final_due: toNum(order.master_total) - totalPaid - amount, payment_mode: paymentMode, payment_date: paymentDate, payment_note: paymentNote }).eq('id', order.id);
+    if (!error) { setPaymentHistory(nextHistory); setPaymentAmount(''); setPaymentNote(''); }
+  };
   return (
     <Modal open={!!order} onClose={onClose} title={`Bill — ${order.order_no}`} size="xl" dismissible>
       <div className="space-y-4">
@@ -453,8 +560,8 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
             <div className="flex justify-between border-t border-slate-200 pt-1 dark:border-white/10"><span className="text-slate-500 dark:text-slate-400">Current Order Total</span><span className="font-semibold text-slate-900 dark:text-white">{formatINR(toNum(order.current_order_total))}</span></div>
             <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Back Due</span><span className="text-rose-500 dark:text-rose-400">{formatINR(toNum(order.previous_back_due))}</span></div>
             <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Master Total</span><span className="font-semibold text-slate-900 dark:text-white">{formatINR(toNum(order.master_total))}</span></div>
-            <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Advance Paid</span><span className="text-emerald-500 dark:text-emerald-400">{formatINR(toNum(order.advance_paid))}</span></div>
-            <div className="flex justify-between border-t border-slate-200 pt-1 dark:border-white/10"><span className="font-semibold text-slate-700 dark:text-slate-300">Net Final Due</span><span className={`font-bold ${toNum(order.net_final_due) > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{formatINR(toNum(order.net_final_due))}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Advance Paid</span><span className="text-emerald-500 dark:text-emerald-400">{formatINR(totalPaid)}</span></div>
+            <div className="flex justify-between border-t border-slate-200 pt-1 dark:border-white/10"><span className="font-semibold text-slate-700 dark:text-slate-300">Net Final Due</span><span className={`font-bold ${labDue > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-500 dark:text-emerald-400'}`}>{formatINR(labDue)}</span></div>
           </div>
         </div>
 
@@ -468,6 +575,27 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
           </div>
         )}
 
+        <div className="border-t border-slate-200 pt-3 dark:border-white/10">
+          <h3 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Payment History</h3>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+            <input type="number" min={0} value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} className={inputClass} placeholder="Amount Paid (₹)" />
+            <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputClass} />
+            <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className={selectClass}><option>Cash</option><option>UPI</option><option>Bank</option></select>
+            <input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} className={inputClass} placeholder="Custom Note" />
+          </div>
+          <button onClick={recordPayment} className="mt-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-600">Record Installment</button>
+          {paymentHistory.length > 0 && <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[560px] text-xs"><thead><tr className="border-b border-slate-200 text-left text-slate-400 dark:border-white/10"><th className="px-2 py-1">Date</th><th className="px-2 py-1">Mode</th><th className="px-2 py-1">Note</th><th className="px-2 py-1 text-right">Amount</th><th className="px-2 py-1 text-right">Running Due</th></tr></thead><tbody>{(() => { let runningPaid = 0; return paymentHistory.map((payment) => { runningPaid += toNum(payment.amount); return <tr key={payment.id} className="border-b border-slate-100 dark:border-white/5"><td className="px-2 py-1">{formatDate(payment.payment_date)}</td><td className="px-2 py-1">{payment.payment_mode}</td><td className="px-2 py-1">{payment.note || '—'}</td><td className="px-2 py-1 text-right text-emerald-600">{formatINR(toNum(payment.amount))}</td><td className="px-2 py-1 text-right">{formatINR(toNum(order.master_total) - runningPaid)}</td></tr>; }); })()}</tbody></table></div>}
+        </div>
+
+        <div className="border-t border-slate-200 pt-3 dark:border-white/10">
+          <h3 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Lab Partner Khata Breakdown</h3>
+          <div className="space-y-2 text-xs">
+            {(order.album_rows ?? []).length > 0 && <div className="rounded-lg border border-slate-200 p-2 dark:border-white/10"><p className="font-semibold text-amber-600 dark:text-amber-400">Album Designing &amp; Printing</p>{order.album_rows.map((row, index) => <p key={index} className="text-slate-500 dark:text-slate-400">{row.album_type || 'Album'} · {row.size} · {row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} sheets · {row.packaging || 'Cover'} · {formatINR(computeAlbumTotal(row))}</p>)}</div>}
+            {(order.video_rows ?? []).length > 0 && <div className="rounded-lg border border-slate-200 p-2 dark:border-white/10"><p className="font-semibold text-amber-600 dark:text-amber-400">Video Editing</p>{order.video_rows.map((row, index) => <p key={index} className="text-slate-500 dark:text-slate-400">{row.video_type || 'Video Edit'} · {row.quality} · Qty {row.qty} · {formatINR(computeRowTotal(row))}</p>)}</div>}
+            {(order.album_rows ?? []).length === 0 && (order.video_rows ?? []).length === 0 && <p className="text-slate-400">No itemized work recorded.</p>}
+          </div>
+        </div>
+
         <div className="flex flex-wrap justify-end gap-2">
           <button onClick={() => sendLabWhatsApp(order, settings)} className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600">
             <MessageCircle className="h-4 w-4" /> Send WhatsApp
@@ -480,6 +608,74 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
       </div>
     </Modal>
   );
+}
+
+function LabWorkSlipModal({ order, onClose, settings }: { order: StudioLabOrder | null; onClose: () => void; settings: StudioSettings | null }) {
+  if (!order) return null;
+  const albumRows = (order.clients ?? []).flatMap((client) => client.album_rows ?? []);
+  const videoRows = (order.clients ?? []).flatMap((client) => client.video_rows ?? []);
+  const shareSlip = () => {
+    const phone = (order.studio_mobile ?? '').replace(/\D/g, '');
+    const albums = albumRows.map((row) => `Album: ${row.album_type || 'Album'} | Size: ${row.size || '—'} | Sheets: ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} | Paper: ${row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} | Cover/Box: ${row.packaging || '—'}`).join('\n');
+    const videos = videoRows.map((row) => `Video: ${row.video_type || 'Edit'} | Format: ${row.quality || '—'} | Output specs: ${row.quality || '—'}`).join('\n');
+    const message = `*Lab Work Slip*\nProject: ${order.project_name}\nLab Partner: ${order.partner_name || '—'}\n${albums}\n${videos}\nPromised Delivery: ${order.promised_delivery_date ? formatDate(order.promised_delivery_date) : '—'}\nDrive / Delivery Link: ${order.parcel_tracking_details || '—'}`;
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+  };
+
+  return (
+    <Modal open={true} onClose={onClose} title={`Work Slip — ${order.order_no}`} size="xl" dismissible={false}>
+      <div className="space-y-4 bg-white p-4 text-black sm:p-6">
+        <div className="border-b-2 border-black pb-3">
+          <h2 className="text-xl font-bold">{settings?.production_title ?? 'Bollywood Umang Production'}</h2>
+          <p className="text-xs">{settings?.production_subtitle ?? ''}</p>
+          <p className="text-xs">{settings?.address ?? ''}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 text-sm"><p><strong>Lab Partner:</strong> {order.partner_name || '—'}</p><p><strong>Work Order:</strong> {order.order_no}</p><p><strong>Project:</strong> {order.project_name}</p><p><strong>Promised Delivery:</strong> {order.promised_delivery_date ? formatDate(order.promised_delivery_date) : '—'}</p></div>
+        {albumRows.length > 0 && <div><h3 className="mb-2 font-semibold">Album Designing &amp; Printing</h3><div className="space-y-1 text-sm">{albumRows.map((row, index) => <p key={index}>{row.album_type || 'Album'} · Size {row.size || '—'} · {row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} sheets · Paper {row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} · Cover/Box {row.packaging || '—'}</p>)}</div></div>}
+        {videoRows.length > 0 && <div><h3 className="mb-2 font-semibold">Video Editing</h3><div className="space-y-1 text-sm">{videoRows.map((row, index) => <p key={index}>{row.video_type || 'Video Edit'} · Format {row.quality || '—'} · Output specs {row.quality || '—'}</p>)}</div></div>}
+        <div><h3 className="mb-2 font-semibold">Delivery / Drive Links</h3><p className="break-all text-sm">{order.parcel_tracking_details || 'No link provided'}</p></div>
+      </div>
+      <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4 dark:border-white/10"><button onClick={() => window.print()} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900">Print Work Slip</button><button onClick={() => window.print()} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300"><Download className="h-4 w-4" /> Download PDF</button><button onClick={shareSlip} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white">Share on WhatsApp to Lab Vendor</button><button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300">Close</button></div>
+    </Modal>
+  );
+}
+
+function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder; onClose: () => void; onSaved: () => void }) {
+  const { toast } = useToast();
+  const [amount, setAmount] = useState('');
+  const [paymentDate, setPaymentDate] = useState(todayISO());
+  const [paymentMode, setPaymentMode] = useState('Cash');
+  const [reference, setReference] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value <= 0) { toast('Enter a valid settlement amount', 'error'); return; }
+    setSaving(true);
+    const nextAdvance = toNum(order.advance_paid) + value;
+    const paymentHistory: LabPaymentInstallment[] = [...(order.payment_history ?? []), { id: uid(), amount: value, payment_date: paymentDate, payment_mode: paymentMode, note: reference.trim() || 'Balance settlement' }];
+    const { error } = await supabase.from('studio_lab_orders').update({
+      advance_paid: nextAdvance,
+      net_final_due: toNum(order.master_total) - nextAdvance,
+      payment_mode: paymentMode,
+      payment_date: paymentDate,
+      payment_note: reference.trim(),
+      payment_history: paymentHistory,
+    }).eq('id', order.id);
+    setSaving(false);
+    if (error) { toast('Failed to record lab settlement', 'error'); return; }
+    toast('Lab settlement recorded', 'success');
+    onSaved();
+  };
+
+  return <Modal open={true} onClose={onClose} title={`Settle ${order.partner_name || order.studio_name}`} size="md" dismissible={false}>
+    <div className="space-y-4">
+      <Field label="Amount (₹)"><input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} placeholder="0" /></Field>
+      <div className="grid grid-cols-2 gap-4"><Field label="Payment Date"><input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputClass} /></Field><Field label="Payment Mode"><select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className={selectClass}><option>Cash</option><option>UPI</option><option>Bank Transfer</option></select></Field></div>
+      <Field label="Reference / UTR / Reason"><input value={reference} onChange={(e) => setReference(e.target.value)} className={inputClass} placeholder="Optional reference or notes" /></Field>
+      <div className="flex justify-end gap-3"><button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300">Cancel</button><button onClick={handleSave} disabled={saving} className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Saving...' : 'Settle Balance'}</button></div>
+    </div>
+  </Modal>;
 }
 
 function LabOrderForm({ open, onClose, editing, onSaved }: { open: boolean; onClose: () => void; editing: StudioLabOrder | null; onSaved: (saved: StudioLabOrder) => void }) {
@@ -503,6 +699,8 @@ function LabOrderForm({ open, onClose, editing, onSaved }: { open: boolean; onCl
   const [paymentMode, setPaymentMode] = useDraftState<string>(`${draftKey}-paymentMode`, '');
   const [paymentDate, setPaymentDate] = useDraftState<string>(`${draftKey}-paymentDate`, '');
   const [paymentNote, setPaymentNote] = useDraftState<string>(`${draftKey}-paymentNote`, '');
+  const [promisedDeliveryDate, setPromisedDeliveryDate] = useDraftState<string>(`${draftKey}-promisedDeliveryDate`, '');
+  const [paymentHistory, setPaymentHistory] = useDraftState<LabPaymentInstallment[]>(`${draftKey}-paymentHistory`, []);
 
   const clearDraft = () => {
     setSelectedPartnerId('');
@@ -520,6 +718,8 @@ function LabOrderForm({ open, onClose, editing, onSaved }: { open: boolean; onCl
     setPaymentMode('');
     setPaymentDate('');
     setPaymentNote('');
+    setPromisedDeliveryDate('');
+    setPaymentHistory([]);
   };
 
   useEffect(() => {
@@ -564,9 +764,15 @@ function LabOrderForm({ open, onClose, editing, onSaved }: { open: boolean; onCl
       setPaymentMode(editing?.payment_mode ?? '');
       setPaymentDate(editing?.payment_date ?? '');
       setPaymentNote(editing?.payment_note ?? '');
+      setPromisedDeliveryDate(editing?.promised_delivery_date ?? '');
+      setPaymentHistory(editing?.payment_history ?? []);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing]);
+
+  useEffect(() => {
+    if (paymentHistory.length > 0) setAdvancePaid(String(paymentHistory.reduce((sum, payment) => sum + toNum(payment.amount), 0)));
+  }, [paymentHistory, setAdvancePaid]);
 
   const handlePartnerSelect = (id: string) => {
     setSelectedPartnerId(id);
@@ -701,7 +907,10 @@ function LabOrderForm({ open, onClose, editing, onSaved }: { open: boolean; onCl
         payment_mode: paymentMode,
         payment_date: paymentDate,
         payment_note: paymentNote,
+        payment_history: paymentHistory,
+        promised_delivery_date: promisedDeliveryDate || null,
         order_status: orderStatus,
+        archived_at: orderStatus === 'Delivered' ? (editing?.archived_at ?? new Date().toISOString()) : null,
         delivery_mode: deliveryMode,
         parcel_tracking_details: parcelTracking,
         video_rows: allVideoRows,
@@ -924,6 +1133,7 @@ function LabOrderForm({ open, onClose, editing, onSaved }: { open: boolean; onCl
         <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
           <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">Master Billing &amp; Payment</h3>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <Field label="Promised Delivery Date"><input type="date" value={promisedDeliveryDate} onChange={(e) => setPromisedDeliveryDate(e.target.value)} className={inputClass} /></Field>
             <Field label="Total Album Bill (₹)"><input type="number" value={totalAlbumBill || ''} readOnly className={`${inputClass} font-semibold`} /></Field>
             <Field label="Total Video Bill (₹)"><input type="number" value={totalVideoBill || ''} readOnly className={`${inputClass} font-semibold`} /></Field>
             <Field label="Current Order Total (₹)"><input type="number" value={currentOrderTotal || ''} readOnly className={`${inputClass} font-semibold`} /></Field>

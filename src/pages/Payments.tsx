@@ -4,14 +4,15 @@ import { supabase } from '@/lib/supabase';
 import type { Payment, PaymentMode, PaymentSource } from '@/lib/types';
 import { formatINR, formatDate, todayISO } from '@/lib/format';
 import { useToast } from '@/context/ToastContext';
+import { useSettings } from '@/context/SettingsContext';
 import { useDraftState } from '@/lib/useDraftState';
 import { PAYMENT_MODES, PAYMENT_SOURCES } from '@/lib/constants';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Field, inputClass, selectClass, textareaClass } from '@/components/ui/Field';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useRefresh } from '@/context/RefreshContext';
+import { MasterPinDialog } from '@/components/ui/MasterPinDialog';
 
 const MODE_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Cash: 'amber',
@@ -27,6 +28,7 @@ const SOURCE_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
 
 export function Payments() {
   const { toast } = useToast();
+  const { settings } = useSettings();
   const { refreshToken } = useRefresh();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +38,9 @@ export function Payments() {
   const [dateTo, setDateTo] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [view, setView] = useState<'active' | 'recycle'>('active');
+  const [showPin, setShowPin] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<'soft' | 'permanent'>('soft');
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('payments').select('*').order('date', { ascending: false });
@@ -51,20 +56,31 @@ export function Payments() {
     const matchesMode = modeFilter === 'all' || p.mode === modeFilter;
     const matchesFrom = !dateFrom || (p.date ?? '') >= dateFrom;
     const matchesTo = !dateTo || (p.date ?? '') <= dateTo;
-    return matchesSearch && matchesMode && matchesFrom && matchesTo;
+    return matchesSearch && matchesMode && matchesFrom && matchesTo && (view === 'recycle' ? !!p.deleted_at : !p.deleted_at);
   });
 
-  const todayTotal = payments.filter((p) => p.date === todayISO()).reduce((s, p) => s + Number(p.amount ?? 0), 0);
+  const activePayments = payments.filter((p) => !p.deleted_at);
+  const todayTotal = activePayments.filter((p) => p.date === todayISO()).reduce((s, p) => s + Number(p.amount ?? 0), 0);
   const thisMonth = new Date().toISOString().slice(0, 7);
-  const monthTotal = payments.filter((p) => (p.date ?? '').startsWith(thisMonth)).reduce((s, p) => s + Number(p.amount ?? 0), 0);
-  const allTotal = payments.reduce((s, p) => s + Number(p.amount ?? 0), 0);
+  const monthTotal = activePayments.filter((p) => (p.date ?? '').startsWith(thisMonth)).reduce((s, p) => s + Number(p.amount ?? 0), 0);
+  const allTotal = activePayments.reduce((s, p) => s + Number(p.amount ?? 0), 0);
 
   const handleDelete = async () => {
     if (!deleteId) return;
+    await supabase.from('payments').update({ deleted_at: new Date().toISOString() }).eq('id', deleteId);
+    toast('Payment moved to Recycle Bin', 'success');
+    setDeleteId(null); setShowPin(false); load();
+  };
+
+  const restorePayment = async (id: string) => {
+    await supabase.from('payments').update({ deleted_at: null }).eq('id', id);
+    toast('Payment restored', 'success'); load();
+  };
+
+  const permanentlyDeletePayment = async () => {
+    if (!deleteId) return;
     await supabase.from('payments').delete().eq('id', deleteId);
-    toast('Payment deleted', 'success');
-    setDeleteId(null);
-    load();
+    toast('Payment permanently deleted', 'success'); setDeleteId(null); setShowPin(false); load();
   };
 
   return (
@@ -81,6 +97,7 @@ export function Payments() {
           <Plus className="h-4 w-4" /> Record Payment
         </button>
       </div>
+      <div className="flex gap-2"><button onClick={() => setView('active')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'active' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Active</button><button onClick={() => setView('recycle')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'recycle' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Recycle Bin</button></div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -166,9 +183,7 @@ export function Payments() {
                   <td className="px-3 py-2.5 text-right font-semibold text-emerald-600 dark:text-emerald-400">{formatINR(Number(p.amount ?? 0))}</td>
                   <td className="px-3 py-2.5 text-slate-500 dark:text-slate-400">{formatDate(p.date)}</td>
                   <td className="px-3 py-2.5">
-                    <button onClick={() => setDeleteId(p.id)} className="text-slate-400 hover:text-rose-500">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    {view === 'active' ? <button onClick={() => { setDeleteId(p.id); setPendingDelete('soft'); setShowPin(true); }} className="text-slate-400 hover:text-rose-500"><Trash2 className="h-4 w-4" /></button> : <div className="flex gap-2"><button onClick={() => restorePayment(p.id)} className="text-xs text-emerald-600 hover:text-emerald-500">Restore</button><button onClick={() => { setDeleteId(p.id); setPendingDelete('permanent'); setShowPin(true); }} className="text-xs text-rose-500 hover:text-rose-400">Delete</button></div>}
                   </td>
                 </tr>
               ))}
@@ -179,15 +194,7 @@ export function Payments() {
 
       <PaymentForm open={showForm} onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); load(); }} existing={payments} />
 
-      <ConfirmDialog
-        open={!!deleteId}
-        onClose={() => setDeleteId(null)}
-        onConfirm={handleDelete}
-        title="Delete Payment"
-        message="This will permanently delete the payment record."
-        confirmLabel="Delete"
-        danger
-      />
+      <MasterPinDialog open={showPin} settings={settings} onClose={() => { setShowPin(false); setDeleteId(null); }} onVerified={() => { if (pendingDelete === 'permanent') permanentlyDeletePayment(); else handleDelete(); }} />
     </div>
   );
 }

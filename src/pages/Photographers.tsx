@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
 import {
   Plus,
   Search,
@@ -18,7 +17,6 @@ import {
   ArrowDownLeft,
   RotateCcw,
   Users,
-  Printer,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type {
@@ -28,11 +26,11 @@ import type {
   PartnerCategory,
   PartnerStatus,
   DirectTransaction,
-  StudioLabOrder,
   DirectTxnType,
 } from '@/lib/types';
 import { formatINR, formatDate, todayISO } from '@/lib/format';
 import { useToast } from '@/context/ToastContext';
+import { useSettings } from '@/context/SettingsContext';
 import {
   LEDGER_ENTRY_TYPES,
   LEDGER_ENTRY_LABELS,
@@ -98,11 +96,11 @@ interface PartnerBalance {
 
 export function Ledger() {
   const { toast } = useToast();
+  const { settings } = useSettings();
   const { refreshToken } = useRefresh();
   const [partners, setPartners] = useState<Partner[]>([]);
   const [ledgerEntries, setLedgerEntries] = useState<PhotographerLedgerEntry[]>([]);
   const [directTxns, setDirectTxns] = useState<DirectTransaction[]>([]);
-  const [labOrders, setLabOrders] = useState<StudioLabOrder[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [view, setView] = useState<LedgerView>('main');
@@ -113,17 +111,17 @@ export function Ledger() {
   const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
   const [showDirectTxn, setShowDirectTxn] = useState(false);
   const [detailPartner, setDetailPartner] = useState<Partner | null>(null);
+  const [settlePartner, setSettlePartner] = useState<Partner | null>(null);
 
   const [archiveId, setArchiveId] = useState<string | null>(null);
   const [trashId, setTrashId] = useState<string | null>(null);
   const [permanentDeleteId, setPermanentDeleteId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [{ data: p }, { data: le }, { data: dt }, { data: lo }] = await Promise.all([
+    const [{ data: p }, { data: le }, { data: dt }] = await Promise.all([
       supabase.from('partners').select('*').order('created_at'),
       supabase.from('photographer_ledger').select('*').order('created_at'),
       supabase.from('direct_transactions').select('*').order('created_at'),
-      supabase.from('studio_lab_orders').select('*').order('created_at'),
     ]);
     const allPartners = (p ?? []) as Partner[];
     const expired = allPartners.filter((partner) => partner.status === 'Trash' && partner.trashed_at && daysRemaining(partner.trashed_at) <= 0);
@@ -138,7 +136,6 @@ export function Ledger() {
     setPartners(surviving);
     setLedgerEntries((le ?? []) as PhotographerLedgerEntry[]);
     setDirectTxns((dt ?? []) as DirectTransaction[]);
-    setLabOrders((lo ?? []) as StudioLabOrder[]);
     setLoading(false);
   }, []);
 
@@ -166,7 +163,7 @@ export function Ledger() {
     const q = search.toLowerCase().trim();
     return balances.filter((b) => {
       const matchesView =
-        view === 'main' ? b.partner.status === 'Active' || b.partner.status === 'Inactive' :
+        view === 'main' ? b.partner.status === 'Active' || b.partner.status === 'On Leave' || b.partner.status === 'Inactive' :
         view === 'archived' ? b.partner.status === 'Archived' :
         b.partner.status === 'Trash';
       const matchesCategory = categoryFilter === 'all' || b.partner.category === categoryFilter;
@@ -176,7 +173,7 @@ export function Ledger() {
   }, [balances, view, categoryFilter, search]);
 
   const activePartners = filteredBalances.filter((b) => b.partner.status === 'Active');
-  const inactivePartners = filteredBalances.filter((b) => b.partner.status === 'Inactive');
+  const inactivePartners = filteredBalances.filter((b) => b.partner.status === 'On Leave' || b.partner.status === 'Inactive');
 
   const updatePartnerStatus = async (id: string, status: PartnerStatus, extra?: Record<string, any>) => {
     await supabase.from('partners').update({ status, ...extra }).eq('id', id);
@@ -199,6 +196,13 @@ export function Ledger() {
 
   const handlePermanentDelete = async () => {
     if (!permanentDeleteId) return;
+    if (settings?.master_pin) {
+      const enteredPin = window.prompt('Enter Master PIN to permanently delete this partner and ledger history:');
+      if (enteredPin !== settings.master_pin) {
+        toast('Incorrect Master PIN', 'error');
+        return;
+      }
+    }
     const partner = partners.find((p) => p.id === permanentDeleteId);
     if (partner) {
       await supabase.from('direct_transactions').delete().eq('partner_id', permanentDeleteId);
@@ -306,8 +310,16 @@ export function Ledger() {
           partner={detailPartner}
           directTxns={partnerDirectTxns(detailPartner.id)}
           ledgerEntries={partnerLedger(detailPartner.mobile)}
-          labOrders={labOrders.filter((order) => order.partner_id === detailPartner.id || order.partner_name === detailPartner.name)}
           onClose={() => setDetailPartner(null)}
+          onSettle={() => setSettlePartner(detailPartner)}
+        />
+      )}
+
+      {settlePartner && (
+        <SettlementModal
+          partner={settlePartner}
+          onClose={() => setSettlePartner(null)}
+          onSaved={() => { setSettlePartner(null); setDetailPartner(null); load(); }}
         />
       )}
 
@@ -413,7 +425,6 @@ function PartnerCard({
           </div>
         </button>
         <Badge color={CATEGORY_COLORS[b.partner.category]}>{b.partner.category}</Badge>
-        <Badge color={(b.partner.availability_status ?? 'Active') === 'Active' ? 'emerald' : (b.partner.availability_status ?? 'Active') === 'Busy' ? 'amber' : 'slate'}>{b.partner.availability_status ?? 'Active'}{(b.partner.availability_status ?? 'Active') === 'Active' ? ' & Available' : ''}</Badge>
       </div>
 
       <div className="grid grid-cols-3 gap-2 text-center">
@@ -591,7 +602,8 @@ function PartnerForm({
   const [studioAddress, setStudioAddress] = useState('');
   const [category, setCategory] = useState<PartnerCategory>('Studio Freelancer');
   const [status, setStatus] = useState<PartnerStatus>('Active');
-  const [availabilityStatus, setAvailabilityStatus] = useState<'Active' | 'Busy' | 'On Leave'>('Active');
+  const [leaveStart, setLeaveStart] = useState('');
+  const [leaveEnd, setLeaveEnd] = useState('');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -604,7 +616,8 @@ function PartnerForm({
       setStudioAddress(editing.studio_address ?? '');
       setCategory(editing.category);
       setStatus(editing.status);
-      setAvailabilityStatus(editing.availability_status ?? 'Active');
+      setLeaveStart(editing.leave_start ?? '');
+      setLeaveEnd(editing.leave_end ?? '');
       setNote(editing.note);
     } else {
       setName('');
@@ -613,7 +626,8 @@ function PartnerForm({
       setStudioAddress('');
       setCategory('Studio Freelancer');
       setStatus('Active');
-      setAvailabilityStatus('Active');
+      setLeaveStart('');
+      setLeaveEnd('');
       setNote('');
     }
   }, [open, editing]);
@@ -635,14 +649,13 @@ function PartnerForm({
       if (editing) {
         const { error } = await supabase.from('partners').update({
           name: name.trim(),
-          partner_name: name.trim(),
           mobile: cleanMobile,
           studio_name: studioName.trim(),
           studio_address: studioAddress.trim(),
           category,
           status,
-          availability_status: availabilityStatus,
-          available_for_shoot: availabilityStatus,
+          leave_start: status === 'On Leave' ? (leaveStart || null) : null,
+          leave_end: status === 'On Leave' ? (leaveEnd || null) : null,
           note: note.trim(),
           trashed_at: status === 'Trash' ? (editing.trashed_at ?? new Date().toISOString()) : null,
         }).eq('id', editing.id);
@@ -651,14 +664,13 @@ function PartnerForm({
       } else {
         const { error } = await supabase.from('partners').insert({
           name: name.trim(),
-          partner_name: name.trim(),
           mobile: cleanMobile,
           studio_name: studioName.trim(),
           studio_address: studioAddress.trim(),
           category,
           status,
-          availability_status: availabilityStatus,
-          available_for_shoot: availabilityStatus,
+          leave_start: status === 'On Leave' ? (leaveStart || null) : null,
+          leave_end: status === 'On Leave' ? (leaveEnd || null) : null,
           note: note.trim(),
           trashed_at: status === 'Trash' ? new Date().toISOString() : null,
         });
@@ -667,14 +679,7 @@ function PartnerForm({
       }
       onSaved();
     } catch (err) {
-      const error = err as { message?: string; details?: string; hint?: string; code?: string };
-      console.error('Failed to save partner:', {
-        message: error.message ?? String(err),
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-      });
-      toast(`Failed to save partner: ${error.message ?? String(err)}`, 'error');
+      toast('Failed to save partner. Please try again.', 'error');
     } finally {
       setSaving(false);
     }
@@ -704,18 +709,22 @@ function PartnerForm({
           <Field label="Status">
             <select value={status} onChange={(e) => setStatus(e.target.value as PartnerStatus)} className={selectClass}>
               <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
+              <option value="On Leave">On Leave</option>
+              <option value="Inactive">Left Studio / Inactive</option>
               <option value="Archived">Archived</option>
             </select>
           </Field>
         </div>
-        <Field label="Available for Shoot">
-          <select value={availabilityStatus} onChange={(e) => setAvailabilityStatus(e.target.value as 'Active' | 'Busy' | 'On Leave')} className={selectClass}>
-            <option value="Active">Active &amp; Available</option>
-            <option value="Busy">Busy</option>
-            <option value="On Leave">On Leave</option>
-          </select>
-        </Field>
+        {status === 'On Leave' && (
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Leave Start">
+              <input type="date" value={leaveStart} onChange={(e) => setLeaveStart(e.target.value)} className={inputClass} />
+            </Field>
+            <Field label="Leave End">
+              <input type="date" value={leaveEnd} onChange={(e) => setLeaveEnd(e.target.value)} className={inputClass} />
+            </Field>
+          </div>
+        )}
         <Field label="Note">
           <textarea value={note} onChange={(e) => setNote(e.target.value)} className={textareaClass} placeholder="Optional note..." />
         </Field>
@@ -851,14 +860,14 @@ function PartnerDetailModal({
   partner,
   directTxns,
   ledgerEntries,
-  labOrders,
   onClose,
+  onSettle,
 }: {
   partner: Partner;
   directTxns: DirectTransaction[];
   ledgerEntries: PhotographerLedgerEntry[];
-  labOrders: StudioLabOrder[];
   onClose: () => void;
+  onSettle: () => void;
 }) {
   type UnifiedEntry = {
     id: string;
@@ -889,52 +898,25 @@ function PartnerDetailModal({
       positive: e.entry_type === 'SHOOT_DUTY_CREDIT',
       icon: e.entry_type === 'SHOOT_DUTY_CREDIT' ? TrendingUp : e.entry_type === 'LAB_WORK_DEBIT' ? TrendingDown : MinusCircle,
     }));
-    return [...direct, ...ledger].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    return [...direct, ...ledger].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   }, [directTxns, ledgerEntries]);
 
   const totalCredit = entries.filter((e) => e.positive).reduce((s, e) => s + e.amount, 0);
   const totalDebit = entries.filter((e) => !e.positive).reduce((s, e) => s + e.amount, 0);
   const balance = totalCredit - totalDebit;
-  const workItems = useMemo(() => labOrders.flatMap((order) => {
-    const items = (order.clients ?? []).flatMap((client) => [
-      ...(client.video_rows ?? []).map((row) => ({ service: `${row.video_type} (${row.quality})`, qty: row.qty, rate: row.rate, total: row.total })),
-      ...(client.album_rows ?? []).flatMap((row) => [
-        { service: `${row.album_type} (${row.size})`, qty: 1, rate: row.packaging_rate, total: row.packaging_total },
-        ...(row.papers ?? []).map((paper) => ({ service: `${paper.paper_type} Paper`, qty: paper.sheets, rate: paper.rate, total: paper.total })),
-      ]),
-    ]);
-    return (items.length > 0 ? items : [{ service: order.work_type || 'Lab Work', qty: 1, rate: order.current_order_total, total: order.current_order_total }]).map((item, index) => ({
-      id: `${order.id}-${index}`,
-      date: order.payment_date || order.created_at,
-      project: order.project_name || order.order_no,
-      ...item,
-      advance: index === 0 ? Number(order.advance_paid) : 0,
-      netDue: index === 0 ? Number(order.net_final_due) : 0,
-    }));
-  }), [labOrders]);
-
-  const printStatement = () => window.print();
-  const statementNode = (
-    <div id="printable-partner-statement-sheet">
-      <h1>{partner.name} — Work &amp; Editing Statement</h1>
-      <p>{partner.category} · {partner.mobile}</p>
-      <table>
-        <thead><tr><th>Date</th><th>Project</th><th>Service / Edit Type</th><th>Qty</th><th>Rate</th><th>Total</th><th>Advance Received</th><th>Net Due</th></tr></thead>
-        <tbody>{workItems.map((item) => <tr key={item.id}><td>{formatDate(item.date)}</td><td>{item.project}</td><td>{item.service}</td><td>{item.qty}</td><td>{formatINR(Number(item.rate))}</td><td>{formatINR(Number(item.total))}</td><td>{formatINR(item.advance)}</td><td>{formatINR(item.netDue)}</td></tr>)}</tbody>
-      </table>
-    </div>
-  );
+  let runningBalance = 0;
 
   return (
-    <>
     <Modal open={true} onClose={onClose} title={partner.name} size="lg">
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           <Badge color={CATEGORY_COLORS[partner.category]}>{partner.category}</Badge>
-          <Badge color={partner.status === 'Active' ? 'emerald' : partner.status === 'Inactive' ? 'slate' : 'amber'}>{partner.status}</Badge>
-          <Badge color={(partner.availability_status ?? 'Active') === 'Active' ? 'emerald' : (partner.availability_status ?? 'Active') === 'Busy' ? 'amber' : 'slate'}>{partner.availability_status ?? 'Active'}{(partner.availability_status ?? 'Active') === 'Active' ? ' & Available' : ''}</Badge>
+          <Badge color={partner.status === 'Active' ? 'emerald' : partner.status === 'On Leave' ? 'amber' : partner.status === 'Inactive' ? 'slate' : 'amber'}>{partner.status === 'Inactive' ? 'Left Studio / Inactive' : partner.status}</Badge>
           <span className="text-xs text-slate-500 dark:text-slate-400">{partner.mobile}</span>
         </div>
+        <button onClick={onSettle} className="flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-600">
+          <Wallet className="h-3.5 w-3.5" /> Direct Settle
+        </button>
 
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg border border-slate-200 p-3 text-center dark:border-white/10">
@@ -955,50 +937,66 @@ function PartnerDetailModal({
 
         <div className="border-t border-slate-200 pt-3 dark:border-white/10">
           <h4 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Lifetime Ledger</h4>
-          <div className="max-h-[40vh] space-y-2 overflow-y-auto">
+          <div className="max-h-[40vh] overflow-auto">
             {entries.length === 0 ? (
               <p className="py-8 text-center text-sm text-slate-400">No transactions yet</p>
-            ) : entries.map((e) => {
-              const Icon = e.icon;
-              return (
-                <div key={e.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-white/5 dark:bg-white/5">
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${e.positive ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-rose-100 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'}`}>
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-slate-900 dark:text-white">{e.label}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{e.sublabel} · {formatDate(e.date)}</p>
-                  </div>
-                  <span className={`text-sm font-bold ${e.positive ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-                    {e.positive ? '+' : '-'}{formatINR(e.amount)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="border-t border-slate-200 pt-3 dark:border-white/10">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Work &amp; Editing History</h4>
-            <button onClick={printStatement} className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-slate-900 hover:bg-amber-400">
-              <Printer className="h-3.5 w-3.5" /> Print / Export Statement
-            </button>
-          </div>
-          <div id="printable-partner-statement" className="overflow-x-auto rounded-lg border border-slate-200 dark:border-white/10">
-            {workItems.length === 0 ? <p className="p-4 text-center text-sm text-slate-400">No lab work history yet</p> : (
-              <table className="w-full min-w-[760px] text-xs">
-                <thead className="bg-slate-50 text-left text-slate-500 dark:bg-white/5 dark:text-slate-400">
-                  <tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Project</th><th className="px-3 py-2">Service / Edit Type</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2 text-right">Advance</th><th className="px-3 py-2 text-right">Net Due</th></tr>
+            ) : (
+              <table className="w-full min-w-[680px] text-left text-xs">
+                <thead className="border-b border-slate-200 text-slate-500 dark:border-white/10 dark:text-slate-400">
+                  <tr><th className="px-2 py-2">Date</th><th className="px-2 py-2">Client / Description</th><th className="px-2 py-2">Function / Role</th><th className="px-2 py-2">Credit</th><th className="px-2 py-2">Debit</th><th className="px-2 py-2">Running Due</th></tr>
                 </thead>
-                <tbody>{workItems.map((item) => <tr key={item.id} className="border-t border-slate-100 dark:border-white/5"><td className="px-3 py-2 text-slate-600 dark:text-slate-400">{formatDate(item.date)}</td><td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.project}</td><td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.service}</td><td className="px-3 py-2 text-right">{item.qty}</td><td className="px-3 py-2 text-right">{formatINR(Number(item.rate))}</td><td className="px-3 py-2 text-right font-medium">{formatINR(Number(item.total))}</td><td className="px-3 py-2 text-right text-emerald-500">{formatINR(item.advance)}</td><td className="px-3 py-2 text-right text-rose-500">{formatINR(item.netDue)}</td></tr>)}</tbody>
+                <tbody>{entries.map((e) => {
+                  runningBalance += e.positive ? e.amount : -e.amount;
+                  const isShoot = e.sublabel.includes('Shoot');
+                  return <tr key={e.id} className="border-b border-slate-100 dark:border-white/5"><td className="px-2 py-2 text-slate-600 dark:text-slate-400">{formatDate(e.date)}</td><td className="px-2 py-2 text-slate-800 dark:text-slate-200">{isShoot ? partner.name : e.label}</td><td className="px-2 py-2 text-slate-600 dark:text-slate-400">{e.label}{e.sublabel.includes('Direct') ? ` · ${e.sublabel}` : ''}</td><td className="px-2 py-2 font-medium text-emerald-600 dark:text-emerald-400">{e.positive ? formatINR(e.amount) : '—'}</td><td className="px-2 py-2 font-medium text-rose-600 dark:text-rose-400">{e.positive ? '—' : formatINR(e.amount)}</td><td className="px-2 py-2 font-semibold text-slate-800 dark:text-slate-200">{formatINR(runningBalance)}</td></tr>;
+                })}</tbody>
               </table>
             )}
           </div>
         </div>
       </div>
     </Modal>
-    {createPortal(statementNode, document.body)}
-    </>
+  );
+}
+
+function SettlementModal({ partner, onClose, onSaved }: { partner: Partner; onClose: () => void; onSaved: () => void }) {
+  const { toast } = useToast();
+  const [amount, setAmount] = useState('');
+  const [paymentMode, setPaymentMode] = useState('Cash');
+  const [paymentDate, setPaymentDate] = useState(todayISO());
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value <= 0) { toast('Enter a valid settlement amount', 'error'); return; }
+    setSaving(true);
+    const { error } = await supabase.from('photographer_ledger').insert({
+      photographer_name: partner.name,
+      mobile: partner.mobile,
+      entry_type: 'PAYMENT_SETTLED',
+      description: note.trim() || 'Direct settlement',
+      amount: value,
+      payment_mode: paymentMode,
+      payment_date: paymentDate,
+    });
+    setSaving(false);
+    if (error) { toast('Failed to record settlement', 'error'); return; }
+    toast('Settlement recorded', 'success');
+    onSaved();
+  };
+
+  return (
+    <Modal open={true} onClose={onClose} title={`Settle ${partner.name}`} size="md" dismissible={false}>
+      <div className="space-y-4">
+        <Field label="Settlement Amount (₹)"><input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} placeholder="0" /></Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Payment Mode"><select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className={selectClass}><option>Cash</option><option>UPI</option><option>Bank</option></select></Field>
+          <Field label="Payment Date"><input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputClass} /></Field>
+        </div>
+        <Field label="Remarks"><textarea value={note} onChange={(e) => setNote(e.target.value)} className={textareaClass} placeholder="Optional settlement remarks" /></Field>
+        <div className="flex justify-end gap-3"><button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300">Cancel</button><button onClick={handleSave} disabled={saving} className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Saving...' : 'Record Settlement'}</button></div>
+      </div>
+    </Modal>
   );
 }

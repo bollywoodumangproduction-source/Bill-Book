@@ -10,6 +10,18 @@ const DEFAULT_DELIVERABLES: BookingDeliverables = {
   raw_edited_photos: false,
 };
 
+function nextDate(date: string): string {
+  if (!date) return '';
+  const [year, month, day] = date.split('-').map(Number);
+  const value = new Date(year, month - 1, day + 1);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+}
+
+function bookingNumber(value: number | string | undefined): number {
+  const numberValue = Number(value ?? 0);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
 export function formatDeliverablesList(d: BookingDeliverables): string[] {
   const items: string[] = [];
   if (d.album_rows?.length) {
@@ -30,6 +42,11 @@ export function formatDeliverablesList(d: BookingDeliverables): string[] {
       items.push(`Video: ${r.video_service} (${r.quality}) x${toNum(r.qty) || 1}`);
     });
   }
+  if (d.custom_items?.length) {
+    d.custom_items.forEach((item) => {
+      if (item.name) items.push(`Additional: ${item.name} x${toNum(item.qty) || 1} (${formatINR(toNum(item.amount))})`);
+    });
+  }
   if (d.raw_video) items.push('Raw Video');
   if (d.raw_selected_photos) items.push('Selected Photos');
   if (d.raw_all_photos) items.push('All Photos');
@@ -40,7 +57,15 @@ export function formatDeliverablesList(d: BookingDeliverables): string[] {
 export function BillInvoice({ booking, settings }: { booking: Booking; settings: StudioSettings | null }) {
   const s = settings;
   const safeEvents = booking.events ?? [];
+  const hasEventDates = safeEvents.some((e) => e.date);
+  const hasEventTimes = safeEvents.some((e) => e.start_time || e.end_time || e.time);
+  const hasEventVenues = safeEvents.some((e) => e.venue);
   const delivList = formatDeliverablesList(booking.deliverables_data ?? DEFAULT_DELIVERABLES);
+  const totalAmount = bookingNumber(booking.total_amount);
+  const discount = bookingNumber(booking.discount);
+  const advancePaid = bookingNumber(booking.advance_paid);
+  const netDue = totalAmount - discount - advancePaid;
+  const paymentHistory = booking.deliverables_data?.payment_details?.payment_history ?? [];
   return (
     <div className="bill-page bg-white p-8 text-black" style={{ userSelect: 'text' }}>
       {/* Header */}
@@ -50,7 +75,7 @@ export function BillInvoice({ booking, settings }: { booking: Booking; settings:
             <img src={s.films_logo_url} alt="logo" className="h-16 w-16 rounded-lg object-cover" />
           )}
           <div>
-            <h1 className="text-2xl font-bold">{s?.films_title ?? 'Bollywood Umang Films'}</h1>
+            <h1 className="text-2xl font-bold">{s?.films_title ? `${s.films_title} & Production` : 'Bollywood Umang Films & Production'}</h1>
             <p className="text-xs">{s?.films_subtitle ?? ''}</p>
             <p className="text-xs">{s?.address ?? ''} · {s?.phone ?? ''}</p>
             <p className="text-xs">{s?.films_insta ?? ''}</p>
@@ -81,18 +106,30 @@ export function BillInvoice({ booking, settings }: { booking: Booking; settings:
           <thead>
             <tr className="bg-gray-100">
               <th className="border border-black px-2 py-1 text-left">Function</th>
-              <th className="border border-black px-2 py-1 text-left">Date</th>
-              <th className="border border-black px-2 py-1 text-left">Time</th>
+              {hasEventDates && <th className="border border-black px-2 py-1 text-left">Date</th>}
+              {hasEventTimes && <th className="border border-black px-2 py-1 text-left">Time</th>}
+              {hasEventVenues && <th className="border border-black px-2 py-1 text-left">Venue</th>}
             </tr>
           </thead>
           <tbody>
             {safeEvents.map((e, i) => {
               const label = e.name === 'Custom' && e.customName ? e.customName : e.name;
+              const startTime = e.start_time ?? e.time;
+              const hasDate = Boolean(e.date);
+              const hasTime = Boolean(startTime || e.end_time);
+              const hasVenue = Boolean(e.venue);
+              const endDate = e.end_date_shift === 'after_day' || e.end_date_shift === 'next_date' ? nextDate(e.date) : e.date;
               return (
                 <tr key={i}>
                   <td className="border border-black px-2 py-1">{label}</td>
-                  <td className="border border-black px-2 py-1">{formatDate(e.date)}</td>
-                  <td className="border border-black px-2 py-1">{e.time || '—'}</td>
+                  {hasEventDates && <td className="border border-black px-2 py-1">
+                    {hasDate && formatDate(e.date)}
+                    {hasDate && (e.end_date_shift === 'after_day' || e.end_date_shift === 'next_date') && ` - ${formatDate(endDate)}`}
+                  </td>}
+                  {hasEventTimes && <td className="border border-black px-2 py-1">
+                    {hasTime && `${startTime || '—'} - ${e.end_time || '—'}`}
+                  </td>}
+                  {hasEventVenues && <td className="border border-black px-2 py-1">{hasVenue && e.venue}</td>}
                 </tr>
               );
             })}
@@ -112,19 +149,29 @@ export function BillInvoice({ booking, settings }: { booking: Booking; settings:
         </div>
       )}
 
+      {paymentHistory.length > 0 && (
+        <div className="mb-4">
+          <p className="mb-1 text-sm font-bold">Payment History:</p>
+          <table className="w-full border-collapse border border-black text-xs">
+            <thead><tr className="bg-gray-100"><th className="border border-black px-2 py-1 text-left">Date</th><th className="border border-black px-2 py-1 text-left">Mode</th><th className="border border-black px-2 py-1 text-left">Reason / Note</th><th className="border border-black px-2 py-1 text-right">Amount Paid</th></tr></thead>
+            <tbody>{paymentHistory.map((payment) => <tr key={payment.id}><td className="border border-black px-2 py-1">{formatDate(payment.payment_date)}</td><td className="border border-black px-2 py-1">{payment.payment_mode}</td><td className="border border-black px-2 py-1">{payment.custom_note || '—'}</td><td className="border border-black px-2 py-1 text-right">{formatINR(bookingNumber(payment.paid_amount))}</td></tr>)}</tbody>
+          </table>
+        </div>
+      )}
+
       {/* Financial breakdown */}
       <div className="ml-auto w-56 space-y-1 text-sm">
-        <div className="flex justify-between"><span>Base Amount:</span><span>{formatINR(Number(booking.base_amount))}</span></div>
-        <div className="flex justify-between"><span>Total Package:</span><span>{formatINR(Number(booking.total_amount))}</span></div>
-        <div className="flex justify-between"><span>Discount:</span><span>- {formatINR(Number(booking.discount))}</span></div>
-        <div className="flex justify-between"><span>Advance Paid:</span><span>- {formatINR(Number(booking.advance_paid))}</span></div>
-        <div className="flex justify-between border-t-2 border-black pt-1 font-bold"><span>Balance Due:</span><span>{formatINR(Number(booking.net_due))}</span></div>
+        <div className="flex justify-between"><span>Base Amount:</span><span>{formatINR(bookingNumber(booking.base_amount))}</span></div>
+        <div className="flex justify-between"><span>Total Package:</span><span>{formatINR(totalAmount)}</span></div>
+        <div className="flex justify-between"><span>Discount:</span><span>- {formatINR(discount)}</span></div>
+        <div className="flex justify-between"><span>Advance Paid:</span><span>- {formatINR(advancePaid)}</span></div>
+        <div className="flex justify-between border-t-2 border-black pt-1 font-bold"><span>Balance Due:</span><span>{formatINR(netDue)}</span></div>
       </div>
 
       {/* Footer: UPI QR + Stamp */}
       <div className="mt-6 flex items-end justify-between border-t border-black pt-4">
         <div className="flex flex-col items-center gap-1">
-          {s?.upi_id ? (
+          {s?.upi_id && netDue > 0 ? (
             <>
               <img
                 src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=upi://pay?pa=${encodeURIComponent(s.upi_id)}`}

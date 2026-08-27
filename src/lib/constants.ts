@@ -52,7 +52,7 @@ export const LAB_ALBUM_SIZES = ['12x36', '14x40', '12x30', '10x30', '12x24'] as 
 
 export const LAB_ALBUM_PAPERS = ['Glossy', 'Silk Matte', 'Matt', 'NTR', 'Metallic', 'Transparent', 'Silk'] as const;
 
-export const LAB_ORDER_STATUSES = ['Processing', 'Ready', 'Delivered'] as const;
+export const LAB_ORDER_STATUSES = ['Pending', 'In Design', 'Printed/Ready', 'Delivered', 'Processing', 'Ready'] as const;
 
 export const DELIVERY_MODES = ['By Hand', 'Parcel/Courier'] as const;
 

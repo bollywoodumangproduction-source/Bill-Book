@@ -59,9 +59,6 @@ function seedDB(): MockDB {
     stamp_image_url: '',
     films_logo_url: '',
     production_logo_url: '',
-    alternate_phone: '',
-    branch_address: '',
-    upi_id: '',
     terms_conditions:
       '1. अग्रिम भुगतान (Advance Payment): शूट की निर्धारित तिथि से ठीक 7 दिन पूर्व कुल पैकेज राशि का न्यूनतम 50% भुगतान अनिवार्य है।\n2. डेटा सुपुर्दगी (Data Collection): पूर्ण भुगतान कर 30 दिनों के भीतर समस्त डेटा, पेन ड्राइव व एल्बम प्राप्त करना अनिवार्य है।\n3. डेटा सुरक्षा व दायित्व: डिलीवरी तैयार होने के 30 दिनों के बाद डेटा सुरक्षित रखने की कोई जिम्मेदारी स्टूडियो की नहीं होगी।\n4. स्वीकृति (Agreement): बुकिंग अथवा अग्रिम भुगतान करते ही ग्राहक उपर्युक्त सभी शर्तों को पूर्णतः स्वीकार करता है।',
   };
@@ -163,7 +160,7 @@ function seedDB(): MockDB {
     { video_type: 'Teaser/Highlight', quality: '4K', qty: 1, rate: 2000, total: 2000 },
   ];
   const albumRows2: AlbumRow[] = [
-    { id: uuid(), album_type: 'Karizma Album', size: '12x36', packaging: 'Leather', packaging_rate: 1500, packaging_total: 1500, mini_album: false, mini_qty: 0, mini_rate: 0, mini_total: 0, papers: [{ id: uuid(), paper_type: 'Glossy', sheets: 40, rate: 10, total: 400 }], total: 1900 },
+    { id: uuid(), album_type: 'Karizma Album', size: '12x36', packaging_type: 'cover', packaging_value: 'Leather', custom_packaging: '', packaging_rate: 1500, packaging_total: 1500, mini_album: false, mini_qty: 0, mini_rate: 0, mini_total: 0, papers: [{ id: uuid(), paper_type: 'Glossy', sheets: 40, rate: 10, total: 400 }], total: 1900 },
   ];
   const videoRows3: VideoRow[] = [
     { video_type: 'Cinematic Video', quality: '4K', qty: 3, rate: 1500, total: 4500 },

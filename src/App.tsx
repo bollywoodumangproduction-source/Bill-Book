@@ -6,30 +6,23 @@ import { ThemeProvider } from '@/context/ThemeContext';
 import { SyncProvider } from '@/context/SyncContext';
 import { RefreshProvider } from '@/context/RefreshContext';
 import { Layout } from '@/components/Layout';
-import { Dashboard } from '@/pages/Dashboard';
-import { Bookings } from '@/pages/Bookings';
-import { LabOrders } from '@/pages/StudioWork';
-import { Ledger } from '@/pages/Photographers';
-import { Payments } from '@/pages/Payments';
 import { SettingsPage } from '@/pages/Settings';
 import { PublicInvoice } from '@/pages/PublicInvoice';
 import { ClientLogin } from '@/pages/ClientLogin';
 import { ClientDashboard } from '@/pages/ClientDashboard';
+import { PartnerDashboard } from '@/pages/PartnerDashboard';
 import { AdminLogin, getAdminSession } from '@/pages/AdminLogin';
 import { getClientSession } from '@/pages/ClientLogin';
 import type { PageKey } from '@/lib/types';
+import { DesktopWindowManager, MobilePage } from '@/components/DesktopWindowManager';
 
 function AdminApp() {
   const [page, setPage] = useState<PageKey>('dashboard');
 
   return (
     <Layout current={page} onNavigate={setPage}>
-      {page === 'dashboard' && <Dashboard onNavigate={setPage} />}
-      {page === 'bookings' && <Bookings />}
-      {page === 'lab' && <LabOrders />}
-      {page === 'ledger' && <Ledger />}
-      {page === 'payments' && <Payments />}
-      {page === 'settings' && <SettingsPage />}
+      <div className="hidden md:block"><DesktopWindowManager currentPage={page} onNavigate={setPage} /></div>
+      <div className="md:hidden">{page === 'settings' ? <SettingsPage /> : <MobilePage page={page} onNavigate={setPage} />}</div>
     </Layout>
   );
 }
@@ -64,6 +57,7 @@ export default function App() {
                   <Route path="/admin/login" element={<AdminLogin />} />
                   <Route path="/client-login" element={<ClientLogin />} />
                   <Route path="/client/dashboard" element={<ClientGuard />} />
+                  <Route path="/partner/dashboard" element={<PartnerDashboard />} />
                   <Route path="/view/:bookingId" element={<PublicInvoice />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
