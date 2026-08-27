@@ -35,12 +35,12 @@ export function PartnerDashboard() {
     }
     const staff = partnerData as Partner;
     const { data: assignmentData } = await supabase.from('shoot_assignments').select('booking_id, function_name, role, reporting_time').eq('partner_id', staff.id);
-    const ids = [...new Set((assignmentData ?? []).map((assignment) => assignment.booking_id))];
+    const ids = [...new Set((assignmentData ?? []).map((assignment: { booking_id: string }) => assignment.booking_id))];
     const { data: bookingData } = ids.length > 0
       ? await supabase.from('bookings').select('id, client_name, client_mobile, event_function, shoot_date, shoot_time, venue, events').in('id', ids).order('shoot_date')
       : { data: [] };
     const assignmentsByBooking = new Map<string, CrewBooking['assignments']>();
-    (assignmentData ?? []).forEach((assignment) => {
+    (assignmentData ?? []).forEach((assignment: { booking_id: string; function_name: string; role: string; reporting_time: string }) => {
       const current = assignmentsByBooking.get(assignment.booking_id) ?? [];
       current.push({ function_name: assignment.function_name, role: assignment.role, reporting_time: assignment.reporting_time });
       assignmentsByBooking.set(assignment.booking_id, current);

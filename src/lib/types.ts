@@ -12,14 +12,15 @@ export interface StudioSettings {
   bank_name: string;
   bank_details: string;
   whatsapp_number: string;
-  alternate_phone: string;
-  branch_address: string;
-  upi_id: string;
+  alternate_phone?: string;
+  branch_address?: string;
+  upi_id?: string;
   stamp_image_url: string;
   films_logo_url: string;
   production_logo_url: string;
+  production_terms?: string;
   terms_conditions: string;
-  master_pin: string;
+  master_pin?: string;
 }
 
 export interface EventFunction {
@@ -148,10 +149,11 @@ export interface PaperRow {
 }
 
 export interface AlbumRow {
+  [key: string]: unknown;
   id: string;
   album_type: string;
   size: string;
-  packaging: string;
+  packaging?: string;
   packaging_rate: number;
   packaging_total: number;
   mini_album: boolean;
@@ -252,8 +254,8 @@ export interface Partner {
   trashed_at: string | null;
   created_at: string;
   updated_at: string;
-  leave_start: string | null;
-  leave_end: string | null;
+  leave_start?: string | null;
+  leave_end?: string | null;
 }
 
 export interface ShootAssignment {

@@ -40,13 +40,13 @@ export function Modal({ open, onClose, title, children, size = 'md', dismissible
   }[size];
 
   return (
-    <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center no-print">
+    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/75 p-4 no-print">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm dark:bg-black/60"
         onClick={(e) => { if (dismissibleRef.current) onCloseRef.current(); else e.stopPropagation(); }}
       />
       <div
-        className={`relative w-full ${sizeClass} max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white shadow-2xl animate-[slideUp_0.2s_ease-out] dark:border-white/10 dark:bg-slate-900`}
+        className={`relative w-full ${sizeClass} ${size === 'xl' ? 'min-h-[500px] max-h-[90vh] md:min-w-[760px]' : 'max-h-[90vh]'} overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl animate-[slideUp_0.2s_ease-out] dark:border-white/10 dark:bg-slate-900`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur px-5 py-4 dark:border-white/10 dark:bg-slate-900/95">

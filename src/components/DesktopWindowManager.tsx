@@ -24,14 +24,19 @@ const WINDOW_META: Record<WindowId, { title: string; icon: typeof Wallet }> = {
 };
 
 function initialWindows(): WindowState[] {
+  const availableWidth = Math.max(800, window.innerWidth - 240 - 48);
+  const width = Math.min(1280, Math.max(800, Math.floor(availableWidth * 0.9)));
+  const height = Math.max(550, Math.floor(window.innerHeight * 0.85));
+  const centeredX = Math.max(0, Math.floor((availableWidth - width) / 2));
+  const centeredY = Math.max(0, Math.floor((window.innerHeight - height - 48) / 2));
   return [
-    { id: 'bookings', x: 24, y: 24, width: 620, height: 640, z: 2, minimized: false, maximized: false },
-    { id: 'lab', x: 670, y: 24, width: 620, height: 640, z: 1, minimized: true, maximized: false },
-    { id: 'billing', x: 670, y: 52, width: 520, height: 500, z: 1, minimized: true, maximized: false },
-    { id: 'ledger', x: 1220, y: 30, width: 520, height: 580, z: 1, minimized: true, maximized: false },
-    { id: 'pricing', x: 150, y: 90, width: 420, height: 360, z: 1, minimized: true, maximized: false },
-    { id: 'reports', x: 720, y: 100, width: 520, height: 400, z: 1, minimized: true, maximized: false },
-    { id: 'settings', x: 260, y: 120, width: 650, height: 520, z: 1, minimized: true, maximized: false },
+    { id: 'bookings', x: centeredX, y: centeredY, width, height, z: 2, minimized: false, maximized: false },
+    { id: 'lab', x: centeredX + 24, y: centeredY + 24, width, height, z: 1, minimized: true, maximized: false },
+    { id: 'billing', x: centeredX + 48, y: centeredY + 48, width, height, z: 1, minimized: true, maximized: false },
+    { id: 'ledger', x: centeredX + 72, y: centeredY + 72, width, height, z: 1, minimized: true, maximized: false },
+    { id: 'pricing', x: centeredX + 96, y: centeredY + 96, width, height, z: 1, minimized: true, maximized: false },
+    { id: 'reports', x: centeredX + 120, y: centeredY + 120, width, height, z: 1, minimized: true, maximized: false },
+    { id: 'settings', x: centeredX + 144, y: centeredY + 144, width, height, z: 1, minimized: true, maximized: false },
   ];
 }
 
@@ -41,7 +46,11 @@ function loadWindows(): WindowState[] {
     if (saved) {
       const stored = JSON.parse(saved) as WindowState[];
       const byId = new Map(stored.map((item) => [item.id, item]));
-      return initialWindows().map((item) => byId.get(item.id) ?? item);
+      return initialWindows().map((item) => {
+        const savedItem = byId.get(item.id);
+        if (!savedItem || savedItem.width < 800 || savedItem.height < 550) return item;
+        return savedItem;
+      });
     }
   } catch { /* use defaults */ }
   return initialWindows();
@@ -72,7 +81,7 @@ function DesktopWindow({ windowState, onFocus, onMinimize, onMaximize, onClose, 
   const handleDragMove = (event: ReactPointerEvent<HTMLDivElement>) => { if (!dragRef.current) return; const nextX = Math.max(0, Math.min(window.innerWidth - windowState.width - 260, dragRef.current.x + event.clientX - dragRef.current.startX)); const nextY = Math.max(0, Math.min(window.innerHeight - 96, dragRef.current.y + event.clientY - dragRef.current.startY)); onMove(nextX, nextY); };
   const handleDragEnd = () => { dragRef.current = null; };
   const handleResizeStart = (direction: string, event: ReactPointerEvent<HTMLDivElement>) => { onFocus(); resizeRef.current = { startX: event.clientX, startY: event.clientY, width: windowState.width, height: windowState.height, x: windowState.x, y: windowState.y, direction }; event.currentTarget.setPointerCapture(event.pointerId); };
-  const handleResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => { if (!resizeRef.current) return; const resize = resizeRef.current; const dx = event.clientX - resize.startX; const dy = event.clientY - resize.startY; const width = Math.max(320, resize.width + (resize.direction.includes('w') ? -dx : resize.direction.includes('e') ? dx : 0)); const height = Math.max(220, resize.height + (resize.direction.includes('n') ? -dy : resize.direction.includes('s') ? dy : 0)); onResize(width, height, resize.direction.includes('w') ? resize.x + resize.width - width : undefined, resize.direction.includes('n') ? resize.y + resize.height - height : undefined); };
+  const handleResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => { if (!resizeRef.current) return; const resize = resizeRef.current; const dx = event.clientX - resize.startX; const dy = event.clientY - resize.startY; const width = Math.max(800, resize.width + (resize.direction.includes('w') ? -dx : resize.direction.includes('e') ? dx : 0)); const height = Math.max(550, resize.height + (resize.direction.includes('n') ? -dy : resize.direction.includes('s') ? dy : 0)); onResize(width, height, resize.direction.includes('w') ? resize.x + resize.width - width : undefined, resize.direction.includes('n') ? resize.y + resize.height - height : undefined); };
   const handleResizeEnd = () => { resizeRef.current = null; };
   const style = windowState.maximized ? { inset: 0, zIndex: 50 } : { left: windowState.x, top: windowState.y, width: windowState.width, height: windowState.height, zIndex: windowState.z };
   const hiddenClass = windowState.minimized ? 'pointer-events-none scale-95 opacity-0' : 'opacity-100';

@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment } from '@/lib/types';
-import { formatINR, formatDate } from '@/lib/format';
+import { formatINR, formatDate, todayISO } from '@/lib/format';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useDraftState } from '@/lib/useDraftState';
@@ -49,6 +49,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { MasterPinDialog } from '@/components/ui/MasterPinDialog';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { useRefresh } from '@/context/RefreshContext';
+import { buildPdfFilename, downloadA4Pdf, PrintableDualCopies } from '@/lib/pdf';
 
 const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Pending: 'slate',
@@ -59,7 +60,17 @@ const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Delivered: 'emerald',
 };
 
+const DEFAULT_PRODUCTION_TERMS = `1. रॉ डाटा बैकअप व सुरक्षा (Raw Data Backup): जब तक तैयार प्रोजेक्ट/डाटा आपको नहीं मिल जाता, तब तक रॉ फुटेज की एक बैकअप कॉपी अपने पास सुरक्षित रखें।
+2. एल्बम डिजाइन व प्रिंट अप्रूवल (Album Approval): एल्बम प्रिंटिंग से पूर्व डिजाइन अप्रूवल अनिवार्य है। शीट प्रिंट होने के बाद किसी भी प्रकार का स्पेलिंग या फोटो बदलाव नहीं होगा।
+3. सॉन्ग सिलेक्शन व एडिटिंग (Songs Selection & Re-edits): टीज़र/हाइलाइट्स व वेडिंग के लिए मनपसंद गाने काम शुरू होने से पूर्व देना अनिवार्य है। प्रोजेक्ट फाइनल रेंडर के बाद कोई बदलाव नहीं किया जाएगा।
+4. अग्रिम भुगतान (50% Advance Mandatory): प्रोडक्शन से जुड़े किसी भी कार्य के कुल मूल्य का 50% राशि एडवांस जमा करना अनिवार्य होगा, अन्यथा काम को आगे नहीं बढ़ाया जाएगा।
+5. डिलीवरी व पूर्ण भुगतान (Final Delivery & Due Settlement): तैयार मास्टर वीडियो / पेन ड्राइव / एल्बम प्राप्त करने से पूर्व शेष बकाया राशि (Net Final Due) का पूर्ण भुगतान करना अनिवार्य है।`;
+
 const toNum = (v: string | number | undefined) => { const n = Number(v); return isNaN(n) ? 0 : n; };
+
+function sanitizePayload<T>(payload: T): T {
+  return JSON.parse(JSON.stringify(payload)) as T;
+}
 
 function recycleDaysRemaining(deletedAt: string | null | undefined): number {
   if (!deletedAt) return 90;
@@ -162,13 +173,14 @@ export function LabOrders() {
   const [successOrder, setSuccessOrder] = useState<StudioLabOrder | null>(null);
   const [settleOrder, setSettleOrder] = useState<StudioLabOrder | null>(null);
   const [viewSlipOrder, setViewSlipOrder] = useState<StudioLabOrder | null>(null);
+  const [dualPrintOrder, setDualPrintOrder] = useState<StudioLabOrder | null>(null);
   const [view, setView] = useState<'active' | 'archived' | 'recycle'>('active');
   const [showPin, setShowPin] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<'soft' | 'permanent'>('soft');
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('studio_lab_orders').select('*').order('created_at');
-    setOrders((data ?? []).map((order) => normalizeLabOrder(order as Partial<StudioLabOrder>)));
+    setOrders((data ?? []).map((order: Partial<StudioLabOrder>) => normalizeLabOrder(order)));
     setLoading(false);
   }, []);
 
@@ -199,7 +211,7 @@ export function LabOrders() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="flex h-full w-full flex-col space-y-5 overflow-y-auto">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Lab Order Form</h1>
@@ -344,12 +356,13 @@ export function LabOrders() {
       )}
 
       <ErrorBoundary>
-        <LabOrderForm open={showForm} onClose={() => setShowForm(false)} editing={editing} onSaved={(saved) => { setShowForm(false); load(); setSuccessOrder(saved); toast('Saved Successfully!', 'success'); }} />
+        <LabOrderForm open={showForm} onClose={() => setShowForm(false)} editing={editing} existing={orders} onSaved={(saved) => { setShowForm(false); load(); setSuccessOrder(saved); toast('Saved Successfully!', 'success'); }} />
       </ErrorBoundary>
       <ErrorBoundary>
         <ViewBillModal order={viewBillOrder} onClose={() => setViewBillOrder(null)} settings={settings} onCopySummary={copyOrderSummary} />
       </ErrorBoundary>
-      <LabWorkSlipModal order={viewSlipOrder} onClose={() => setViewSlipOrder(null)} settings={settings} />
+      <LabWorkSlipModal order={viewSlipOrder} onClose={() => setViewSlipOrder(null)} settings={settings} onDualPrint={() => { if (viewSlipOrder) { setDualPrintOrder(viewSlipOrder); setTimeout(() => { window.print(); setDualPrintOrder(null); }, 100); } }} />
+      {dualPrintOrder && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><LabOrderPrintTemplate order={dualPrintOrder} settings={settings} /></PrintableDualCopies></div>, document.body)}
       {settleOrder && <LabSettlementModal order={settleOrder} onClose={() => setSettleOrder(null)} onSaved={() => { setSettleOrder(null); load(); }} />}
       {successOrder && (
         <ErrorBoundary>
@@ -610,8 +623,13 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
   );
 }
 
-function LabWorkSlipModal({ order, onClose, settings }: { order: StudioLabOrder | null; onClose: () => void; settings: StudioSettings | null }) {
+function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: StudioLabOrder | null; onClose: () => void; settings: StudioSettings | null; onDualPrint?: () => void }) {
   if (!order) return null;
+  const slipId = `lab-slip-${order.id}`;
+  const download = async () => {
+    const element = document.getElementById(slipId);
+    if (element) await downloadA4Pdf(element, buildPdfFilename(order.partner_name || order.studio_name, order.order_no));
+  };
   const albumRows = (order.clients ?? []).flatMap((client) => client.album_rows ?? []);
   const videoRows = (order.clients ?? []).flatMap((client) => client.video_rows ?? []);
   const shareSlip = () => {
@@ -624,7 +642,7 @@ function LabWorkSlipModal({ order, onClose, settings }: { order: StudioLabOrder 
 
   return (
     <Modal open={true} onClose={onClose} title={`Work Slip — ${order.order_no}`} size="xl" dismissible={false}>
-      <div className="space-y-4 bg-white p-4 text-black sm:p-6">
+      <div id={slipId} className="space-y-4 bg-white p-4 text-black sm:p-6">
         <div className="border-b-2 border-black pb-3">
           <h2 className="text-xl font-bold">{settings?.production_title ?? 'Bollywood Umang Production'}</h2>
           <p className="text-xs">{settings?.production_subtitle ?? ''}</p>
@@ -634,8 +652,9 @@ function LabWorkSlipModal({ order, onClose, settings }: { order: StudioLabOrder 
         {albumRows.length > 0 && <div><h3 className="mb-2 font-semibold">Album Designing &amp; Printing</h3><div className="space-y-1 text-sm">{albumRows.map((row, index) => <p key={index}>{row.album_type || 'Album'} · Size {row.size || '—'} · {row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} sheets · Paper {row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} · Cover/Box {row.packaging || '—'}</p>)}</div></div>}
         {videoRows.length > 0 && <div><h3 className="mb-2 font-semibold">Video Editing</h3><div className="space-y-1 text-sm">{videoRows.map((row, index) => <p key={index}>{row.video_type || 'Video Edit'} · Format {row.quality || '—'} · Output specs {row.quality || '—'}</p>)}</div></div>}
         <div><h3 className="mb-2 font-semibold">Delivery / Drive Links</h3><p className="break-all text-sm">{order.parcel_tracking_details || 'No link provided'}</p></div>
+        <div className="border-t border-black pt-2"><h3 className="mb-1 font-semibold">Production &amp; Lab Terms &amp; Conditions</h3><p className="whitespace-pre-line text-xs">{settings?.production_terms || DEFAULT_PRODUCTION_TERMS}</p></div>
       </div>
-      <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4 dark:border-white/10"><button onClick={() => window.print()} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900">Print Work Slip</button><button onClick={() => window.print()} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300"><Download className="h-4 w-4" /> Download PDF</button><button onClick={shareSlip} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white">Share on WhatsApp to Lab Vendor</button><button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300">Close</button></div>
+      <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4 dark:border-white/10"><button onClick={() => window.print()} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900">Print Work Slip</button><button onClick={download} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300"><Download className="h-4 w-4" /> Download PDF</button>{onDualPrint && <button onClick={onDualPrint} className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white">🖨️ Print 2-in-1 (Half Cut / 2 Copies per A4)</button>}<button onClick={shareSlip} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white">Share on WhatsApp to Lab Vendor</button><button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300">Close</button></div>
     </Modal>
   );
 }
@@ -678,7 +697,7 @@ function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder
   </Modal>;
 }
 
-function LabOrderForm({ open, onClose, editing, onSaved }: { open: boolean; onClose: () => void; editing: StudioLabOrder | null; onSaved: (saved: StudioLabOrder) => void }) {
+function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boolean; onClose: () => void; editing: StudioLabOrder | null; existing: StudioLabOrder[]; onSaved: (saved: StudioLabOrder) => void }) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [partners, setPartners] = useState<Partner[]>([]);
@@ -884,11 +903,11 @@ function LabOrderForm({ open, onClose, editing, onSaved }: { open: boolean; onCl
     if (!studioName || !studioMobile || !projectName) { toast('Studio name, mobile, and project are required', 'error'); return; }
     setIsSubmitting(true);
     try {
-      const { data: existing } = await supabase.from('studio_lab_orders').select('*');
       const allVideoRows = clients.flatMap((c) => c.video_rows);
       const allAlbumRows = clients.flatMap((c) => c.album_rows);
-      const payload = {
-        order_no: editing?.order_no ?? nextOrderNo((existing ?? []) as StudioLabOrder[]),
+      const payload = sanitizePayload({
+        id: editing?.id ?? uid(),
+        order_no: editing?.order_no ?? nextOrderNo(existing),
         partner_id: selectedPartnerId || null,
         partner_name: partnerName,
         studio_name: studioName,
@@ -915,17 +934,11 @@ function LabOrderForm({ open, onClose, editing, onSaved }: { open: boolean; onCl
         parcel_tracking_details: parcelTracking,
         video_rows: allVideoRows,
         album_rows: allAlbumRows,
-      };
+      });
       let savedOrder: StudioLabOrder | null = null;
-      if (editing) {
-        const { data, error } = await supabase.from('studio_lab_orders').update(payload).eq('id', editing.id).select().single();
-        if (error) throw error;
-        savedOrder = data as StudioLabOrder | null;
-      } else {
-        const { data, error } = await supabase.from('studio_lab_orders').insert(payload).select().single();
-        if (error) throw error;
-        savedOrder = data as StudioLabOrder | null;
-      }
+      const { data, error } = await supabase.from('studio_lab_orders').upsert(payload).select().single();
+      if (error) throw error;
+      savedOrder = data as StudioLabOrder | null;
       clearDraft();
       if (savedOrder) onSaved(savedOrder);
     } catch (err) {
@@ -1428,6 +1441,11 @@ function LabOrderPrintTemplate({ order, settings }: { order: StudioLabOrder; set
         </div>
       )}
 
+      <div className="mt-4 border-t border-black pt-2">
+        <p className="font-bold">Production &amp; Lab Terms &amp; Conditions:</p>
+        <div className="whitespace-pre-line text-xs text-gray-700">{settings?.production_terms || DEFAULT_PRODUCTION_TERMS}</div>
+      </div>
+
       {/* Footer: UPI QR + Stamp */}
       <div className="mt-6 flex items-end justify-between border-t border-black pt-4">
         <div className="flex flex-col items-center gap-1">
@@ -1451,10 +1469,10 @@ function LabOrderPrintTemplate({ order, settings }: { order: StudioLabOrder; set
       </div>
 
       {/* Terms */}
-      {s?.terms_conditions && (
+      {(s?.production_terms || DEFAULT_PRODUCTION_TERMS) && (
         <div className="mt-4 border-t border-black pt-2">
-          <p className="mb-1 text-xs font-bold">Terms &amp; Conditions:</p>
-          <div className="whitespace-pre-line text-xs text-gray-700">{s.terms_conditions}</div>
+          <p className="mb-1 text-xs font-bold">Production &amp; Lab Terms &amp; Conditions:</p>
+          <div className="whitespace-pre-line text-xs text-gray-700">{s?.production_terms || DEFAULT_PRODUCTION_TERMS}</div>
         </div>
       )}
     </div>

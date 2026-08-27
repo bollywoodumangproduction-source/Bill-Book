@@ -218,7 +218,7 @@ export function Ledger() {
   const partnerLedger = (mobile: string) => ledgerEntries.filter((e) => e.mobile === mobile);
 
   return (
-    <div className="space-y-5">
+    <div className="flex h-full w-full flex-col space-y-5 overflow-y-auto">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Ledger</h1>

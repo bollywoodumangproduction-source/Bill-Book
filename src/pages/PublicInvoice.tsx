@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import type { Booking } from '@/lib/types';
 import { BillInvoice } from '@/components/BillInvoice';
 import { useSettings } from '@/context/SettingsContext';
+import { buildPdfFilename, downloadA4Pdf, PrintableDualCopies } from '@/lib/pdf';
 
 export function PublicInvoice() {
   const { bookingId } = useParams<{ bookingId: string }>();
@@ -13,6 +14,7 @@ export function PublicInvoice() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [dualPrint, setDualPrint] = useState(false);
 
   const load = useCallback(async () => {
     if (!bookingId) { setError(true); setLoading(false); return; }
@@ -22,6 +24,12 @@ export function PublicInvoice() {
   }, [bookingId]);
 
   useEffect(() => { load(); }, [load]);
+
+  const download = async () => {
+    if (!booking) return;
+    const element = document.getElementById(`public-invoice-${booking.id}`);
+    if (element) await downloadA4Pdf(element, buildPdfFilename(booking.client_name, booking.booking_no));
+  };
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -53,6 +61,8 @@ export function PublicInvoice() {
               <Printer className="h-4 w-4" />
               Download PDF / Print
             </button>
+            <button onClick={download} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">Download A4 PDF</button>
+            <button onClick={() => { setDualPrint(true); setTimeout(() => { window.print(); setDualPrint(false); }, 100); }} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">🖨️ 2-in-1 Print</button>
             <Link
               to="/client-login"
               className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100"
@@ -80,11 +90,16 @@ export function PublicInvoice() {
             </Link>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl bg-white shadow-lg print:shadow-none print:rounded-none">
+          <div id={`public-invoice-${booking.id}`} className="overflow-hidden rounded-xl bg-white shadow-lg print:shadow-none print:rounded-none">
             <BillInvoice booking={booking} settings={settings} />
           </div>
         )}
       </div>
+
+      {dualPrint && booking && createPortal(
+        <div id="printable-bill-sheet" aria-hidden><PrintableDualCopies><BillInvoice booking={booking} settings={settings} /></PrintableDualCopies></div>,
+        document.body,
+      )}
 
       {/* Portaled print template — shown only during print via CSS */}
       {booking && createPortal(

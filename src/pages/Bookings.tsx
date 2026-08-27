@@ -64,6 +64,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { MasterPinDialog } from '@/components/ui/MasterPinDialog';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { useRefresh } from '@/context/RefreshContext';
+import { buildPdfFilename, downloadA4Pdf, PrintableDualCopies } from '@/lib/pdf';
 
 const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'rose' | 'sky' | 'slate'> = {
   CONFIRMED: 'amber',
@@ -79,6 +80,10 @@ const DEFAULT_DELIVERABLES: BookingDeliverables = {
 };
 
 const toNum = (v: string | number | undefined) => { const n = Number(v); return isNaN(n) ? 0 : n; };
+
+function sanitizePayload<T>(payload: T): T {
+  return JSON.parse(JSON.stringify(payload)) as T;
+}
 
 const bookingDue = (booking: Pick<Booking, 'total_amount' | 'discount' | 'advance_paid'>) =>
   toNum(booking.total_amount) - toNum(booking.discount) - toNum(booking.advance_paid);
@@ -177,7 +182,7 @@ export function Bookings() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="flex h-full w-full flex-col space-y-5 overflow-y-auto">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Bookings</h1>
@@ -250,6 +255,7 @@ export function Bookings() {
         open={showForm}
         onClose={() => setShowForm(false)}
         editing={editing}
+        existing={bookings}
         onSaved={(saved: Booking) => { setShowForm(false); load(); setSuccessBooking(saved); toast('Saved Successfully!', 'success'); }}
       />
 
@@ -320,7 +326,7 @@ interface BookingDraftData {
   advancePaid: string;
 }
 
-function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClose: () => void; editing: Booking | null; onSaved: (saved: Booking) => void }) {
+function BookingForm({ open, onClose, editing, existing, onSaved }: { open: boolean; onClose: () => void; editing: Booking | null; existing: Booking[]; onSaved: (saved: Booking) => void }) {
   const { toast } = useToast();
   const { settings } = useSettings();
   const draftKey = editing ? `booking-edit-${editing.id}` : 'booking-new';
@@ -570,9 +576,9 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
     if (isSubmitting || !paymentVerified) return;
     if (!clientName || !clientMobile) { toast('Name and mobile are required', 'error'); return; }
     setIsSubmitting(true);
-    const { data: existing } = await supabase.from('bookings').select('*');
-    const payload = {
-      booking_no: editing?.booking_no ?? nextBookingNo((existing ?? []) as Booking[]),
+    const payload = sanitizePayload({
+      id: editing?.id ?? uid(),
+      booking_no: editing?.booking_no ?? nextBookingNo(existing),
       client_name: clientName,
       client_mobile: clientMobile,
       client_address: clientAddress,
@@ -603,15 +609,15 @@ function BookingForm({ open, onClose, editing, onSaved }: { open: boolean; onClo
       is_login_allowed: editing?.is_login_allowed ?? false,
       client_password: editing?.client_password ?? clientMobile,
       password_changed: editing?.password_changed ?? false,
-    };
+    });
     let savedBooking: Booking | null = null;
-    if (editing) {
-      const { data } = await supabase.from('bookings').update(payload).eq('id', editing.id).select().single();
-      savedBooking = data as Booking | null;
-    } else {
-      const { data } = await supabase.from('bookings').insert(payload).select().single();
-      savedBooking = data as Booking | null;
+    const { data, error } = await supabase.from('bookings').upsert(payload).select().single();
+    if (error) {
+      setIsSubmitting(false);
+      toast('Failed to save booking. Please try again.', 'error');
+      return;
     }
+    savedBooking = data as Booking | null;
     clearDraft();
     setIsSubmitting(false);
     if (savedBooking) onSaved(savedBooking);
@@ -1318,6 +1324,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
   const [assignmentRole, setAssignmentRole] = useState('Traditional Photo');
   const [reportingTime, setReportingTime] = useState('');
   const [isBillPreviewOpen, setIsBillPreviewOpen] = useState(false);
+  const [isDualPrintOpen, setIsDualPrintOpen] = useState(false);
 
   const toggleLoginAccess = async () => {
     const newVal = !loginAllowed;
@@ -1359,10 +1366,10 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
         return;
       }
       const { data: otherAssignments } = await supabase.from('shoot_assignments').select('booking_id').eq('partner_id', partner.id).neq('booking_id', booking.id);
-      const bookingIds = [...new Set((otherAssignments ?? []).map((item) => item.booking_id))];
+      const bookingIds = [...new Set((otherAssignments ?? []).map((item: { booking_id: string }) => item.booking_id))];
       if (bookingIds.length > 0) {
         const { data: otherBookings } = await supabase.from('bookings').select('id, events').in('id', bookingIds);
-        const clash = (otherBookings ?? []).some((other) => ((other.events as EventFunction[] | null) ?? []).some((event) => event.date === currentEvent.date));
+        const clash = (otherBookings ?? []).some((other: { events?: EventFunction[] | null }) => (other.events ?? []).some((event) => event.date === currentEvent.date));
         if (clash) { toast(`${partner.name} already has a same-day booking`, 'error'); return; }
       }
     }
@@ -1612,7 +1619,8 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
       <Modal open={true} onClose={onClose} title={`${booking.booking_no} — ${booking.client_name}`} size="lg">
         {modalBody}
       </Modal>
-      <BillPreviewModal booking={booking} settings={settings} open={isBillPreviewOpen} onClose={() => setIsBillPreviewOpen(false)} />
+      <BillPreviewModal booking={booking} settings={settings} open={isBillPreviewOpen} onClose={() => setIsBillPreviewOpen(false)} onDualPrint={() => { setIsDualPrintOpen(true); setTimeout(() => { window.print(); setIsDualPrintOpen(false); }, 100); }} />
+      {isDualPrintOpen && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><BillInvoice booking={booking} settings={settings} /></PrintableDualCopies></div>, document.body)}
       {createPortal(
         <div id="printable-bill-sheet" aria-hidden>
           <BillInvoice booking={booking} settings={settings} />
@@ -1623,7 +1631,12 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
   );
 }
 
-function BillPreviewModal({ booking, settings, open, onClose }: { booking: Booking; settings: StudioSettings | null; open: boolean; onClose: () => void }) {
+function BillPreviewModal({ booking, settings, open, onClose, onDualPrint }: { booking: Booking; settings: StudioSettings | null; open: boolean; onClose: () => void; onDualPrint: () => void }) {
+  const previewId = `invoice-preview-${booking.id}`;
+  const download = async () => {
+    const element = document.getElementById(previewId);
+    if (element) await downloadA4Pdf(element, buildPdfFilename(booking.client_name, booking.booking_no));
+  };
   const copyPublicLink = async () => {
     const link = `${window.location.origin}/view/${booking.id}`;
     const copied = await copyToClipboard(link);
@@ -1632,7 +1645,7 @@ function BillPreviewModal({ booking, settings, open, onClose }: { booking: Booki
 
   return (
     <Modal open={open} onClose={onClose} title="Invoice Preview" size="xl" dismissible={false}>
-      <div className="bg-slate-950/80 p-2 sm:p-4">
+      <div id={previewId} className="bg-slate-950/80 p-2 sm:p-4">
         <BillInvoice booking={booking} settings={settings} />
       </div>
       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-white/10 pt-4">
@@ -1642,7 +1655,10 @@ function BillPreviewModal({ booking, settings, open, onClose }: { booking: Booki
         <button onClick={() => window.print()} className="flex items-center gap-2 rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-600">
           🖨️ Print Now
         </button>
-        <button onClick={() => window.print()} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-amber-400">
+        <button onClick={onDualPrint} className="flex items-center gap-2 rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-600">
+          🖨️ Print 2-in-1 (Half Cut / 2 Copies per A4)
+        </button>
+        <button onClick={download} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-amber-400">
           <Download className="h-4 w-4" /> Download / Save
         </button>
         <button onClick={copyPublicLink} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">

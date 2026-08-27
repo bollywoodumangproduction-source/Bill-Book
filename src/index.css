@@ -138,3 +138,48 @@ iframe[src*="bolt"] {
     display: none !important;
   }
 }
+
+.dual-bill-page {
+  width: 210mm;
+  min-height: 297mm;
+  padding: 8mm;
+  background: #ffffff;
+  color: #000000;
+}
+
+.dual-bill-copy {
+  height: 137mm;
+  overflow: hidden;
+  font-size: 10px;
+}
+
+.dual-bill-copy .bill-page {
+  padding: 2mm;
+  font-size: 10px;
+  width: 208%;
+  height: 208%;
+  transform: scale(0.48);
+  transform-origin: top left;
+}
+
+.dual-bill-copy .bill-page > * {
+  margin-bottom: 2mm;
+}
+
+.dual-bill-label {
+  margin: 0 0 1mm;
+  border-bottom: 1px solid #000;
+  padding-bottom: 1mm;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.dual-bill-divider {
+  height: 7mm;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 7mm;
+  text-align: center;
+  white-space: nowrap;
+}

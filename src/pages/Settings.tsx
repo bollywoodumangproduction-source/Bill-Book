@@ -18,6 +18,12 @@ const DEFAULT_TERMS = `1. अग्रिम भुगतान (Advance Payment
 3. डेटा सुरक्षा व दायित्व: डिलीवरी तैयार होने के 30 दिनों के बाद डेटा सुरक्षित रखने की कोई जिम्मेदारी स्टूडियो की नहीं होगी।
 4. स्वीकृति (Agreement): बुकिंग अथवा अग्रिम भुगतान करते ही ग्राहक उपर्युक्त सभी शर्तों को पूर्णतः स्वीकार करता है।`;
 
+const DEFAULT_PRODUCTION_TERMS = `1. रॉ डाटा बैकअप व सुरक्षा (Raw Data Backup): जब तक तैयार प्रोजेक्ट/डाटा आपको नहीं मिल जाता, तब तक रॉ फुटेज की एक बैकअप कॉपी अपने पास सुरक्षित रखें।
+2. एल्बम डिजाइन व प्रिंट अप्रूवल (Album Approval): एल्बम प्रिंटिंग से पूर्व डिजाइन अप्रूवल अनिवार्य है। शीट प्रिंट होने के बाद किसी भी प्रकार का स्पेलिंग या फोटो बदलाव नहीं होगा।
+3. सॉन्ग सिलेक्शन व एडिटिंग (Songs Selection & Re-edits): टीज़र/हाइलाइट्स व वेडिंग के लिए मनपसंद गाने काम शुरू होने से पूर्व देना अनिवार्य है। प्रोजेक्ट फाइनल रेंडर के बाद कोई बदलाव नहीं किया जाएगा।
+4. अग्रिम भुगतान (50% Advance Mandatory): प्रोडक्शन से जुड़े किसी भी कार्य के कुल मूल्य का 50% राशि एडवांस जमा करना अनिवार्य होगा, अन्यथा काम को आगे नहीं बढ़ाया जाएगा।
+5. डिलीवरी व पूर्ण भुगतान (Final Delivery & Due Settlement): तैयार मास्टर वीडियो / पेन ड्राइव / एल्बम प्राप्त करने से पूर्व शेष बकाया राशि (Net Final Due) का पूर्ण भुगतान करना अनिवार्य है।`;
+
 export function SettingsPage() {
   const { settings, loading, update } = useSettings();
   const { toast } = useToast();
@@ -41,6 +47,7 @@ export function SettingsPage() {
   const [bankDetails, setBankDetails] = useState('');
   const [whatsappNumber, setWhatsappNumber] = useState('');
   const [productionLogoUrl, setProductionLogoUrl] = useState('');
+  const [productionTerms, setProductionTerms] = useState(DEFAULT_PRODUCTION_TERMS);
 
   const [studioName, setStudioName] = useState('');
   const [studioSubtitle, setStudioSubtitle] = useState('');
@@ -95,6 +102,7 @@ export function SettingsPage() {
     setBankDetails(settings.bank_details ?? '');
     setWhatsappNumber(settings.whatsapp_number ?? '');
     setProductionLogoUrl(settings.production_logo_url ?? '');
+    setProductionTerms(settings.production_terms || DEFAULT_PRODUCTION_TERMS);
     setStampImageUrl(settings.stamp_image_url ?? '');
     setTerms(settings.terms_conditions || DEFAULT_TERMS);
     setStudioName(settings.films_title ?? '');
@@ -141,6 +149,7 @@ export function SettingsPage() {
       master_pin: masterPin,
       films_logo_url: filmsLogoUrl,
       production_logo_url: productionLogoUrl,
+      production_terms: productionTerms,
       stamp_image_url: stampImageUrl,
       terms_conditions: terms,
     });
@@ -408,6 +417,18 @@ export function SettingsPage() {
             description="Square format recommended. This logo appears on Production (B2B) lab order bills."
             placeholderIcon={Clapperboard}
           />
+          <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-white/10">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+              <FileText className="h-4 w-4 text-amber-500" /> Production &amp; Lab Terms &amp; Conditions (नियम व शर्तें)
+            </h3>
+            <textarea
+              value={productionTerms}
+              onChange={(e) => setProductionTerms(e.target.value)}
+              className={`${textareaClass} min-h-[220px]`}
+              style={{ fontFamily: 'Noto Sans Devanagari, sans-serif', lineHeight: '1.6' }}
+            />
+            <p className="text-xs text-slate-400">These terms appear on B2B Production and Lab work slips only.</p>
+          </div>
         </div>
       )}
 
