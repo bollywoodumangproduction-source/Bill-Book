@@ -136,6 +136,11 @@ class MockQueryBuilder {
   }
 
   async insert(payload: Row | Row[]): Promise<{ data: Row | null; error: any }> {
+    const inserted = this.insertRows(payload);
+    return { data: inserted[0] ?? null, error: null };
+  }
+
+  private insertRows(payload: Row | Row[]): Row[] {
     const db = this.db();
     const tableRows = (db as any)[this.state.table] as Row[];
     const items = Array.isArray(payload) ? payload : [payload];
@@ -151,8 +156,70 @@ class MockQueryBuilder {
       inserted.push(row);
     }
     saveDB(db);
-    if (inserted.length === 1) return { data: inserted[0], error: null };
-    return { data: inserted[0], error: null };
+    return inserted;
+  }
+
+  private upsertRows(payload: Row | Row[]): Row[] {
+    const db = this.db();
+    const tableRows = (db as any)[this.state.table] as Row[];
+    const items = Array.isArray(payload) ? payload : [payload];
+    const result: Row[] = [];
+    for (const item of items) {
+      const existingIndex = item.id != null ? tableRows.findIndex((r) => r.id === item.id) : -1;
+      if (existingIndex >= 0) {
+        Object.assign(tableRows[existingIndex], item, { updated_at: isoNow() });
+        result.push(tableRows[existingIndex]);
+      } else {
+        const row: Row = {
+          id: item.id ?? uuid(),
+          created_at: item.created_at ?? isoNow(),
+          ...item,
+        };
+        if (!row.id) row.id = uuid();
+        tableRows.push(row);
+        result.push(row);
+      }
+    }
+    saveDB(db);
+    return result;
+  }
+
+  // Mirrors the Supabase API shape: .upsert(payload).select().single()
+  upsert(payload: Row | Row[]): {
+    select: () => {
+      single: () => Promise<{ data: Row | null; error: any }>;
+      maybeSingle: () => Promise<{ data: Row | null; error: any }>;
+      then: (resolve: (val: any) => void, reject?: (err: any) => void) => void;
+    };
+    single: () => Promise<{ data: Row | null; error: any }>;
+    then: (resolve: (val: any) => void, reject?: (err: any) => void) => void;
+  } {
+    let rows: Row[];
+    try {
+      rows = this.upsertRows(payload);
+    } catch (err) {
+      const errorResult = { data: null, error: err };
+      return {
+        select: () => ({
+          single: async () => errorResult,
+          maybeSingle: async () => errorResult,
+          then: (resolve) => resolve(errorResult),
+        }),
+        single: async () => errorResult,
+        then: (resolve) => resolve(errorResult),
+      };
+    }
+    const success = { data: rows[0] ?? null, error: null };
+    const listResult = { data: rows, error: null, status: 200, count: rows.length };
+    return {
+      select: () => ({
+        single: async () => success,
+        maybeSingle: async () => success,
+        then: (resolve) => resolve(listResult),
+      }),
+      single: async () => success,
+      then: (resolve) => resolve(listResult),
+    };
   }
 
   async update(patch: Row): Promise<{ data: Row | null; error: any }> {
