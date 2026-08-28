@@ -9,8 +9,6 @@ interface SettingsContextValue {
   update: (patch: Partial<StudioSettings>) => Promise<void>;
 }
 
-const SettingsContext = createContext<SettingsContextValue | null>(null);
-
 const fallbackSettings: StudioSettings = {
   id: 1,
   films_title: 'Bollywood Umang Films',
@@ -34,6 +32,13 @@ const fallbackSettings: StudioSettings = {
   terms_conditions: '',
   master_pin: '',
 };
+
+const SettingsContext = createContext<SettingsContextValue>({
+  settings: fallbackSettings,
+  loading: false,
+  refresh: async () => {},
+  update: async () => {},
+});
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
@@ -80,7 +85,5 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 }
 
 export function useSettings() {
-  const ctx = useContext(SettingsContext);
-  if (!ctx) throw new Error('useSettings must be used within SettingsProvider');
-  return ctx;
+  return useContext(SettingsContext);
 }
