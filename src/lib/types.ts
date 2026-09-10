@@ -21,7 +21,29 @@ export interface StudioSettings {
   production_terms?: string;
   terms_conditions: string;
   master_pin?: string;
+  studio_name?: string;
+  production_banner_name?: string;
+  studio_whatsapp?: string;
+  studio_call_number?: string;
+  studio_instagram_url?: string;
 }
+
+export type PromoAdAudience = 'clients' | 'partners';
+
+export interface PromoAd {
+  id: string;
+  title: string;
+  description: string;
+  image_url: string;
+  action_link: string;
+  audience: PromoAdAudience;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type EventSide = 'groom' | 'bride' | 'joint';
 
 export interface EventFunction {
   name: string;
@@ -32,6 +54,7 @@ export interface EventFunction {
   end_time?: string;
   end_date_shift?: 'same_date' | 'after_day' | 'next_date';
   venue?: string;
+  side?: EventSide;
 }
 
 export interface BookingPaperRow {
@@ -112,6 +135,9 @@ export interface Booking {
   client_name: string;
   client_mobile: string;
   client_address: string;
+  bride_name?: string;
+  bride_mobile?: string;
+  is_dual_side?: boolean;
   event_function: string;
   events: EventFunction[];
   shoot_date: string;
@@ -127,9 +153,34 @@ export interface Booking {
   is_login_allowed: boolean;
   client_password: string;
   password_changed: boolean;
+  work_status: WorkStatus;
   created_at: string;
   archived_at?: string | null;
   deleted_at?: string | null;
+}
+
+export type WorkStatus = 'pending' | 'shoot_completed' | 'editing_in_progress' | 'album_design_ready' | 'delivered';
+
+export const WORK_STATUSES: WorkStatus[] = ['pending', 'shoot_completed', 'editing_in_progress', 'album_design_ready', 'delivered'];
+
+export const WORK_STATUS_LABELS: Record<WorkStatus, string> = {
+  pending: 'Pending',
+  shoot_completed: 'Shoot Completed',
+  editing_in_progress: 'Editing in Progress',
+  album_design_ready: 'Album Design Ready for Review',
+  delivered: 'Delivered',
+};
+
+export type NotificationType = 'payment' | 'work_status' | 'reminder';
+
+export interface BookingNotification {
+  id: string;
+  booking_id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  is_read: boolean;
+  created_at: string;
 }
 
 export interface VideoRow {
@@ -172,7 +223,13 @@ export interface LabClientRow {
   album_rows: AlbumRow[];
   video_total: number;
   album_total: number;
+  delivery_status: string;
+  dispatch_mode: string;
+  delivered_at?: string;
 }
+
+export type LabClientDeliveryStatus = 'In Design' | 'Ready' | 'Delivered';
+export type LabClientDispatchMode = 'By Hand' | 'Courier' | 'Drive';
 
 export interface StudioLabOrder {
   id: string;
@@ -256,6 +313,9 @@ export interface Partner {
   updated_at: string;
   leave_start?: string | null;
   leave_end?: string | null;
+  portal_password?: string;
+  password_changed?: boolean;
+  is_login_allowed?: boolean;
 }
 
 export interface ShootAssignment {
@@ -291,4 +351,93 @@ export interface DirectTransaction {
   created_at: string;
 }
 
-export type PageKey = 'dashboard' | 'bookings' | 'lab' | 'ledger' | 'payments' | 'settings';
+export type PageKey = 'dashboard' | 'bookings' | 'lab' | 'ledger' | 'payments' | 'settings' | 'promo' | 'music' | 'teaser' | 'invitation';
+
+export type TeaserStatus = 'editing' | 'complete' | 'delivered';
+
+export interface TeaserProject {
+  id: string;
+  booking_id: string;
+  client_name: string;
+  video_url: string;
+  status: TeaserStatus;
+  watermark_text: string;
+  drive_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvitationProject {
+  id: string;
+  booking_id: string;
+  client_name: string;
+  video_url: string;
+  pdf_url: string;
+  groom_name: string;
+  bride_name: string;
+  event_date: string;
+  venue_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type MusicProjectMode = 'b2c' | 'b2b';
+export type MusicProjectStatus = 'draft' | 'submitted' | 'locked';
+export type MusicCuePriority = 'must_use' | 'preferred' | 'reference';
+
+export interface MusicProject {
+  id: string;
+  client_name: string;
+  booking_id: string | null;
+  mode: MusicProjectMode;
+  status: MusicProjectStatus;
+  locked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MusicCue {
+  id: string;
+  project_id: string;
+  category: string;
+  track_title: string;
+  track_url: string;
+  start_time: string;
+  usage_notes: string;
+  priority: MusicCuePriority;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Banner {
+  id: string;
+  text: string;
+  link: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface Popup {
+  id: string;
+  title: string;
+  message: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface Coupon {
+  id: string;
+  code: string;
+  percentage: number;
+  valid_until: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface Broadcast {
+  id: string;
+  title: string;
+  category: string;
+  message: string;
+  created_at: string;
+}

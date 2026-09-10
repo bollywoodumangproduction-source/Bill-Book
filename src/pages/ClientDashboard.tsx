@@ -19,7 +19,7 @@ import {
   User,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { Booking } from '@/lib/types';
+import type { Booking, PromoAd } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { formatINR, formatDate } from '@/lib/format';
@@ -28,6 +28,9 @@ import { getClientSession, clearClientSession } from '@/pages/ClientLogin';
 import { Modal } from '@/components/ui/Modal';
 import { Field, inputClass } from '@/components/ui/Field';
 import { Badge } from '@/components/ui/Badge';
+import { NotificationBell } from '@/components/NotificationBell';
+import { ProjectTimeline } from '@/components/ProjectTimeline';
+import { Megaphone, ExternalLink } from 'lucide-react';
 
 const DEFAULT_DELIVERABLES = {
   raw_video: false,
@@ -43,6 +46,7 @@ export function ClientDashboard() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [promoAds, setPromoAds] = useState<PromoAd[]>([]);
 
   const load = useCallback(async () => {
     const session = getClientSession();
@@ -50,6 +54,8 @@ export function ClientDashboard() {
     const { data } = await supabase.from('bookings').select('*').eq('id', session).maybeSingle();
     if (data) {
       setBooking(data as Booking);
+      const { data: ads } = await supabase.from('promo_ads').select('*').eq('is_active', true).eq('audience', 'clients').order('sort_order');
+      setPromoAds((ads ?? []) as PromoAd[]);
     } else {
       clearClientSession();
       navigate('/client-login');
@@ -94,13 +100,16 @@ export function ClientDashboard() {
             )}
             <span className="text-sm font-bold text-slate-900 dark:text-white">{settings?.films_title ?? 'Bollywood Umang Films'}</span>
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
-          >
-            <LogOut className="h-4 w-4" />
-            <span className="hidden sm:inline">Logout</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <NotificationBell bookingId={booking.id} />
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -206,6 +215,43 @@ export function ClientDashboard() {
           </div>
         </div>
 
+        {/* Project Status Timeline — only for confirmed/completed bookings */}
+        {booking.booking_status !== 'TENTATIVE' && (
+          <ProjectTimeline booking={booking} />
+        )}
+
+        {/* Promo & Marketing — strictly separated from booked client timeline */}
+        {booking.booking_status === 'TENTATIVE' && promoAds.length > 0 && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5 dark:border-amber-500/20 dark:bg-amber-500/5">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+              <Megaphone className="h-4 w-4 text-amber-500" /> Offers &amp; Add-Ons
+            </h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {promoAds.map((ad) => (
+                <div key={ad.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900">
+                  {ad.image_url && (
+                    <img src={ad.image_url} alt={ad.title} className="h-32 w-full object-cover" />
+                  )}
+                  <div className="p-3">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white">{ad.title}</p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{ad.description}</p>
+                    {ad.action_link && (
+                      <a
+                        href={ad.action_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-500 dark:text-amber-400"
+                      >
+                        Learn more <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Footer */}
         <div className="flex items-center justify-center gap-1.5 pt-2 text-xs text-slate-400">
           <Link to="/client-login" className="flex items-center gap-1 hover:text-slate-600 dark:hover:text-slate-300">
@@ -236,22 +282,21 @@ function ChangePasswordModal({ open, onClose, booking, onUpdated }: { open: bool
 
   const handleSubmit = async () => {
     if (!currentPwd || !newPwd || !confirmPwd) { toast('Please fill all fields', 'error'); return; }
-    const cleanCurrent = currentPwd.replace(/\D/g, '');
-    const storedPwd = (booking.client_password ?? '').replace(/\D/g, '');
-    if (cleanCurrent !== storedPwd) { toast('Current password is incorrect', 'error'); return; }
+    const storedPwd = booking.client_password ?? '';
+    if (currentPwd !== storedPwd) { toast('Current password is incorrect', 'error'); return; }
+    if (newPwd.length < 6) { toast('New password must be at least 6 characters', 'error'); return; }
     if (newPwd !== confirmPwd) { toast('New passwords do not match', 'error'); return; }
-    if (newPwd.replace(/\D/g, '').length < 4) { toast('Password must be at least 4 digits', 'error'); return; }
     setSaving(true);
-    const { data } = await supabase.from('bookings').update({ client_password: newPwd, password_changed: true }).eq('id', booking.id).select().single();
+    const { data, error } = await supabase.from('bookings').update({ client_password: newPwd, password_changed: true }).eq('id', booking.id).select().single();
     setSaving(false);
-    if (data) {
-      onUpdated(data as Booking);
-      toast('Password changed successfully', 'success');
-      setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
-      onClose();
-    } else {
-      toast('Failed to change password', 'error');
+    if (error || !data) {
+      toast('Failed to change password. Please try again.', 'error');
+      return;
     }
+    onUpdated(data as Booking);
+    toast('Password updated successfully!', 'success');
+    setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
+    onClose();
   };
 
   return (

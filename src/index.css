@@ -51,7 +51,7 @@ iframe[src*="bolt"] {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 12mm;
+    margin: 4mm;
   }
 
   /* Reset page chrome */
@@ -140,46 +140,85 @@ iframe[src*="bolt"] {
 }
 
 .dual-bill-page {
-  width: 210mm;
-  min-height: 297mm;
-  padding: 8mm;
+  width: 202mm;
+  height: 289mm;
+  padding: 0;
   background: #ffffff;
   color: #000000;
+  overflow: hidden;
+  page-break-inside: avoid;
+  break-inside: avoid;
 }
 
 .dual-bill-copy {
-  height: 137mm;
+  max-height: 138mm;
   overflow: hidden;
-  font-size: 10px;
+  page-break-inside: avoid;
+  break-inside: avoid;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .dual-bill-copy .bill-page {
-  padding: 2mm;
-  font-size: 10px;
-  width: 208%;
-  height: 208%;
-  transform: scale(0.48);
-  transform-origin: top left;
+  padding: 3mm 4mm;
+  font-size: 11px;
+  line-height: 1.4;
+  width: 100%;
+  height: auto;
+  transform: none;
+  overflow: hidden;
 }
 
 .dual-bill-copy .bill-page > * {
-  margin-bottom: 2mm;
+  margin-bottom: 1.5mm;
 }
 
 .dual-bill-label {
   margin: 0 0 1mm;
   border-bottom: 1px solid #000;
-  padding-bottom: 1mm;
+  padding-bottom: 0.5mm;
   font-size: 10px;
   font-weight: 700;
   text-align: center;
 }
 
 .dual-bill-divider {
-  height: 7mm;
+  height: 6mm;
   overflow: hidden;
   font-size: 10px;
-  line-height: 7mm;
+  line-height: 6mm;
   text-align: center;
   white-space: nowrap;
+  border-top: 1px dashed #000;
+  border-bottom: 1px dashed #000;
+}
+
+/* Compact bill layout for dual-print mode */
+.dual-bill-copy .bill-page.compact-bill {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.dual-bill-copy .bill-page.compact-bill h1 {
+  font-size: 14px;
+  margin-bottom: 0;
+}
+
+.dual-bill-copy .bill-page.compact-bill p {
+  font-size: 10.5px;
+  margin: 0;
+}
+
+.dual-bill-copy .bill-page.compact-bill table {
+  font-size: 10px;
+}
+
+.dual-bill-copy .bill-page.compact-bill table th,
+.dual-bill-copy .bill-page.compact-bill table td {
+  padding: 1px 4px;
+}
+
+.dual-bill-copy .bill-page.compact-bill img {
+  max-height: 60px;
+  max-width: 60px;
 }

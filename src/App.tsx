@@ -6,7 +6,9 @@ import { ThemeProvider } from '@/context/ThemeContext';
 import { SyncProvider } from '@/context/SyncContext';
 import { RefreshProvider } from '@/context/RefreshContext';
 import { Layout } from '@/components/Layout';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { SettingsPage } from '@/pages/Settings';
+import { PromoManagement } from '@/pages/PromoManagement';
 import { Dashboard } from '@/pages/Dashboard';
 import { Bookings } from '@/pages/Bookings';
 import { LabOrders } from '@/pages/StudioWork';
@@ -18,18 +20,19 @@ import { ClientDashboard } from '@/pages/ClientDashboard';
 import { PartnerDashboard } from '@/pages/PartnerDashboard';
 import { AdminLogin, getAdminSession } from '@/pages/AdminLogin';
 import { getClientSession } from '@/pages/ClientLogin';
+import { MusicSelection, PublicMusicSelection } from '@/pages/MusicSelection';
+import { TeaserPreview, PublicTeaserPreview } from '@/pages/TeaserPreview';
+import { InvitationHub, PublicInvitationHub } from '@/pages/InvitationHub';
 import type { PageKey } from '@/lib/types';
-import { MobilePage } from '@/components/DesktopWindowManager';
 
 function AdminApp() {
   const [page, setPage] = useState<PageKey>('dashboard');
 
   return (
     <Layout current={page} onNavigate={setPage}>
-      <div className="hidden min-h-screen w-full md:block">
-        {page === 'dashboard' ? <Dashboard onNavigate={setPage} /> : <DesktopPage page={page} onNavigate={setPage} />}
-      </div>
-      <div className="md:hidden">{page === 'settings' ? <SettingsPage /> : <MobilePage page={page} onNavigate={setPage} />}</div>
+      <ErrorBoundary>
+        <DesktopPage page={page} onNavigate={setPage} />
+      </ErrorBoundary>
     </Layout>
   );
 }
@@ -41,6 +44,10 @@ function DesktopPage({ page, onNavigate }: { page: PageKey; onNavigate: (page: P
       {page === 'lab' && <LabOrders />}
       {page === 'ledger' && <Ledger />}
       {page === 'payments' && <Payments />}
+      {page === 'promo' && <PromoManagement />}
+      {page === 'music' && <MusicSelection />}
+      {page === 'teaser' && <TeaserPreview />}
+      {page === 'invitation' && <InvitationHub />}
       {page === 'settings' && <SettingsPage />}
       {page === 'dashboard' && <Dashboard onNavigate={onNavigate} />}
     </div>
@@ -78,6 +85,9 @@ export default function App() {
                   <Route path="/client-login" element={<ClientLogin />} />
                   <Route path="/client/dashboard" element={<ClientGuard />} />
                   <Route path="/partner/dashboard" element={<PartnerDashboard />} />
+                  <Route path="/music-selection" element={<PublicMusicSelection />} />
+                  <Route path="/teaser-preview" element={<PublicTeaserPreview />} />
+                  <Route path="/invitation-hub" element={<PublicInvitationHub />} />
                   <Route path="/view/:bookingId" element={<PublicInvoice />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

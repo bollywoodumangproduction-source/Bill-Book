@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
-import { Save, Sparkles, Camera, Clapperboard, Stamp, FileText, Cloud, CloudOff, Upload, Download, RefreshCw, HardDrive, QrCode, Building2, User, LogIn, LogOut, ShieldCheck, FolderOpen, Database, Trash2, FlaskConical } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Save, Sparkles, Camera, Clapperboard, Stamp, FileText, Cloud, CloudOff, Upload, Download, RefreshCw, HardDrive, QrCode, Building2, User, LogIn, LogOut, ShieldCheck, FolderOpen, Database, Trash2, FlaskConical, Megaphone, Plus, Pencil, Trash, Eye, EyeOff, MessageCircle, Phone, Instagram } from 'lucide-react';
+import type { StudioSettings, PromoAd, PromoAdAudience } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { useSync } from '@/context/SyncContext';
@@ -8,10 +9,11 @@ import { supabase } from '@/lib/supabase';
 import { Field, inputClass, textareaClass } from '@/components/ui/Field';
 import { ImageUpload } from '@/components/ui/ImageUpload';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Modal } from '@/components/ui/Modal';
 import { backupToDrive, restoreFromDrive, listDriveBackups, getStoredFolderId, setStoredFolderId, syncConnectionState, readDriveMeta, type DriveBackupFile } from '@/lib/driveBackup';
 import { signInWithGoogle, disconnectGoogle, getStoredClientId, setStoredClientId, getStoredProfile, getStoredToken } from '@/lib/googleAuth';
 
-type Tab = 'films' | 'production';
+type Tab = 'films' | 'production' | 'promo';
 
 const DEFAULT_TERMS = `1. अग्रिम भुगतान (Advance Payment): शूट की निर्धारित तिथि से ठीक 7 दिन पूर्व कुल पैकेज राशि का न्यूनतम 50% भुगतान अनिवार्य है।
 2. डेटा सुपुर्दगी (Data Collection): पूर्ण भुगतान कर 30 दिनों के भीतर समस्त डेटा, पेन ड्राइव व एल्बम प्राप्त करना अनिवार्य है।
@@ -56,6 +58,16 @@ export function SettingsPage() {
   const [headOfficeAddress, setHeadOfficeAddress] = useState('');
   const [branchAddress, setBranchAddress] = useState('');
   const [studioEmail, setStudioEmail] = useState('');
+
+  // Promo & Branding state
+  const [brandStudioName, setBrandStudioName] = useState('');
+  const [productionBannerName, setProductionBannerName] = useState('');
+  const [studioWhatsapp, setStudioWhatsapp] = useState('');
+  const [studioCallNumber, setStudioCallNumber] = useState('');
+  const [studioInstagramUrl, setStudioInstagramUrl] = useState('');
+  const [promoAds, setPromoAds] = useState<PromoAd[]>([]);
+  const [showAdForm, setShowAdForm] = useState(false);
+  const [editingAd, setEditingAd] = useState<PromoAd | null>(null);
 
   const [upiId, setUpiId] = useState('');
   const [masterPin, setMasterPin] = useState('');
@@ -114,12 +126,29 @@ export function SettingsPage() {
     setStudioEmail(settings.email ?? '');
     setUpiId(settings.upi_id ?? '');
     setMasterPin(settings.master_pin ?? '');
+    setBrandStudioName(settings.studio_name ?? settings.films_title ?? '');
+    setProductionBannerName(settings.production_banner_name ?? settings.production_title ?? '');
+    setStudioWhatsapp(settings.studio_whatsapp ?? settings.whatsapp_number ?? '');
+    setStudioCallNumber(settings.studio_call_number ?? settings.phone ?? '');
+    setStudioInstagramUrl(settings.studio_instagram_url ?? '');
   }, [settings]);
 
   useEffect(() => {
     setGoogleClientId(getStoredClientId());
     setDriveFolderId(getStoredFolderId());
   }, []);
+
+  const loadPromoAds = useCallback(async () => {
+    try {
+      const { data } = await supabase.from('promo_ads').select('*').order('sort_order');
+      setPromoAds(Array.isArray(data) ? data as PromoAd[] : []);
+    } catch (error) {
+      console.error('Failed to load promo ads:', error);
+      setPromoAds([]);
+    }
+  }, []);
+
+  useEffect(() => { loadPromoAds(); }, [loadPromoAds]);
 
   useEffect(() => {
     if (termsRef.current) {
@@ -152,6 +181,11 @@ export function SettingsPage() {
       production_terms: productionTerms,
       stamp_image_url: stampImageUrl,
       terms_conditions: terms,
+      studio_name: brandStudioName,
+      production_banner_name: productionBannerName,
+      studio_whatsapp: studioWhatsapp,
+      studio_call_number: studioCallNumber,
+      studio_instagram_url: studioInstagramUrl,
     });
     setSaving(false);
     toast('Settings updated successfully!', 'success');
@@ -430,6 +464,29 @@ export function SettingsPage() {
             <p className="text-xs text-slate-400">These terms appear on B2B Production and Lab work slips only.</p>
           </div>
         </div>
+      )}
+
+      {/* Promo & Branding Tab */}
+      {tab === 'promo' && (
+        <PromoBrandingTab
+          brandStudioName={brandStudioName}
+          setBrandStudioName={setBrandStudioName}
+          productionBannerName={productionBannerName}
+          setProductionBannerName={setProductionBannerName}
+          studioWhatsapp={studioWhatsapp}
+          setStudioWhatsapp={setStudioWhatsapp}
+          studioCallNumber={studioCallNumber}
+          setStudioCallNumber={setStudioCallNumber}
+          studioInstagramUrl={studioInstagramUrl}
+          setStudioInstagramUrl={setStudioInstagramUrl}
+          promoAds={promoAds}
+          loadPromoAds={loadPromoAds}
+          showAdForm={showAdForm}
+          setShowAdForm={setShowAdForm}
+          editingAd={editingAd}
+          setEditingAd={setEditingAd}
+          toast={toast}
+        />
       )}
 
       {/* Shared Global Settings */}
@@ -725,6 +782,232 @@ export function SettingsPage() {
         danger
       />
     </div>
+  );
+}
+
+function PromoBrandingTab({
+  brandStudioName, setBrandStudioName,
+  productionBannerName, setProductionBannerName,
+  studioWhatsapp, setStudioWhatsapp,
+  studioCallNumber, setStudioCallNumber,
+  studioInstagramUrl, setStudioInstagramUrl,
+  promoAds, loadPromoAds,
+  showAdForm, setShowAdForm,
+  editingAd, setEditingAd,
+  toast,
+}: {
+  brandStudioName: string; setBrandStudioName: (v: string) => void;
+  productionBannerName: string; setProductionBannerName: (v: string) => void;
+  studioWhatsapp: string; setStudioWhatsapp: (v: string) => void;
+  studioCallNumber: string; setStudioCallNumber: (v: string) => void;
+  studioInstagramUrl: string; setStudioInstagramUrl: (v: string) => void;
+  promoAds: PromoAd[]; loadPromoAds: () => Promise<void>;
+  showAdForm: boolean; setShowAdForm: (v: boolean) => void;
+  editingAd: PromoAd | null; setEditingAd: (v: PromoAd | null) => void;
+  toast: (msg: string, type: 'success' | 'error' | 'info') => void;
+}) {
+  return (
+    <div className="space-y-5">
+      {/* Brand Identifiers */}
+      <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4 dark:border-white/10 dark:bg-slate-900/50">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+          <Building2 className="h-4 w-4 text-amber-500" /> Brand Identifiers
+        </h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Studio Name (for Client Billings)">
+            <input value={brandStudioName} onChange={(e) => setBrandStudioName(e.target.value)} placeholder="Bollywood Umang Films" className={inputClass} />
+          </Field>
+          <Field label="Production Banner Name (for Media/Films)">
+            <input value={productionBannerName} onChange={(e) => setProductionBannerName(e.target.value)} placeholder="Bollywood Umang Production" className={inputClass} />
+          </Field>
+        </div>
+      </div>
+
+      {/* Dynamic Contact Manager */}
+      <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4 dark:border-white/10 dark:bg-slate-900/50">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+          <MessageCircle className="h-4 w-4 text-amber-500" /> Dynamic Contact Manager
+        </h2>
+        <p className="text-xs text-slate-500 dark:text-slate-400">These contact details appear in the Client Portal modal as clickable buttons for WhatsApp, Phone Call, and Instagram.</p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="WhatsApp Number">
+            <input value={studioWhatsapp} onChange={(e) => setStudioWhatsapp(e.target.value)} placeholder="+91 9122441332" className={inputClass} />
+          </Field>
+          <Field label="Calling Number (tel:)">
+            <input value={studioCallNumber} onChange={(e) => setStudioCallNumber(e.target.value)} placeholder="+91 9122441332" className={inputClass} />
+          </Field>
+          <Field label="Instagram Profile URL">
+            <input value={studioInstagramUrl} onChange={(e) => setStudioInstagramUrl(e.target.value)} placeholder="https://instagram.com/bollywoodumang_films" className={inputClass} />
+          </Field>
+        </div>
+      </div>
+
+      {/* Ad/Notice Manager */}
+      <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4 dark:border-white/10 dark:bg-slate-900/50">
+        <div className="flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+            <Megaphone className="h-4 w-4 text-amber-500" /> Promo &amp; Notice Manager
+          </h2>
+          <button
+            onClick={() => { setEditingAd(null); setShowAdForm(true); }}
+            className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-slate-900 transition-colors hover:bg-amber-400"
+          >
+            <Plus className="h-3.5 w-3.5" /> New Promo
+          </button>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400">Create promo cards with audience targeting. Client portal shows only "Clients Only" ads; Lab/Partner portal shows only "Lab/Partners Only" notices.</p>
+
+        {promoAds.length === 0 ? (
+          <p className="py-6 text-center text-sm text-slate-400">No promo cards yet. Create one to display in the portal modals.</p>
+        ) : (
+          <div className="space-y-2">
+            {promoAds.map((ad) => (
+              <div key={ad.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/5">
+                {ad.image_url && <img src={ad.image_url} alt={ad.title} className="h-12 w-12 rounded-lg object-cover" />}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">{ad.title}</p>
+                  <p className="truncate text-xs text-slate-500 dark:text-slate-400">{ad.description || 'No description'}</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${ad.audience === 'clients' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400' : 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-400'}`}>
+                      {ad.audience === 'clients' ? 'Clients Only' : 'Lab/Partners Only'}
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${ad.is_active ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400'}`}>
+                      {ad.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={async () => {
+                      await supabase.from('promo_ads').update({ is_active: !ad.is_active }).eq('id', ad.id);
+                      loadPromoAds();
+                      toast(ad.is_active ? 'Promo deactivated' : 'Promo activated', 'success');
+                    }}
+                    className="rounded-lg border border-slate-200 p-2 text-xs text-slate-500 hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5"
+                    title={ad.is_active ? 'Deactivate' : 'Activate'}
+                  >
+                    {ad.is_active ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                  <button
+                    onClick={() => { setEditingAd(ad); setShowAdForm(true); }}
+                    className="rounded-lg border border-slate-200 p-2 text-xs text-slate-500 hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await supabase.from('promo_ads').delete().eq('id', ad.id);
+                      loadPromoAds();
+                      toast('Promo deleted', 'success');
+                    }}
+                    className="rounded-lg border border-rose-200 p-2 text-xs text-rose-500 hover:bg-rose-50 dark:border-rose-500/20 dark:hover:bg-rose-500/10"
+                  >
+                    <Trash className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {showAdForm && (
+        <PromoAdForm
+          open={showAdForm}
+          onClose={() => { setShowAdForm(false); setEditingAd(null); }}
+          onSaved={() => { setShowAdForm(false); setEditingAd(null); loadPromoAds(); }}
+          editing={editingAd}
+          toast={toast}
+        />
+      )}
+    </div>
+  );
+}
+
+function PromoAdForm({ open, onClose, onSaved, editing, toast }: {
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+  editing: PromoAd | null;
+  toast: (msg: string, type: 'success' | 'error' | 'info') => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [actionLink, setActionLink] = useState('');
+  const [audience, setAudience] = useState<PromoAdAudience>('clients');
+  const [isActive, setIsActive] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      setTitle(editing.title);
+      setDescription(editing.description);
+      setImageUrl(editing.image_url);
+      setActionLink(editing.action_link);
+      setAudience(editing.audience);
+      setIsActive(editing.is_active);
+    } else {
+      setTitle(''); setDescription(''); setImageUrl(''); setActionLink(''); setAudience('clients'); setIsActive(true);
+    }
+  }, [open, editing]);
+
+  const handleSave = async () => {
+    if (!title.trim()) { toast('Title is required', 'error'); return; }
+    setSaving(true);
+    const payload = { title: title.trim(), description: description.trim(), image_url: imageUrl.trim(), action_link: actionLink.trim(), audience, is_active: isActive };
+    if (editing) {
+      const { error } = await supabase.from('promo_ads').update(payload).eq('id', editing.id);
+      if (error) { toast('Failed to update promo', 'error'); setSaving(false); return; }
+      toast('Promo updated', 'success');
+    } else {
+      const { error } = await supabase.from('promo_ads').insert(payload);
+      if (error) { toast('Failed to create promo', 'error'); setSaving(false); return; }
+      toast('Promo created', 'success');
+    }
+    setSaving(false);
+    onSaved();
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title={editing ? 'Edit Promo' : 'New Promo'} size="md" dismissible={false}>
+      <div className="space-y-4">
+        <Field label="Title">
+          <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputClass} placeholder="e.g., Monsoon Wedding Offer 2026" />
+        </Field>
+        <Field label="Description">
+          <textarea value={description} onChange={(e) => setDescription(e.target.value)} className={`${inputClass} min-h-[80px]`} placeholder="Promo description..." />
+        </Field>
+        <Field label="Image / Footage URL">
+          <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className={inputClass} placeholder="https://example.com/promo-image.jpg" />
+        </Field>
+        <Field label="Action Link (optional)">
+          <input value={actionLink} onChange={(e) => setActionLink(e.target.value)} className={inputClass} placeholder="https://example.com/offer" />
+        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Target Audience">
+            <select value={audience} onChange={(e) => setAudience(e.target.value as PromoAdAudience)} className={inputClass}>
+              <option value="clients">Clients Only</option>
+              <option value="partners">Lab/Partners Only</option>
+            </select>
+          </Field>
+          <Field label="Status">
+            <select value={isActive ? 'active' : 'inactive'} onChange={(e) => setIsActive(e.target.value === 'active')} className={inputClass}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </Field>
+        </div>
+        <div className="flex justify-end gap-3 pt-2">
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
+          <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400 disabled:opacity-50">
+            {saving ? <Sparkles className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {saving ? 'Saving...' : editing ? 'Save Changes' : 'Create Promo'}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

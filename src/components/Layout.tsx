@@ -14,6 +14,10 @@ import {
   Moon,
   Wallet,
   LogOut,
+  Megaphone,
+  Music2,
+  Video,
+  Mail,
 } from 'lucide-react';
 import type { PageKey } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
@@ -33,6 +37,10 @@ const desktopNav: { key: PageKey; label: string; icon: typeof Home }[] = [
   { key: 'lab', label: 'Lab Orders', icon: Clapperboard },
   { key: 'ledger', label: 'Ledger', icon: Camera },
   { key: 'payments', label: 'Payments', icon: Wallet },
+  { key: 'promo', label: 'Promo & Setup', icon: Megaphone },
+  { key: 'music', label: 'Music Selection', icon: Music2 },
+  { key: 'teaser', label: 'Teaser & Clearance', icon: Video },
+  { key: 'invitation', label: 'Invitation Hub', icon: Mail },
   { key: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -45,6 +53,10 @@ const mobileNav: { key: PageKey; label: string; icon: typeof Home }[] = [
 
 const moreNav: { key: PageKey; label: string; icon: typeof Home }[] = [
   { key: 'ledger', label: 'Ledger', icon: Camera },
+  { key: 'promo', label: 'Promo & Setup', icon: Megaphone },
+  { key: 'music', label: 'Music Selection', icon: Music2 },
+  { key: 'teaser', label: 'Teaser & Clearance', icon: Video },
+  { key: 'invitation', label: 'Invitation Hub', icon: Mail },
   { key: 'settings', label: 'Settings', icon: Settings },
 ];
 

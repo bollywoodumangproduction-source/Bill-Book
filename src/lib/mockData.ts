@@ -11,6 +11,16 @@ import type {
   LabClientRow,
   Partner,
   DirectTransaction,
+  BookingNotification,
+  PromoAd,
+  Banner,
+  Popup,
+  Coupon,
+  Broadcast,
+  MusicProject,
+  MusicCue,
+  TeaserProject,
+  InvitationProject,
 } from '@/lib/types';
 
 function uuid(): string {
@@ -39,6 +49,16 @@ export interface MockDB {
   payments: Payment[];
   partners: Partner[];
   direct_transactions: DirectTransaction[];
+  booking_notifications: BookingNotification[];
+  promo_ads: PromoAd[];
+  promo_banners: Banner[];
+  promo_popups: Popup[];
+  promo_coupons: Coupon[];
+  promo_broadcasts: Broadcast[];
+  music_projects: MusicProject[];
+  music_cues: MusicCue[];
+  teaser_projects: TeaserProject[];
+  invitation_projects: InvitationProject[];
 }
 
 function seedDB(): MockDB {
@@ -133,25 +153,25 @@ function seedDB(): MockDB {
       id: uuid(), booking_no: 'BUF-001', client_name: 'Rajesh Kumar Singh', client_mobile: '+91 98765 43210', client_address: 'Laheriasarai, Darbhanga',
       event_function: 'Haldi, Wedding/Barat, Reception', events: events1, shoot_date: dateOffset(7), shoot_time: '16:00', venue: 'Sanskriti Vihar, Darbhanga', booking_status: 'CONFIRMED',
       base_amount: 0, total_amount: 60000, discount: 5000, advance_paid: 30000, net_due: 25000, deliverables_data: deliv1,
-      is_login_allowed: false, client_password: '+91 98765 43210', password_changed: false, created_at: isoNow(),
+      is_login_allowed: false, client_password: '+91 98765 43210', password_changed: false, work_status: 'pending', created_at: isoNow(),
     },
     {
       id: uuid(), booking_no: 'BUF-002', client_name: 'Mohammed Imran Khan', client_mobile: '+91 99887 76655', client_address: 'Kamtaul, Darbhanga',
       event_function: 'Pre-Wedding', events: events2, shoot_date: dateOffset(-3), shoot_time: '08:00', venue: 'Eidgah Maidan, Kamtaul', booking_status: 'COMPLETED',
       base_amount: 0, total_amount: 16000, discount: 0, advance_paid: 16000, net_due: 0, deliverables_data: deliv2,
-      is_login_allowed: false, client_password: '+91 99887 76655', password_changed: false, created_at: isoNow(),
+      is_login_allowed: false, client_password: '+91 99887 76655', password_changed: false, work_status: 'delivered', created_at: isoNow(),
     },
     {
       id: uuid(), booking_no: 'BUF-003', client_name: 'Sunita Devi', client_mobile: '+91 91234 56789', client_address: 'Beladungri, Madhubani',
       event_function: 'Reception', events: events3, shoot_date: dateOffset(14), shoot_time: '18:00', venue: 'Town Hall, Madhubani', booking_status: 'CONFIRMED',
       base_amount: 0, total_amount: 28000, discount: 0, advance_paid: 10000, net_due: 18000, deliverables_data: deliv3,
-      is_login_allowed: false, client_password: '+91 91234 56789', password_changed: false, created_at: isoNow(),
+      is_login_allowed: false, client_password: '+91 91234 56789', password_changed: false, work_status: 'pending', created_at: isoNow(),
     },
     {
       id: uuid(), booking_no: 'BUF-004', client_name: 'Amit Jha', client_mobile: '+91 90011 22334', client_address: 'Bhagalpur',
       event_function: 'Birthday', events: [{ name: 'Birthday', date: dateOffset(-10), time: '14:00' }], shoot_date: dateOffset(-10), shoot_time: '14:00', venue: 'Home, Bhagalpur', booking_status: 'COMPLETED',
       base_amount: 0, total_amount: 5000, discount: 0, advance_paid: 5000, net_due: 0, deliverables_data: deliv4,
-      is_login_allowed: false, client_password: '+91 90011 22334', password_changed: false, created_at: isoNow(),
+      is_login_allowed: false, client_password: '+91 90011 22334', password_changed: false, work_status: 'delivered', created_at: isoNow(),
     },
   ];
 
@@ -179,10 +199,10 @@ function seedDB(): MockDB {
     { id: uuid(), name: 'Ravi Equipment Rentals', mobile: '+91 98000 77777', studio_name: '', studio_address: '', category: 'Other', status: 'Active', note: 'Lens & lighting rentals', trashed_at: null, created_at: isoNow(), updated_at: isoNow() },
   ];
 
-  const client1: LabClientRow = { id: uuid(), client_name: 'Rajesh Kumar Singh', event_address: 'Sanskriti Vihar, Darbhanga', video_rows: videoRows1, album_rows: [], video_total: 5000, album_total: 0 };
-  const client2: LabClientRow = { id: uuid(), client_name: 'Mohammed Imran Khan', event_address: 'Eidgah Maidan, Kamtaul', video_rows: [], album_rows: albumRows2, video_total: 0, album_total: 3000 };
-  const client3: LabClientRow = { id: uuid(), client_name: 'Sunita Devi', event_address: 'Town Hall, Madhubani', video_rows: videoRows3, album_rows: [], video_total: 4500, album_total: 0 };
-  const client4: LabClientRow = { id: uuid(), client_name: 'Amit Jha', event_address: 'Home, Bhagalpur', video_rows: videoRows4, album_rows: [], video_total: 2000, album_total: 0 };
+  const client1: LabClientRow = { id: uuid(), client_name: 'Rajesh Kumar Singh', event_address: 'Sanskriti Vihar, Darbhanga', video_rows: videoRows1, album_rows: [], video_total: 5000, album_total: 0, delivery_status: 'In Design', dispatch_mode: 'By Hand' };
+  const client2: LabClientRow = { id: uuid(), client_name: 'Mohammed Imran Khan', event_address: 'Eidgah Maidan, Kamtaul', video_rows: [], album_rows: albumRows2, video_total: 0, album_total: 3000, delivery_status: 'Delivered', dispatch_mode: 'By Hand' };
+  const client3: LabClientRow = { id: uuid(), client_name: 'Sunita Devi', event_address: 'Town Hall, Madhubani', video_rows: videoRows3, album_rows: [], video_total: 4500, album_total: 0, delivery_status: 'Ready', dispatch_mode: 'Courier' };
+  const client4: LabClientRow = { id: uuid(), client_name: 'Amit Jha', event_address: 'Home, Bhagalpur', video_rows: videoRows4, album_rows: [], video_total: 2000, album_total: 0, delivery_status: 'In Design', dispatch_mode: 'Drive' };
 
   const studio_lab_orders: StudioLabOrder[] = [
     {
@@ -237,6 +257,16 @@ function seedDB(): MockDB {
     { id: uuid(), partner_id: partners[0].id, partner_name: 'Vikash Thakur', partner_mobile: '+91 98000 11111', txn_type: 'Received', amount: 1000, payment_mode: 'Cash', txn_date: dateOffset(-2), note: 'Partial advance return', created_at: isoNow() },
   ];
 
+  const bookingNotifications: BookingNotification[] = [
+    { id: uuid(), booking_id: bookings[0].id, type: 'payment', title: 'Payment Received', message: 'Payment of \u20b930,000 received successfully. Remaining balance: \u20b925,000.', is_read: false, created_at: isoNow() },
+    { id: uuid(), booking_id: bookings[2].id, type: 'payment', title: 'Payment Received', message: 'Payment of \u20b910,000 received successfully. Remaining balance: \u20b918,000.', is_read: false, created_at: isoNow() },
+  ];
+
+  const promoAds: PromoAd[] = [
+    { id: uuid(), title: 'Pre-Wedding Combo Offer', description: 'Book a pre-wedding shoot along with your wedding package and get 20% off on the pre-wedding session.', image_url: '', action_link: '', audience: 'clients', is_active: true, sort_order: 1, created_at: isoNow(), updated_at: isoNow() },
+    { id: uuid(), title: 'Drone Coverage Add-On', description: 'Add aerial drone coverage to any event for stunning cinematic shots. Available as an optional add-on.', image_url: '', action_link: '', audience: 'clients', is_active: true, sort_order: 2, created_at: isoNow(), updated_at: isoNow() },
+  ];
+
   return {
     studio_settings: [settings],
     bookings,
@@ -245,15 +275,34 @@ function seedDB(): MockDB {
     payments,
     partners,
     direct_transactions,
+    booking_notifications: bookingNotifications,
+    promo_ads: promoAds,
+    promo_banners: [],
+    promo_popups: [],
+    promo_coupons: [],
+    promo_broadcasts: [],
+    music_projects: [],
+    music_cues: [],
+    teaser_projects: [],
+    invitation_projects: [],
   };
 }
 
-const STORAGE_KEY = 'bup_mock_db_v7';
+const STORAGE_KEY = 'bup_mock_db_v8';
 
 export function loadDB(): MockDB {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as MockDB;
+    if (raw) {
+      const db = JSON.parse(raw) as Partial<MockDB>;
+      return {
+        ...db,
+        music_projects: db.music_projects ?? [],
+        music_cues: db.music_cues ?? [],
+        teaser_projects: db.teaser_projects ?? [],
+        invitation_projects: db.invitation_projects ?? [],
+      } as MockDB;
+    }
   } catch {
     // ignore
   }
@@ -295,6 +344,16 @@ export function clearAllData(): MockDB {
     payments: [],
     partners: [],
     direct_transactions: [],
+    booking_notifications: [],
+    promo_ads: [],
+    promo_banners: [],
+    promo_popups: [],
+    promo_coupons: [],
+    promo_broadcasts: [],
+    music_projects: [],
+    music_cues: [],
+    teaser_projects: [],
+    invitation_projects: [],
   };
   saveDB(empty);
   return empty;

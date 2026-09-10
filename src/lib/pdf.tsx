@@ -18,7 +18,7 @@ export async function downloadA4Pdf(element: HTMLElement, filename: string): Pro
   const module = await import('html2pdf.js');
   const html2pdf = (module.default ?? module) as () => { set: (options: object) => { from: (node: HTMLElement) => { save: () => Promise<void> } } };
   await html2pdf().set({
-    margin: [8, 8, 8, 8],
+    margin: [4, 4, 4, 4],
     filename,
     image: { type: 'jpeg', quality: 0.98 },
     html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },

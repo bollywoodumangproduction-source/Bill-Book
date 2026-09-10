@@ -24,7 +24,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment } from '@/lib/types';
+import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabClientDeliveryStatus, LabClientDispatchMode } from '@/lib/types';
 import { formatINR, formatDate, todayISO } from '@/lib/format';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -112,13 +112,15 @@ const EMPTY_ALBUM_ROW: AlbumRow = { id: uid(), album_type: '', size: '', packagi
 const EMPTY_PAPER_ROW: PaperRow = { id: uid(), paper_type: '', sheets: 0, rate: 0, total: 0 };
 
 function emptyClient(): LabClientRow {
-  return { id: uid(), client_name: '', event_address: '', video_rows: [], album_rows: [], video_total: 0, album_total: 0 };
+  return { id: uid(), client_name: '', event_address: '', video_rows: [], album_rows: [], video_total: 0, album_total: 0, delivery_status: 'In Design', dispatch_mode: 'By Hand' };
 }
 
 function normalizeLabOrder(raw: Partial<StudioLabOrder>): StudioLabOrder {
   const clients = (Array.isArray(raw.clients) ? raw.clients : []).map((client) => ({
     ...emptyClient(),
     ...client,
+    delivery_status: client.delivery_status ?? 'In Design',
+    dispatch_mode: client.dispatch_mode ?? 'By Hand',
     video_rows: Array.isArray(client.video_rows) ? client.video_rows : [],
     album_rows: (Array.isArray(client.album_rows) ? client.album_rows : []).map((album) => ({
       ...EMPTY_ALBUM_ROW,
@@ -174,6 +176,7 @@ export function LabOrders() {
   const [settleOrder, setSettleOrder] = useState<StudioLabOrder | null>(null);
   const [viewSlipOrder, setViewSlipOrder] = useState<StudioLabOrder | null>(null);
   const [dualPrintOrder, setDualPrintOrder] = useState<StudioLabOrder | null>(null);
+  const [quickPayOrder, setQuickPayOrder] = useState<StudioLabOrder | null>(null);
   const [view, setView] = useState<'active' | 'archived' | 'recycle'>('active');
   const [showPin, setShowPin] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<'soft' | 'permanent'>('soft');
@@ -272,6 +275,19 @@ export function LabOrders() {
                 <div className="mb-3 flex flex-wrap gap-1.5">
                   <Badge color={STATUS_COLORS[o.order_status] ?? 'slate'}>{o.order_status}</Badge>
                   <Badge color="slate">{o.delivery_mode}</Badge>
+                  {(() => {
+                    const allClients = o.clients ?? [];
+                    const deliveredCount = allClients.filter((c) => c.delivery_status === 'Delivered').length;
+                    const total = allClients.length;
+                    if (total > 0) {
+                      if (deliveredCount === total) {
+                        return <Badge color="emerald">Delivered</Badge>;
+                      } else if (deliveredCount > 0) {
+                        return <Badge color="amber">Partially Delivered ({deliveredCount}/{total})</Badge>;
+                      }
+                    }
+                    return null;
+                  })()}
                 </div>
                 <p className="mb-1 text-xs text-slate-500 dark:text-slate-400">{o.studio_name} · {o.studio_mobile}</p>
                 {o.partner_name && (
@@ -331,6 +347,12 @@ export function LabOrders() {
                     <Wallet className="h-3.5 w-3.5" /> Settle Balance
                   </button>
                   <button
+                    onClick={() => setQuickPayOrder(o)}
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-2 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Pay
+                  </button>
+                  <button
                     onClick={() => sendLabWhatsApp(o, settings)}
                     className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-600"
                   >
@@ -362,8 +384,9 @@ export function LabOrders() {
         <ViewBillModal order={viewBillOrder} onClose={() => setViewBillOrder(null)} settings={settings} onCopySummary={copyOrderSummary} />
       </ErrorBoundary>
       <LabWorkSlipModal order={viewSlipOrder} onClose={() => setViewSlipOrder(null)} settings={settings} onDualPrint={() => { if (viewSlipOrder) { setDualPrintOrder(viewSlipOrder); setTimeout(() => { window.print(); setDualPrintOrder(null); }, 100); } }} />
-      {dualPrintOrder && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><LabOrderPrintTemplate order={dualPrintOrder} settings={settings} /></PrintableDualCopies></div>, document.body)}
+      {dualPrintOrder && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><LabOrderPrintTemplate order={dualPrintOrder} settings={settings} compact /></PrintableDualCopies></div>, document.body)}
       {settleOrder && <LabSettlementModal order={settleOrder} onClose={() => setSettleOrder(null)} onSaved={() => { setSettleOrder(null); load(); }} />}
+      {quickPayOrder && <LabQuickPayModal order={quickPayOrder} onClose={() => setQuickPayOrder(null)} onSaved={() => { setQuickPayOrder(null); load(); }} />}
       {successOrder && (
         <ErrorBoundary>
           <LabOrderSuccessModal
@@ -430,6 +453,8 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
   const clients = (order.clients ?? []).map((client) => ({
     ...emptyClient(),
     ...client,
+    delivery_status: client.delivery_status ?? 'In Design',
+    dispatch_mode: client.dispatch_mode ?? 'By Hand',
     video_rows: Array.isArray(client.video_rows) ? client.video_rows : [],
     album_rows: (Array.isArray(client.album_rows) ? client.album_rows : []).map((album) => ({ ...EMPTY_ALBUM_ROW, ...album, papers: Array.isArray(album.papers) ? album.papers : [] })),
   }));
@@ -697,6 +722,52 @@ function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder
   </Modal>;
 }
 
+function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; onClose: () => void; onSaved: () => void }) {
+  const { toast } = useToast();
+  const [amount, setAmount] = useState('');
+  const [paymentDate, setPaymentDate] = useState(todayISO());
+  const [paymentMode, setPaymentMode] = useState('Cash');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value <= 0) { toast('Enter a valid payment amount', 'error'); return; }
+    setSaving(true);
+    const nextAdvance = toNum(order.advance_paid) + value;
+    const paymentHistory: LabPaymentInstallment[] = [...(order.payment_history ?? []), { id: uid(), amount: value, payment_date: paymentDate, payment_mode: paymentMode, note: 'Quick payment' }];
+    const { error } = await supabase.from('studio_lab_orders').update({
+      advance_paid: nextAdvance,
+      net_final_due: toNum(order.master_total) - nextAdvance,
+      payment_mode: paymentMode,
+      payment_date: paymentDate,
+      payment_history: paymentHistory,
+    }).eq('id', order.id);
+    setSaving(false);
+    if (error) { toast('Failed to record payment', 'error'); return; }
+    toast('Payment recorded', 'success');
+    onSaved();
+  };
+
+  return <Modal open={true} onClose={onClose} title={`Quick Pay — ${order.partner_name || order.studio_name}`} size="sm" dismissible={false}>
+    <div className="space-y-4">
+      <div className="rounded-lg bg-slate-50 p-3 text-xs dark:bg-white/5">
+        <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Master Total</span><span className="font-medium text-slate-900 dark:text-white">{formatINR(toNum(order.master_total))}</span></div>
+        <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Already Paid</span><span className="text-emerald-600 dark:text-emerald-400">{formatINR(toNum(order.advance_paid))}</span></div>
+        <div className="mt-1 flex justify-between border-t border-slate-200 pt-1 dark:border-white/10"><span className="font-semibold text-slate-700 dark:text-slate-300">Net Due</span><span className="font-bold text-rose-500 dark:text-rose-400">{formatINR(toNum(order.net_final_due))}</span></div>
+      </div>
+      <Field label="Payment Amount (₹)"><input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} placeholder="0" autoFocus /></Field>
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Date"><input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputClass} /></Field>
+        <Field label="Mode"><select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className={selectClass}><option>Cash</option><option>UPI</option><option>Bank Transfer</option></select></Field>
+      </div>
+      <div className="flex justify-end gap-3">
+        <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300">Cancel</button>
+        <button onClick={handleSave} disabled={saving} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Saving...' : 'Record Payment'}</button>
+      </div>
+    </div>
+  </Modal>;
+}
+
 function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boolean; onClose: () => void; editing: StudioLabOrder | null; existing: StudioLabOrder[]; onSaved: (saved: StudioLabOrder) => void }) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -811,13 +882,20 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
   };
 
   const updateClient = (ci: number, patch: Partial<LabClientRow>) => {
-    setClients((prev) => prev.map((c, idx) => {
-      if (idx !== ci) return c;
-      const updated = { ...c, ...patch };
-      updated.video_total = computeClientVideoTotal(updated.video_rows);
-      updated.album_total = computeClientAlbumTotal(updated.album_rows);
-      return updated;
-    }));
+    setClients((prev) => {
+      const next = prev.map((c, idx) => {
+        if (idx !== ci) return c;
+        const updated = { ...c, ...patch };
+        updated.video_total = computeClientVideoTotal(updated.video_rows);
+        updated.album_total = computeClientAlbumTotal(updated.album_rows);
+        return updated;
+      });
+      if ('client_name' in patch) {
+        const joined = next.map((c) => c.client_name.trim()).filter(Boolean).join(' + ');
+        setProjectName(joined);
+      }
+      return next;
+    });
   };
 
   const addClient = () => setClients((prev) => [...prev, emptyClient()]);
@@ -1023,6 +1101,38 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Client Name"><input value={client.client_name} onChange={(e) => updateClient(ci, { client_name: e.target.value })} className={inputClass} /></Field>
                 <Field label="Event Address"><input value={client.event_address} onChange={(e) => updateClient(ci, { event_address: e.target.value })} className={inputClass} /></Field>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <Field label="Delivery Status">
+                  <select
+                    value={client.delivery_status || 'In Design'}
+                    onChange={(e) => updateClient(ci, { delivery_status: e.target.value as LabClientDeliveryStatus })}
+                    className={`${selectClass} text-xs`}
+                  >
+                    <option value="In Design">In Design</option>
+                    <option value="Ready">Ready</option>
+                    <option value="Delivered">Delivered</option>
+                  </select>
+                </Field>
+                <Field label="Delivered On">
+                  <input
+                    type="date"
+                    value={client.delivered_at ?? ''}
+                    onChange={(e) => updateClient(ci, { delivered_at: e.target.value })}
+                    className={`${inputClass} text-xs`}
+                  />
+                </Field>
+                <Field label="Dispatch Mode">
+                  <select
+                    value={client.dispatch_mode || 'By Hand'}
+                    onChange={(e) => updateClient(ci, { dispatch_mode: e.target.value as LabClientDispatchMode })}
+                    className={`${selectClass} text-xs`}
+                  >
+                    <option value="By Hand">By Hand</option>
+                    <option value="Courier">Courier</option>
+                    <option value="Drive">Drive</option>
+                  </select>
+                </Field>
               </div>
 
               {/* Action buttons */}
@@ -1308,32 +1418,33 @@ function PrintTrigger({ order, onDone }: { order: StudioLabOrder; onDone: () => 
   return null;
 }
 
-function LabOrderPrintTemplate({ order, settings }: { order: StudioLabOrder; settings: StudioSettings | null }) {
+function LabOrderPrintTemplate({ order, settings, compact = false }: { order: StudioLabOrder; settings: StudioSettings | null; compact?: boolean }) {
   const s = settings;
   const clients = order.clients ?? [];
+  const cn = compact ? 'compact-bill' : '';
   return (
-    <div className="bill-page bg-white p-8 text-black" style={{ userSelect: 'text' }}>
+    <div className={`bill-page bg-white text-black ${cn}`} style={{ userSelect: 'text', padding: compact ? '3mm 4mm' : undefined }}>
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between border-b-2 border-black pb-4">
-        <div className="flex items-center gap-3">
+      <div className={compact ? "mb-2 flex items-center justify-between border-b-2 border-black pb-2" : "mb-6 flex items-center justify-between border-b-2 border-black pb-4"}>
+        <div className="flex items-center gap-2">
           {s?.production_logo_url && (
-            <img src={s.production_logo_url} alt="logo" className="h-16 w-16 rounded-lg object-cover" />
+            <img src={s.production_logo_url} alt="logo" className={compact ? "h-10 w-10 rounded object-cover" : "h-16 w-16 rounded-lg object-cover"} />
           )}
           <div>
-            <h1 className="text-2xl font-bold">{s?.production_title ?? 'Bollywood Umang Production'}</h1>
+            <h1 className={compact ? "text-base font-bold" : "text-2xl font-bold"}>{s?.production_title ?? 'Bollywood Umang Production'}</h1>
             <p className="text-xs">{s?.production_subtitle ?? ''}</p>
             <p className="text-xs">{s?.address ?? ''} · {s?.phone ?? ''}</p>
-            <p className="text-xs">{s?.production_insta ?? ''}</p>
+            {s?.production_insta && <p className="text-xs">{s.production_insta}</p>}
           </div>
         </div>
         <div className="text-right">
-          <p className="text-sm font-bold">Bill No: {order.order_no}</p>
+          <p className={compact ? "text-xs font-bold" : "text-sm font-bold"}>Bill No: {order.order_no}</p>
           <p className="text-xs">Date: {formatDate(order.created_at)}</p>
         </div>
       </div>
 
       {/* Party / Studio info */}
-      <div className="mb-4 flex justify-between text-sm">
+      <div className={compact ? "mb-2 flex justify-between text-xs" : "mb-4 flex justify-between text-sm"}>
         <div>
           {order.partner_name && <p><strong>Partner:</strong> {order.partner_name}</p>}
           <p><strong>Studio:</strong> {order.studio_name || '—'}</p>
@@ -1351,10 +1462,10 @@ function LabOrderPrintTemplate({ order, settings }: { order: StudioLabOrder; set
 
       {/* Per-client tables */}
       {clients.map((c, ci) => (
-        <div key={c.id} className="mb-4">
-          <h3 className="mb-1 text-sm font-bold">Client {ci + 1}: {c.client_name || '—'}{c.event_address ? ` (${c.event_address})` : ''}</h3>
+        <div key={c.id} className={compact ? "mb-2" : "mb-4"}>
+          <h3 className={compact ? "mb-0.5 text-xs font-bold" : "mb-1 text-sm font-bold"}>Client {ci + 1}: {c.client_name || '—'}{c.event_address ? ` (${c.event_address})` : ''}</h3>
           {c.video_rows.length > 0 && (
-            <table className="mb-2 w-full border-collapse border border-black text-sm">
+            <table className={compact ? "mb-1 w-full border-collapse border border-black text-xs" : "mb-2 w-full border-collapse border border-black text-sm"}>
               <thead>
                 <tr className="bg-gray-100">
                   <th className="border border-black px-2 py-1 text-left">Video Type</th>
@@ -1378,7 +1489,7 @@ function LabOrderPrintTemplate({ order, settings }: { order: StudioLabOrder; set
             </table>
           )}
           {c.album_rows.length > 0 && (
-            <table className="mb-2 w-full border-collapse border border-black text-sm">
+            <table className={compact ? "mb-1 w-full border-collapse border border-black text-xs" : "mb-2 w-full border-collapse border border-black text-sm"}>
               <thead>
                 <tr className="bg-gray-100">
                   <th className="border border-black px-2 py-1 text-left">Item / Description</th>
@@ -1420,41 +1531,61 @@ function LabOrderPrintTemplate({ order, settings }: { order: StudioLabOrder; set
         </div>
       ))}
 
-      {/* Financial summary */}
-      <div className="ml-auto w-64 space-y-1 text-sm">
-        <div className="flex justify-between"><span>Total Video Bill:</span><span>{formatINR(toNum(order.total_video_bill))}</span></div>
-        <div className="flex justify-between"><span>Total Album Bill:</span><span>{formatINR(toNum(order.total_album_bill))}</span></div>
-        <div className="flex justify-between border-t border-black pt-1"><span>Current Order Total:</span><span>{formatINR(toNum(order.current_order_total))}</span></div>
-        <div className="flex justify-between"><span>Back Due:</span><span>{formatINR(toNum(order.previous_back_due))}</span></div>
-        <div className="flex justify-between"><span>Master Total:</span><span>{formatINR(toNum(order.master_total))}</span></div>
-        <div className="flex justify-between"><span>Advance Paid:</span><span>- {formatINR(toNum(order.advance_paid))}</span></div>
-        <div className="flex justify-between border-t-2 border-black pt-1 font-bold"><span>Net Final Due:</span><span>{formatINR(toNum(order.net_final_due))}</span></div>
-      </div>
-
-      {/* Payment info */}
-      {(order.payment_mode || order.payment_date || order.payment_note) && (
-        <div className="mt-4 border-t border-black pt-2 text-xs">
-          <p className="font-bold">Payment Details:</p>
-          {order.payment_mode && <p>Mode: {order.payment_mode}</p>}
-          {order.payment_date && <p>Date: {formatDate(order.payment_date)}</p>}
-          {order.payment_note && <p>Note: {order.payment_note}</p>}
+      {/* Compact: Financial summary + Payment info side-by-side */}
+      {compact ? (
+        <div className="mb-2 flex justify-between gap-4">
+          {(order.payment_mode || order.payment_date || order.payment_note) && (
+            <div className="flex-1 text-xs">
+              <p className="font-bold">Payment Details:</p>
+              {order.payment_mode && <p>Mode: {order.payment_mode}</p>}
+              {order.payment_date && <p>Date: {formatDate(order.payment_date)}</p>}
+              {order.payment_note && <p>Note: {order.payment_note}</p>}
+            </div>
+          )}
+          <div className="w-48 space-y-0.5 text-xs">
+            <div className="flex justify-between"><span>Video Bill:</span><span>{formatINR(toNum(order.total_video_bill))}</span></div>
+            <div className="flex justify-between"><span>Album Bill:</span><span>{formatINR(toNum(order.total_album_bill))}</span></div>
+            <div className="flex justify-between border-t border-black pt-0.5"><span>Order Total:</span><span>{formatINR(toNum(order.current_order_total))}</span></div>
+            <div className="flex justify-between"><span>Back Due:</span><span>{formatINR(toNum(order.previous_back_due))}</span></div>
+            <div className="flex justify-between"><span>Master Total:</span><span>{formatINR(toNum(order.master_total))}</span></div>
+            <div className="flex justify-between"><span>Advance:</span><span>- {formatINR(toNum(order.advance_paid))}</span></div>
+            <div className="flex justify-between border-t-2 border-black pt-0.5 font-bold"><span>Net Due:</span><span>{formatINR(toNum(order.net_final_due))}</span></div>
+          </div>
         </div>
+      ) : (
+        <>
+          {/* Financial summary */}
+          <div className="ml-auto w-64 space-y-1 text-sm">
+            <div className="flex justify-between"><span>Total Video Bill:</span><span>{formatINR(toNum(order.total_video_bill))}</span></div>
+            <div className="flex justify-between"><span>Total Album Bill:</span><span>{formatINR(toNum(order.total_album_bill))}</span></div>
+            <div className="flex justify-between border-t border-black pt-1"><span>Current Order Total:</span><span>{formatINR(toNum(order.current_order_total))}</span></div>
+            <div className="flex justify-between"><span>Back Due:</span><span>{formatINR(toNum(order.previous_back_due))}</span></div>
+            <div className="flex justify-between"><span>Master Total:</span><span>{formatINR(toNum(order.master_total))}</span></div>
+            <div className="flex justify-between"><span>Advance Paid:</span><span>- {formatINR(toNum(order.advance_paid))}</span></div>
+            <div className="flex justify-between border-t-2 border-black pt-1 font-bold"><span>Net Final Due:</span><span>{formatINR(toNum(order.net_final_due))}</span></div>
+          </div>
+
+          {/* Payment info */}
+          {(order.payment_mode || order.payment_date || order.payment_note) && (
+            <div className="mt-4 border-t border-black pt-2 text-xs">
+              <p className="font-bold">Payment Details:</p>
+              {order.payment_mode && <p>Mode: {order.payment_mode}</p>}
+              {order.payment_date && <p>Date: {formatDate(order.payment_date)}</p>}
+              {order.payment_note && <p>Note: {order.payment_note}</p>}
+            </div>
+          )}
+        </>
       )}
 
-      <div className="mt-4 border-t border-black pt-2">
-        <p className="font-bold">Production &amp; Lab Terms &amp; Conditions:</p>
-        <div className="whitespace-pre-line text-xs text-gray-700">{settings?.production_terms || DEFAULT_PRODUCTION_TERMS}</div>
-      </div>
-
-      {/* Footer: UPI QR + Stamp */}
-      <div className="mt-6 flex items-end justify-between border-t border-black pt-4">
-        <div className="flex flex-col items-center gap-1">
+      {/* Footer: UPI QR + Stamp + Signature */}
+      <div className={compact ? "mt-2 flex items-end justify-between border-t border-black pt-1" : "mt-6 flex items-end justify-between border-t border-black pt-4"}>
+        <div className="flex flex-col items-center gap-0.5">
           {s?.upi_id ? (
             <>
               <img
                 src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=upi://pay?pa=${encodeURIComponent(s.upi_id)}`}
                 alt="UPI QR"
-                className="h-28 w-28"
+                className={compact ? "h-16 w-16" : "h-28 w-28"}
               />
               <p className="text-[10px] font-semibold">Scan to Pay via UPI</p>
               <p className="text-[10px]">{s.upi_id}</p>
@@ -1464,15 +1595,20 @@ function LabOrderPrintTemplate({ order, settings }: { order: StudioLabOrder; set
           )}
         </div>
         {s?.stamp_image_url && (
-          <img src={s.stamp_image_url} alt="stamp" className="h-20 w-20 rounded-full object-cover opacity-80" />
+          <img src={s.stamp_image_url} alt="stamp" className={compact ? "h-12 w-12 rounded-full object-cover opacity-80" : "h-20 w-20 rounded-full object-cover opacity-80"} />
+        )}
+        {compact && (
+          <div className="text-right text-xs">
+            <div className="border-t border-black pt-0.5 px-2">Production Signature</div>
+          </div>
         )}
       </div>
 
       {/* Terms */}
       {(s?.production_terms || DEFAULT_PRODUCTION_TERMS) && (
-        <div className="mt-4 border-t border-black pt-2">
-          <p className="mb-1 text-xs font-bold">Production &amp; Lab Terms &amp; Conditions:</p>
-          <div className="whitespace-pre-line text-xs text-gray-700">{s?.production_terms || DEFAULT_PRODUCTION_TERMS}</div>
+        <div className={compact ? "mt-1 border-t border-black pt-0.5" : "mt-4 border-t border-black pt-2"}>
+          <p className={compact ? "mb-0 text-[10px] font-bold" : "mb-1 text-xs font-bold"}>Production &amp; Lab Terms &amp; Conditions:</p>
+          <div className={compact ? "whitespace-pre-line text-[10px] text-gray-700 max-h-12 overflow-hidden" : "whitespace-pre-line text-xs text-gray-700"}>{s?.production_terms || DEFAULT_PRODUCTION_TERMS}</div>
         </div>
       )}
     </div>

@@ -97,7 +97,7 @@ export function PublicInvoice() {
       </div>
 
       {dualPrint && booking && createPortal(
-        <div id="printable-bill-sheet" aria-hidden><PrintableDualCopies><BillInvoice booking={booking} settings={settings} /></PrintableDualCopies></div>,
+        <div id="printable-bill-sheet" aria-hidden><PrintableDualCopies><BillInvoice booking={booking} settings={settings} compact /></PrintableDualCopies></div>,
         document.body,
       )}
 

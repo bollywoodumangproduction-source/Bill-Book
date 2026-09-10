@@ -8,6 +8,8 @@ import {
   ArrowRight,
   Sparkles,
   Home,
+  Users,
+  Camera,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { Booking, StudioLabOrder } from '@/lib/types';
@@ -15,6 +17,7 @@ import { formatINR, formatDate, todayISO, isToday, isUpcoming } from '@/lib/form
 import { Badge } from '@/components/ui/Badge';
 import { useRefresh } from '@/context/RefreshContext';
 import type { PageKey } from '@/lib/types';
+import { PortalModal } from '@/components/PortalModal';
 
 interface DashboardProps {
   onNavigate: (page: PageKey) => void;
@@ -27,22 +30,41 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([]);
   const [activeLabOrders, setActiveLabOrders] = useState<StudioLabOrder[]>([]);
   const [totalDue, setTotalDue] = useState(0);
+  const [showClientPortal, setShowClientPortal] = useState(false);
+  const [showPartnerPortal, setShowPartnerPortal] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      const [{ data: bookings }, { data: lab }] = await Promise.all([
-        supabase.from('bookings').select('*').order('shoot_date'),
-        supabase.from('studio_lab_orders').select('*').in('order_status', ['Processing']).order('created_at'),
-      ]);
+    let mounted = true;
 
-      const allBookings = (bookings ?? []) as Booking[];
-      const activeBookings = allBookings.filter((b) => !b.archived_at && !b.deleted_at);
-      setTodaysBookings(activeBookings.filter((b) => isToday(b.shoot_date)));
-      setUpcomingBookings(activeBookings.filter((b) => isUpcoming(b.shoot_date)).slice(0, 5));
-      setActiveLabOrders((lab ?? []) as StudioLabOrder[]);
-      setTotalDue(allBookings.reduce((s, b) => s + Number(b.net_due ?? 0), 0));
-      setLoading(false);
-    })();
+    const loadDashboard = async () => {
+      try {
+        const [{ data: bookings }, { data: lab }] = await Promise.all([
+          supabase.from('bookings').select('*').order('shoot_date'),
+          supabase.from('studio_lab_orders').select('*').in('order_status', ['Processing']).order('created_at'),
+        ]);
+
+        if (!mounted) return;
+        const allBookings = Array.isArray(bookings) ? bookings as Booking[] : [];
+        const activeBookings = allBookings.filter((b) => !b.archived_at && !b.deleted_at);
+        setTodaysBookings(activeBookings.filter((b) => isToday(b.shoot_date)));
+        setUpcomingBookings(activeBookings.filter((b) => isUpcoming(b.shoot_date)).slice(0, 5));
+        setActiveLabOrders(Array.isArray(lab) ? lab as StudioLabOrder[] : []);
+        setTotalDue(allBookings.reduce((s, b) => s + Number(b.net_due ?? 0), 0));
+      } catch (error) {
+        console.error('Failed to load dashboard:', error);
+        if (mounted) {
+          setTodaysBookings([]);
+          setUpcomingBookings([]);
+          setActiveLabOrders([]);
+          setTotalDue(0);
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    void loadDashboard();
+    return () => { mounted = false; };
   }, [refreshToken]);
 
   if (loading) {
@@ -58,6 +80,34 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">{formatDate(todayISO())}</p>
+      </div>
+
+      {/* Portal Buttons */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <button
+          onClick={() => setShowClientPortal(true)}
+          className="flex items-center gap-3 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-4 text-left transition-all hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/10 dark:border-amber-500/20 dark:from-amber-500/10 dark:to-orange-500/5 dark:hover:border-amber-500/40"
+        >
+          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-orange-500">
+            <Camera className="h-5 w-5 text-slate-900" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-slate-900 dark:text-white">Client Portal</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">View booking details &amp; dues</p>
+          </div>
+        </button>
+        <button
+          onClick={() => setShowPartnerPortal(true)}
+          className="flex items-center gap-3 rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 to-blue-50 p-4 text-left transition-all hover:border-sky-400 hover:shadow-lg hover:shadow-sky-500/10 dark:border-sky-500/20 dark:from-sky-500/10 dark:to-blue-500/5 dark:hover:border-sky-500/40"
+        >
+          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-sky-400 to-blue-600">
+            <Users className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-slate-900 dark:text-white">Lab / Partner Portal</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">View jobs &amp; ledger balance</p>
+          </div>
+        </button>
       </div>
 
       {/* Summary cards */}
@@ -147,6 +197,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           </div>
         </Card>
       </div>
+
+      <PortalModal open={showClientPortal} onClose={() => setShowClientPortal(false)} portalType="client" />
+      <PortalModal open={showPartnerPortal} onClose={() => setShowPartnerPortal(false)} portalType="partner" />
     </div>
   );
 }

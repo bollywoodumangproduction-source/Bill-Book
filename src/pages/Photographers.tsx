@@ -17,6 +17,9 @@ import {
   ArrowDownLeft,
   RotateCcw,
   Users,
+  Eye,
+  EyeOff,
+  KeyRound,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type {
@@ -312,6 +315,7 @@ export function Ledger() {
           ledgerEntries={partnerLedger(detailPartner.mobile)}
           onClose={() => setDetailPartner(null)}
           onSettle={() => setSettlePartner(detailPartner)}
+          onUpdated={(p) => { setDetailPartner(p); load(); }}
         />
       )}
 
@@ -862,13 +866,38 @@ function PartnerDetailModal({
   ledgerEntries,
   onClose,
   onSettle,
+  onUpdated,
 }: {
   partner: Partner;
   directTxns: DirectTransaction[];
   ledgerEntries: PhotographerLedgerEntry[];
   onClose: () => void;
   onSettle: () => void;
+  onUpdated: (p: Partner) => void;
 }) {
+  const { toast } = useToast();
+  const [showPwd, setShowPwd] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [togglingLogin, setTogglingLogin] = useState(false);
+
+  const handleResetPassword = async () => {
+    setResetting(true);
+    const { data, error } = await supabase.from('partners').update({ portal_password: partner.mobile, password_changed: false }).eq('id', partner.id).select().single();
+    setResetting(false);
+    if (error || !data) { toast('Failed to reset password', 'error'); return; }
+    onUpdated(data as Partner);
+    toast('Password reset to default (mobile number)', 'success');
+  };
+
+  const handleToggleLogin = async () => {
+    setTogglingLogin(true);
+    const newVal = !partner.is_login_allowed;
+    const { data, error } = await supabase.from('partners').update({ is_login_allowed: newVal }).eq('id', partner.id).select().single();
+    setTogglingLogin(false);
+    if (error || !data) { toast('Failed to update login access', 'error'); return; }
+    onUpdated(data as Partner);
+    toast(newVal ? 'Portal login enabled for this partner' : 'Portal login disabled for this partner', 'success');
+  };
   type UnifiedEntry = {
     id: string;
     date: string;
@@ -914,9 +943,48 @@ function PartnerDetailModal({
           <Badge color={partner.status === 'Active' ? 'emerald' : partner.status === 'On Leave' ? 'amber' : partner.status === 'Inactive' ? 'slate' : 'amber'}>{partner.status === 'Inactive' ? 'Left Studio / Inactive' : partner.status}</Badge>
           <span className="text-xs text-slate-500 dark:text-slate-400">{partner.mobile}</span>
         </div>
-        <button onClick={onSettle} className="flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-600">
-          <Wallet className="h-3.5 w-3.5" /> Direct Settle
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={onSettle} className="flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-600">
+            <Wallet className="h-3.5 w-3.5" /> Direct Settle
+          </button>
+          <button
+            onClick={handleToggleLogin}
+            disabled={togglingLogin}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${partner.is_login_allowed ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5'}`}
+          >
+            <KeyRound className="h-3.5 w-3.5" /> {partner.is_login_allowed ? 'Login Enabled' : 'Login Disabled'}
+          </button>
+        </div>
+
+        {/* Portal Access / Password Management */}
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-amber-500" />
+              <div>
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Portal Password</p>
+                <p className="font-mono text-sm text-slate-900 dark:text-white">{showPwd ? (partner.portal_password || partner.mobile) : '••••••••'}</p>
+                {partner.password_changed ? (
+                  <p className="mt-0.5 text-[10px] text-amber-600 dark:text-amber-400">Custom password set</p>
+                ) : (
+                  <p className="mt-0.5 text-[10px] text-slate-400">Default (mobile number)</p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowPwd(!showPwd)} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5" title={showPwd ? 'Hide password' : 'View password'}>
+                {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+              <button
+                onClick={handleResetPassword}
+                disabled={resetting}
+                className="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Reset to Default
+              </button>
+            </div>
+          </div>
+        </div>
 
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg border border-slate-200 p-3 text-center dark:border-white/10">

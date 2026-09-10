@@ -24,11 +24,13 @@ import {
   RefreshCw,
   Download,
   ExternalLink,
+  Heart,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type {
   Booking,
   EventFunction,
+  EventSide,
   BookingDeliverables,
   BookingAlbumRow,
   BookingVideoRow,
@@ -39,8 +41,11 @@ import type {
   BookingPaymentInstallment,
   BookingPaperRow,
   StudioSettings,
+  WorkStatus,
 } from '@/lib/types';
+import { WORK_STATUSES, WORK_STATUS_LABELS } from '@/lib/types';
 import { formatINR, formatDate, todayISO } from '@/lib/format';
+import { logPaymentNotification, logWorkStatusNotification } from '@/lib/notifications';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { useDraftState, useDraftOpen } from '@/lib/useDraftState';
@@ -350,6 +355,9 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
   const [customPaymentNote, setCustomPaymentNote] = useDraftState<string>(`${draftKey}-customPaymentNote`, '');
   const [paidAmount, setPaidAmount] = useDraftState<string>(`${draftKey}-paidAmount`, '');
   const [paymentHistory, setPaymentHistory] = useDraftState<BookingPaymentInstallment[]>(`${draftKey}-paymentHistory`, []);
+  const [isDualSide, setIsDualSide] = useDraftState<boolean>(`${draftKey}-isDualSide`, false);
+  const [brideName, setBrideName] = useDraftState<string>(`${draftKey}-brideName`, '');
+  const [brideMobile, setBrideMobile] = useDraftState<string>(`${draftKey}-brideMobile`, '');
   const [showPaymentQr, setShowPaymentQr] = useState(false);
   const [paymentVerified, setPaymentVerified] = useState(false);
 
@@ -360,6 +368,9 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
     setVenue('');
     setBookingStatus('CONFIRMED');
     setEvents([]);
+    setIsDualSide(false);
+    setBrideName('');
+    setBrideMobile('');
     setAlbumRows([]);
     setVideoRows([]);
     setCustomItems([]);
@@ -387,6 +398,9 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       setVenue(editing.venue ?? '');
       setBookingStatus(editing.booking_status ?? 'CONFIRMED');
       setEvents(editing.events ?? []);
+      setIsDualSide(editing.is_dual_side ?? false);
+      setBrideName(editing.bride_name ?? '');
+      setBrideMobile(editing.bride_mobile ?? '');
       setAlbumRows((d.album_rows ?? []).map((r) => ({
         id: r.id ?? uid(),
         album_type: r.album_type ?? 'Main Wedding Album',
@@ -450,6 +464,17 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
     setPaymentVerified(false);
   }, [open, editing]);
 
+  const sortedEvents = useMemo(() => {
+    return [...events].sort((a, b) => {
+      const dateA = a.date || '9999-12-31';
+      const dateB = b.date || '9999-12-31';
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+      const timeA = (a.start_time ?? a.time) || '99:99';
+      const timeB = (b.start_time ?? b.time) || '99:99';
+      return timeA.localeCompare(timeB);
+    });
+  }, [events]);
+
   const addEvent = () => {
     setEvents([...events, {
       name: 'Haldi',
@@ -459,6 +484,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       end_time: '',
       end_date_shift: 'same_date',
       venue: '',
+      side: isDualSide ? 'joint' : undefined,
     }]);
   };
   const updateEvent = (i: number, patch: Partial<EventFunction>) => {
@@ -582,8 +608,11 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       client_name: clientName,
       client_mobile: clientMobile,
       client_address: clientAddress,
+      bride_name: isDualSide ? brideName : undefined,
+      bride_mobile: isDualSide ? brideMobile : undefined,
+      is_dual_side: isDualSide,
       event_function: eventFunctionLabel,
-      events,
+      events: sortedEvents,
       shoot_date: primaryDate,
       shoot_time: primaryTime,
       venue: events.find((event) => event.venue)?.venue ?? venue,
@@ -609,7 +638,11 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       is_login_allowed: editing?.is_login_allowed ?? false,
       client_password: editing?.client_password ?? clientMobile,
       password_changed: editing?.password_changed ?? false,
+      work_status: editing?.work_status ?? 'pending',
     });
+    const newAdvance = paymentHistory.reduce((sum, payment) => sum + toNum(payment.paid_amount), 0);
+    const oldAdvance = editing ? toNum(editing.advance_paid) : 0;
+    const newNetDue = totalAmountNum - toNum(discount) - newAdvance;
     let savedBooking: Booking | null = null;
     const { data, error } = await supabase.from('bookings').upsert(payload).select().single();
     if (error) {
@@ -618,6 +651,13 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       return;
     }
     savedBooking = data as Booking | null;
+    if (editing && savedBooking && newAdvance > oldAdvance) {
+      const paidDiff = newAdvance - oldAdvance;
+      await logPaymentNotification(savedBooking.id, paidDiff, newNetDue);
+    }
+    if (!editing && savedBooking && newAdvance > 0) {
+      await logPaymentNotification(savedBooking.id, newAdvance, newNetDue);
+    }
     clearDraft();
     setIsSubmitting(false);
     if (savedBooking) onSaved(savedBooking);
@@ -668,15 +708,40 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       <div className="space-y-5">
         {/* 1. CLIENT PROFILE */}
         <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
-          <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">Client Profile</h3>
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Client Profile</h3>
+            <button
+              type="button"
+              onClick={() => setIsDualSide(!isDualSide)}
+              className="flex items-center gap-2"
+            >
+              <span className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isDualSide ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${isDualSide ? 'translate-x-6' : 'translate-x-1'}`} />
+              </span>
+              <span className="flex items-center gap-1 text-xs font-medium text-slate-700 dark:text-slate-300">
+                <Heart className={`h-3.5 w-3.5 ${isDualSide ? 'text-amber-500' : 'text-slate-400'}`} />
+                Both Sides Combined
+              </span>
+            </button>
+          </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Client Name">
-              <input value={clientName} onChange={(e) => setClientName(e.target.value)} className={inputClass} placeholder="Client name" />
+            <Field label={isDualSide ? 'Primary Contact / Groom Name' : 'Client Name'}>
+              <input value={clientName} onChange={(e) => setClientName(e.target.value)} className={inputClass} placeholder={isDualSide ? 'Groom name' : 'Client name'} />
             </Field>
-            <Field label="Mobile (WhatsApp)">
+            <Field label={isDualSide ? 'Groom Mobile (WhatsApp)' : 'Mobile (WhatsApp)'}>
               <input type="tel" value={clientMobile} onChange={(e) => setClientMobile(e.target.value)} className={inputClass} placeholder="+91 ..." />
             </Field>
           </div>
+          {isDualSide && (
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Bride Name">
+                <input value={brideName} onChange={(e) => setBrideName(e.target.value)} className={inputClass} placeholder="Bride name" />
+              </Field>
+              <Field label="Bride Mobile (WhatsApp)">
+                <input type="tel" value={brideMobile} onChange={(e) => setBrideMobile(e.target.value)} className={inputClass} placeholder="+91 ..." />
+              </Field>
+            </div>
+          )}
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label="Client Address" className="sm:col-span-2">
               <input value={clientAddress} onChange={(e) => setClientAddress(e.target.value)} className={inputClass} placeholder="Client address" />
@@ -704,12 +769,14 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
             <p className="py-3 text-center text-xs text-slate-400">No functions added yet. Click "Add Custom Function" to begin.</p>
           ) : (
             <div className="space-y-2">
-              {events.map((e, i) => (
+              {sortedEvents.map((e, i) => {
+                const eventIndex = events.indexOf(e);
+                return (
                 <div key={i} className="rounded-lg border border-slate-100 bg-slate-50 p-2.5 dark:border-white/5 dark:bg-white/5">
                   <div className="mb-3 flex flex-wrap items-center gap-2">
                     <select
                       value={e.name}
-                      onChange={(ev) => updateEvent(i, { name: ev.target.value })}
+                      onChange={(ev) => updateEvent(eventIndex, { name: ev.target.value })}
                       className={`${selectClass} w-40 shrink-0`}
                     >
                       {BOOKING_FUNCTION_NAMES.map((fn) => <option key={fn} value={fn}>{fn}</option>)}
@@ -717,25 +784,45 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
                     {e.name === 'Custom' && (
                       <input
                         value={e.customName ?? ''}
-                        onChange={(ev) => updateEvent(i, { customName: ev.target.value })}
+                        onChange={(ev) => updateEvent(eventIndex, { customName: ev.target.value })}
                         placeholder="Custom function name"
                         className={`${inputClass} min-w-[120px] flex-1`}
                       />
                     )}
-                    <button onClick={() => removeEvent(i)} className="ml-auto shrink-0 rounded p-1 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10" title="Delete function">
+                    {isDualSide && (
+                      <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-0.5 dark:border-white/10 dark:bg-slate-800">
+                        {(['groom', 'bride', 'joint'] as EventSide[]).map((side) => (
+                          <button
+                            key={side}
+                            type="button"
+                            onClick={() => updateEvent(eventIndex, { side })}
+                            className={`rounded-md px-2 py-1 text-[11px] font-medium capitalize transition-colors ${
+                              (e.side ?? 'joint') === side
+                                ? side === 'groom' ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400'
+                                  : side === 'bride' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+                                  : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                            }`}
+                          >
+                            {side === 'groom' ? 'Groom' : side === 'bride' ? 'Bride' : 'Joint'}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <button onClick={() => removeEvent(eventIndex)} className="ml-auto shrink-0 rounded p-1 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10" title="Delete function">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                     <Field label="Function Date">
-                      <input type="date" value={e.date} onChange={(ev) => updateEvent(i, { date: ev.target.value })} className={inputClass} />
+                      <input type="date" value={e.date} onChange={(ev) => updateEvent(eventIndex, { date: ev.target.value })} className={inputClass} />
                     </Field>
                     <Field label="Starting Function Time">
                       <div className="space-y-1.5">
                         <input
                           type="time"
                           value={e.start_time ?? e.time}
-                          onChange={(ev) => updateEvent(i, { start_time: ev.target.value, time: ev.target.value })}
+                          onChange={(ev) => updateEvent(eventIndex, { start_time: ev.target.value, time: ev.target.value })}
                           className={inputClass}
                         />
                       </div>
@@ -745,12 +832,12 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
                         <input
                           type="time"
                           value={e.end_time ?? ''}
-                          onChange={(ev) => updateEvent(i, { end_time: ev.target.value })}
+                          onChange={(ev) => updateEvent(eventIndex, { end_time: ev.target.value })}
                           className={`${inputClass} min-w-0 flex-1 border-0 bg-transparent px-1.5 py-1.5 focus:bg-transparent dark:bg-transparent dark:focus:bg-transparent`}
                         />
                         <select
                           value={e.end_date_shift === 'next_date' ? 'after_day' : (e.end_date_shift ?? 'same_date')}
-                          onChange={(ev) => updateEvent(i, { end_date_shift: ev.target.value as EventFunction['end_date_shift'] })}
+                          onChange={(ev) => updateEvent(eventIndex, { end_date_shift: ev.target.value as EventFunction['end_date_shift'] })}
                           className={`${selectClass} w-auto min-w-[118px] border-0 bg-transparent px-1.5 py-1.5 text-xs focus:bg-transparent dark:bg-transparent dark:focus:bg-transparent`}
                         >
                           <option value="same_date">Same Date</option>
@@ -763,14 +850,15 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
                     <Field label="Event Venue">
                       <input
                         value={e.venue ?? ''}
-                        onChange={(ev) => updateEvent(i, { venue: ev.target.value })}
+                        onChange={(ev) => updateEvent(eventIndex, { venue: ev.target.value })}
                         className={inputClass}
                         placeholder="Function-specific venue location"
                       />
                     </Field>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           )}
         </div>
@@ -1424,7 +1512,9 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
       `*${settings?.films_title ?? 'Bollywood Umang Films'}*\n` +
       `Booking: ${booking.booking_no}\n\n` +
       `*Client:* ${booking.client_name}\n` +
+      (booking.is_dual_side && booking.bride_name ? `*Bride:* ${booking.bride_name}\n` : '') +
       `*Mobile:* ${booking.client_mobile}\n` +
+      (booking.is_dual_side && booking.bride_mobile ? `*Bride Mobile:* ${booking.bride_mobile}\n` : '') +
       `*Venue:* ${booking.venue || '—'}\n\n` +
       `*Functions:*\n${fnList}\n\n` +
       `*Deliverables:*\n${delivText}\n\n` +
@@ -1446,11 +1536,20 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
   const modalBody = (
     <div className="space-y-4">
       {/* Client info */}
-      <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/5">
-        <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><Phone className="h-4 w-4 text-slate-400" /> {booking.client_mobile}</div>
-        <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><MapPin className="h-4 w-4 text-slate-400" /> {booking.venue || '—'}</div>
-        <div className="text-sm text-slate-600 dark:text-slate-300">{booking.event_function} · {formatDate(booking.shoot_date)} {booking.shoot_time && `· ${booking.shoot_time}`}</div>
-        <div className="text-sm text-slate-600 dark:text-slate-300">{booking.client_address || '—'}</div>
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/5">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><Phone className="h-4 w-4 text-slate-400" /> {booking.client_mobile}</div>
+          <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><MapPin className="h-4 w-4 text-slate-400" /> {booking.venue || '—'}</div>
+          <div className="text-sm text-slate-600 dark:text-slate-300">{booking.event_function} · {formatDate(booking.shoot_date)} {booking.shoot_time && `· ${booking.shoot_time}`}</div>
+          <div className="text-sm text-slate-600 dark:text-slate-300">{booking.client_address || '—'}</div>
+        </div>
+        {booking.is_dual_side && booking.bride_name && (
+          <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 dark:border-rose-500/20 dark:bg-rose-500/10">
+            <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">Bride:</span>
+            <span className="text-sm text-slate-700 dark:text-slate-200">{booking.bride_name}</span>
+            {booking.bride_mobile && <span className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400"><Phone className="h-3 w-3" /> {booking.bride_mobile}</span>}
+          </div>
+        )}
       </div>
 
       {/* Events timeline */}
@@ -1464,16 +1563,19 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
                   <th className="px-3 py-2">Function</th>
                   <th className="px-3 py-2">Date</th>
                   <th className="px-3 py-2">Time</th>
+                  {safeEvents.some((e) => e.side) && <th className="px-3 py-2">Side</th>}
                 </tr>
               </thead>
               <tbody>
                 {safeEvents.map((e, i) => {
                   const label = e.name === 'Custom' && e.customName ? e.customName : e.name;
+                  const sideLabel = e.side === 'groom' ? 'Groom Side' : e.side === 'bride' ? 'Bride Side' : e.side === 'joint' ? 'Joint / Both' : '';
                   return (
                     <tr key={i} className="border-t border-slate-100 dark:border-white/5">
                       <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{label}</td>
                       <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{formatDate(e.date)}</td>
                       <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{e.time || '—'}</td>
+                      {safeEvents.some((e) => e.side) && <td className="px-3 py-2">{sideLabel ? <Badge color={e.side === 'groom' ? 'sky' : e.side === 'bride' ? 'rose' : 'amber'}>{sideLabel}</Badge> : ''}</td>}
                     </tr>
                   );
                 })}
@@ -1535,6 +1637,74 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
         <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-center dark:border-rose-500/20 dark:bg-rose-500/5">
           <p className="text-xs text-slate-500 dark:text-slate-400">Due</p>
           <p className="mt-0.5 text-base font-bold text-rose-600 dark:text-rose-400">{formatINR(netDue)}</p>
+        </div>
+      </div>
+
+      {/* Work Status & Quick Payment */}
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/5">
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+          <CheckCircle2 className="h-4 w-4 text-amber-500" /> Work Progress & Quick Payment
+        </h3>
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Work Status:</span>
+            {WORK_STATUSES.map((ws) => (
+              <button
+                key={ws}
+                onClick={async () => {
+                  await supabase.from('bookings').update({ work_status: ws }).eq('id', booking.id);
+                  await logWorkStatusNotification(booking.id, ws);
+                  triggerRefresh();
+                  toast(`Work status updated to "${WORK_STATUS_LABELS[ws]}"`, 'success');
+                }}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  (booking.work_status ?? 'pending') === ws
+                    ? 'bg-amber-500 text-slate-900'
+                    : 'border border-slate-200 text-slate-600 hover:bg-amber-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5'
+                }`}
+              >
+                {WORK_STATUS_LABELS[ws]}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 pt-3 dark:border-white/10">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-500 dark:text-slate-400">Quick Payment</label>
+              <input
+                type="number"
+                id={`quick-pay-${booking.id}`}
+                placeholder="Amount"
+                className={`${inputClass} w-28`}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-500 dark:text-slate-400">Mode</label>
+              <select id={`quick-pay-mode-${booking.id}`} className={`${selectClass} w-32`} defaultValue="Cash">
+                <option>Cash</option>
+                <option>UPI</option>
+                <option>Bank</option>
+              </select>
+            </div>
+            <button
+              onClick={async () => {
+                const amtInput = document.getElementById(`quick-pay-${booking.id}`) as HTMLInputElement | null;
+                const modeInput = document.getElementById(`quick-pay-mode-${booking.id}`) as HTMLSelectElement | null;
+                const amt = Number(amtInput?.value ?? 0);
+                const mode = modeInput?.value ?? 'Cash';
+                if (amt <= 0) { toast('Enter a valid amount', 'error'); return; }
+                const newAdvance = Number(booking.advance_paid) + amt;
+                const newDue = Number(booking.total_amount) - Number(booking.discount) - newAdvance;
+                await supabase.from('bookings').update({ advance_paid: newAdvance, net_due: newDue }).eq('id', booking.id);
+                await logPaymentNotification(booking.id, amt, newDue);
+                triggerRefresh();
+                toast(`Payment of ${formatINR(amt)} recorded`, 'success');
+                if (amtInput) amtInput.value = '';
+              }}
+              className="rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-600"
+            >
+              Record Payment
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1620,7 +1790,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
         {modalBody}
       </Modal>
       <BillPreviewModal booking={booking} settings={settings} open={isBillPreviewOpen} onClose={() => setIsBillPreviewOpen(false)} onDualPrint={() => { setIsDualPrintOpen(true); setTimeout(() => { window.print(); setIsDualPrintOpen(false); }, 100); }} />
-      {isDualPrintOpen && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><BillInvoice booking={booking} settings={settings} /></PrintableDualCopies></div>, document.body)}
+      {isDualPrintOpen && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><BillInvoice booking={booking} settings={settings} compact /></PrintableDualCopies></div>, document.body)}
       {createPortal(
         <div id="printable-bill-sheet" aria-hidden>
           <BillInvoice booking={booking} settings={settings} />
@@ -1688,7 +1858,9 @@ function buildBookingSummaryText(booking: Booking, settings: StudioSettings | nu
     `Booking: ${booking.booking_no}\n` +
     `Date: ${formatDate(booking.shoot_date)}\n\n` +
     `Client: ${booking.client_name}\n` +
+    (booking.is_dual_side && booking.bride_name ? `Bride: ${booking.bride_name}\n` : '') +
     `Mobile: ${booking.client_mobile}\n` +
+    (booking.is_dual_side && booking.bride_mobile ? `Bride Mobile: ${booking.bride_mobile}\n` : '') +
     `Address: ${booking.client_address || '—'}\n` +
     `Venue: ${booking.venue || '—'}\n` +
     `Status: ${booking.booking_status}\n\n` +
@@ -1726,7 +1898,9 @@ function BookingSuccessModal({ booking, onClose, onView }: { booking: Booking; o
       `*${settings?.films_title ?? 'Bollywood Umang Films'}*\n` +
       `Booking: ${booking.booking_no}\n\n` +
       `*Client:* ${booking.client_name}\n` +
+      (booking.is_dual_side && booking.bride_name ? `*Bride:* ${booking.bride_name}\n` : '') +
       `*Mobile:* ${booking.client_mobile}\n` +
+      (booking.is_dual_side && booking.bride_mobile ? `*Bride Mobile:* ${booking.bride_mobile}\n` : '') +
       `*Venue:* ${booking.venue || '—'}\n\n` +
       `*Functions:*\n${fnList}\n\n` +
       `*Deliverables:*\n${delivList.length > 0 ? delivList.join('\n') : 'None'}\n\n` +
