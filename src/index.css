@@ -1,0 +1,203 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Smooth theme transitions — scoped to avoid re-render flicker */
+body,
+body::before,
+body::after {
+  transition: background-color 0.3s ease, color 0.15s ease;
+}
+
+/* Hide floating Bolt badges/banners and protect nav from overlap */
+a[href*="bolt.new"],
+div[class*="bolt"],
+iframe[src*="bolt"] {
+  display: none !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.5); }
+
+/* ============================================================
+   PRINT STYLES — A4 portrait, clean professional black-on-white
+   Uses #printable-bill-sheet as the universal printable container.
+   The bill sheet is portaled to <body>, so #root (the app UI)
+   is hidden entirely via display:none during print.
+   ============================================================ */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm 8mm 10mm;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  .no-print,
+  header,
+  aside,
+  button,
+  nav,
+  footer,
+  .modal,
+  [role='dialog'],
+  .toast,
+  .notification,
+  .backdrop,
+  .overlay {
+    display: none !important;
+  }
+
+  .print-content,
+  #printable-bill-sheet,
+  .bill-page,
+  .dual-bill-page,
+  .dual-bill-copy {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    break-inside: avoid !important;
+  }
+
+  * {
+    break-inside: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color: #000000 !important;
+    border-color: #000000 !important;
+  }
+
+  table,
+  thead,
+  tbody,
+  tr,
+  td,
+  th {
+    break-inside: avoid !important;
+  }
+}
+
+/* Bill text selectability */
+#printable-bill-sheet,
+#printable-bill-sheet * {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+/* Keep the portaled bill hidden on screen, visible only when printing */
+@media screen {
+  #printable-bill-sheet {
+    display: none !important;
+  }
+}
+
+.dual-bill-page {
+  width: 202mm;
+  height: 289mm;
+  padding: 0;
+  background: #ffffff;
+  color: #000000;
+  overflow: hidden;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.dual-bill-copy {
+  max-height: 138mm;
+  overflow: hidden;
+  page-break-inside: avoid;
+  break-inside: avoid;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.dual-bill-copy .bill-page {
+  padding: 3mm 4mm;
+  font-size: 11px;
+  line-height: 1.4;
+  width: 100%;
+  height: auto;
+  transform: none;
+  overflow: hidden;
+}
+
+.dual-bill-copy .bill-page > * {
+  margin-bottom: 1.5mm;
+}
+
+.dual-bill-label {
+  margin: 0 0 1mm;
+  border-bottom: 1px solid #000;
+  padding-bottom: 0.5mm;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.dual-bill-divider {
+  height: 6mm;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 6mm;
+  text-align: center;
+  white-space: nowrap;
+  border-top: 1px dashed #000;
+  border-bottom: 1px dashed #000;
+}
+
+/* Compact bill layout for dual-print mode */
+.dual-bill-copy .bill-page.compact-bill {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.dual-bill-copy .bill-page.compact-bill h1 {
+  font-size: 14px;
+  margin-bottom: 0;
+}
+
+.dual-bill-copy .bill-page.compact-bill p {
+  font-size: 10.5px;
+  margin: 0;
+}
+
+.dual-bill-copy .bill-page.compact-bill table {
+  font-size: 10px;
+}
+
+.dual-bill-copy .bill-page.compact-bill table th,
+.dual-bill-copy .bill-page.compact-bill table td {
+  padding: 1px 4px;
+}
+
+.dual-bill-copy .bill-page.compact-bill img {
+  max-height: 60px;
+  max-width: 60px;
+}
