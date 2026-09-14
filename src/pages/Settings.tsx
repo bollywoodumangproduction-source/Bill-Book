@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Save, Sparkles, Camera, Clapperboard, Stamp, FileText, Cloud, CloudOff, Upload, Download, RefreshCw, HardDrive, QrCode, Building2, User, LogIn, LogOut, ShieldCheck, FolderOpen, Database, Trash2, FlaskConical, Megaphone, Plus, Pencil, Trash, Eye, EyeOff, MessageCircle, Phone, Instagram } from 'lucide-react';
+import { Save, Sparkles, Camera, Clapperboard, Stamp, FileText, Cloud, CloudOff, Upload, Download, RefreshCw, HardDrive, QrCode, Building2, User, LogIn, LogOut, ShieldCheck, FolderOpen, Database, Trash2, FlaskConical, Megaphone, Plus, Pencil, Trash, Eye, EyeOff, MessageCircle, Phone, Instagram, ChevronDown, LockKeyhole, ShieldAlert } from 'lucide-react';
 import type { StudioSettings, PromoAd, PromoAdAudience } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
@@ -90,6 +90,11 @@ export function SettingsPage() {
   const { triggerRefresh } = useRefresh();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showDemoConfirm, setShowDemoConfirm] = useState(false);
+  const [showResetMenu, setShowResetMenu] = useState(false);
+  const [showFactoryResetPassword, setShowFactoryResetPassword] = useState(false);
+  const [factoryResetPassword, setFactoryResetPassword] = useState('');
+  const [factoryResetError, setFactoryResetError] = useState('');
+  const [factoryResetLoading, setFactoryResetLoading] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [loadingDemo, setLoadingDemo] = useState(false);
 
@@ -189,6 +194,63 @@ export function SettingsPage() {
     });
     setSaving(false);
     toast('Settings updated successfully!', 'success');
+  };
+
+  const loadDemoData = useCallback(async () => {
+    setLoadingDemo(true);
+    try {
+      (supabase as any).loadDemoData();
+      triggerRefresh();
+      toast('Demo data loaded successfully', 'success');
+    } catch (error) {
+      console.error('Load demo data failed:', error);
+      toast('Failed to load demo data. Please try again.', 'error');
+    } finally {
+      setLoadingDemo(false);
+    }
+  }, [toast, triggerRefresh]);
+
+  const resetDemoDataOnly = useCallback(async () => {
+    setLoadingDemo(true);
+    try {
+      (supabase as any).clearDemoData();
+      triggerRefresh();
+      toast('Demo data removed successfully', 'success');
+    } catch (error) {
+      console.error('Reset demo data failed:', error);
+      toast('Failed to reset demo data. Please try again.', 'error');
+    } finally {
+      setLoadingDemo(false);
+    }
+  }, [toast, triggerRefresh]);
+
+  const handleFactoryReset = async () => {
+    const entered = factoryResetPassword.trim();
+    if (!entered) {
+      setFactoryResetError('Enter the current admin or studio password to continue.');
+      return;
+    }
+    const validPassword = entered === 'admin123' || (settings?.master_pin && entered === settings.master_pin);
+    if (!validPassword) {
+      setFactoryResetError('Incorrect password. No data was changed.');
+      return;
+    }
+
+    setFactoryResetLoading(true);
+    try {
+      (supabase as any).clearAll();
+      triggerRefresh();
+      setShowFactoryResetPassword(false);
+      setFactoryResetPassword('');
+      setFactoryResetError('');
+      toast('All studio data completely wiped', 'success');
+    } catch (error) {
+      console.error('Factory reset failed:', error);
+      setFactoryResetError('Factory reset failed. Please try again.');
+      toast('Factory reset failed. Please try again.', 'error');
+    } finally {
+      setFactoryResetLoading(false);
+    }
   };
 
   const handleSignInGoogle = async () => {
@@ -719,19 +781,69 @@ export function SettingsPage() {
         </p>
         <div className="flex flex-wrap gap-3">
           <button
-            onClick={() => setShowDemoConfirm(true)}
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void loadDemoData();
+            }}
             disabled={loadingDemo}
             className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
           >
-            <FlaskConical className="h-4 w-4" /> {loadingDemo ? 'Loading…' : 'Load Demo Data'}
+            <FlaskConical className="h-4 w-4" />
+            {loadingDemo ? 'Loading Demo Data…' : 'Load Demo Data'}
           </button>
-          <button
-            onClick={() => setShowClearConfirm(true)}
-            disabled={clearing}
-            className="flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-700 transition-colors hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20"
-          >
-            <Trash2 className="h-4 w-4" /> {clearing ? 'Clearing…' : 'Clear All Data'}
-          </button>
+
+          <div className="relative inline-block">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setShowResetMenu((value) => !value);
+              }}
+              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5"
+            >
+              <Database className="h-4 w-4 text-amber-500" />
+              Data Reset Options
+              <ChevronDown className={`h-4 w-4 transition-transform ${showResetMenu ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showResetMenu && (
+              <div className="absolute left-0 z-20 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-slate-900">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setShowResetMenu(false);
+                    void resetDemoDataOnly();
+                  }}
+                  disabled={loadingDemo}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-amber-50 hover:text-amber-700 dark:text-slate-200 dark:hover:bg-amber-500/10 dark:hover:text-amber-300"
+                >
+                  <FlaskConical className="h-4 w-4 text-amber-500" />
+                  {loadingDemo ? 'Resetting Demo Data…' : 'Reset Demo Data'}
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setShowResetMenu(false);
+                    setShowFactoryResetPassword(true);
+                    setFactoryResetError('');
+                    setFactoryResetPassword('');
+                  }}
+                  disabled={clearing}
+                  className="mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-rose-700 transition-colors hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {clearing ? 'Clearing…' : 'Factory Reset / Delete All Data'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -752,11 +864,17 @@ export function SettingsPage() {
         onClose={() => setShowClearConfirm(false)}
         onConfirm={async () => {
           setClearing(true);
-          (supabase as any).clearAll();
-          triggerRefresh();
-          setShowClearConfirm(false);
-          setClearing(false);
-          toast('All data cleared — settings preserved', 'success');
+          try {
+            (supabase as any).clearAll();
+            triggerRefresh();
+            toast('All data cleared — settings preserved', 'success');
+          } catch (error) {
+            console.error('Clear all failed:', error);
+            toast('Failed to clear data. Please try again.', 'error');
+          } finally {
+            setShowClearConfirm(false);
+            setClearing(false);
+          }
         }}
         title="Clear all data?"
         message="This will permanently delete all bookings, lab orders, ledger entries, and payments. Your studio settings will be kept. This cannot be undone."
@@ -764,22 +882,81 @@ export function SettingsPage() {
         danger
       />
 
+      <Modal
+        open={showFactoryResetPassword}
+        onClose={() => {
+          setShowFactoryResetPassword(false);
+          setFactoryResetPassword('');
+          setFactoryResetError('');
+        }}
+        title="Factory Reset Confirmation"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
+            <ShieldAlert className="h-5 w-5" />
+            This will permanently delete all records, including bookings, lab orders, payments, ledger data, and local backups.
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Current Admin / Studio Password</label>
+            <input
+              type="password"
+              value={factoryResetPassword}
+              onChange={(event) => {
+                setFactoryResetPassword(event.target.value);
+                if (factoryResetError) setFactoryResetError('');
+              }}
+              className={`${inputClass} border-slate-300 bg-white text-slate-900 dark:border-white/10 dark:bg-slate-800 dark:text-white`}
+              placeholder="Enter password"
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  handleFactoryReset();
+                }
+              }}
+            />
+            {factoryResetError && <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">{factoryResetError}</p>}
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setShowFactoryResetPassword(false);
+                setFactoryResetPassword('');
+                setFactoryResetError('');
+              }}
+              className="flex-1 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void handleFactoryReset();
+              }}
+              disabled={factoryResetLoading}
+              className="flex-1 rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
+            >
+              {factoryResetLoading ? 'Verifying…' : 'Delete All Data'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Demo data confirmation */}
       <ConfirmDialog
         open={showDemoConfirm}
         onClose={() => setShowDemoConfirm(false)}
         onConfirm={async () => {
-          setLoadingDemo(true);
-          (supabase as any).resetToDemo();
-          triggerRefresh();
           setShowDemoConfirm(false);
-          setLoadingDemo(false);
-          toast('Demo data loaded successfully', 'success');
+          void loadDemoData();
         }}
-        title="Load demo data?"
-        message="This will replace all current data with a fresh set of sample bookings, lab orders, ledger entries, and payments. Your studio settings will be preserved."
+        title="Load Demo Data?"
+        message="This will populate the default seeded demo records without duplicating any existing demo entries. Real production data will be preserved."
         confirmLabel="Load Demo Data"
-        danger
       />
     </div>
   );

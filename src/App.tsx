@@ -23,6 +23,8 @@ import { getClientSession } from '@/pages/ClientLogin';
 import { MusicSelection, PublicMusicSelection } from '@/pages/MusicSelection';
 import { TeaserPreview, PublicTeaserPreview } from '@/pages/TeaserPreview';
 import { InvitationHub, PublicInvitationHub } from '@/pages/InvitationHub';
+import { PhotoSelection } from '@/pages/PhotoSelection';
+import { PublicPhotoSelection } from '@/pages/PublicPhotoSelection';
 import type { PageKey } from '@/lib/types';
 
 function AdminApp() {
@@ -38,8 +40,9 @@ function AdminApp() {
 }
 
 function DesktopPage({ page, onNavigate }: { page: PageKey; onNavigate: (page: PageKey) => void }) {
+  const isWidePage = page === 'photo-selection';
   return (
-    <div className="mx-auto my-6 flex min-h-[85vh] w-full max-w-6xl flex-col overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/30 p-4 sm:p-6 lg:p-8">
+    <div className={`mx-auto my-6 flex min-h-[85vh] w-full flex-col overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/30 p-4 sm:p-6 lg:p-8 ${isWidePage ? 'max-w-[1600px]' : 'max-w-6xl'}`}>
       {page === 'bookings' && <Bookings />}
       {page === 'lab' && <LabOrders />}
       {page === 'ledger' && <Ledger />}
@@ -48,6 +51,7 @@ function DesktopPage({ page, onNavigate }: { page: PageKey; onNavigate: (page: P
       {page === 'music' && <MusicSelection />}
       {page === 'teaser' && <TeaserPreview />}
       {page === 'invitation' && <InvitationHub />}
+      {page === 'photo-selection' && <PhotoSelection />}
       {page === 'settings' && <SettingsPage />}
       {page === 'dashboard' && <Dashboard onNavigate={onNavigate} />}
     </div>
@@ -65,7 +69,7 @@ function AdminGuard() {
 function ClientGuard() {
   const location = useLocation();
   if (!getClientSession()) {
-    return <Navigate to="/client-login" replace state={{ from: location }} />;
+    return <Navigate to="/client/login" replace state={{ from: location }} />;
   }
   return <ClientDashboard />;
 }
@@ -75,25 +79,28 @@ export default function App() {
     <ThemeProvider>
       <ToastProvider>
         <SyncProvider>
-          <RefreshProvider>
-            <SettingsProvider>
+          <SettingsProvider>
+            <RefreshProvider>
               <BrowserRouter>
                 <Routes>
                   <Route path="/" element={<AdminGuard />} />
                   <Route path="/admin" element={<AdminGuard />} />
                   <Route path="/admin/login" element={<AdminLogin />} />
-                  <Route path="/client-login" element={<ClientLogin />} />
+                  <Route path="/client/login" element={<ClientLogin />} />
+                  <Route path="/client-login" element={<Navigate to="/client/login" replace />} />
                   <Route path="/client/dashboard" element={<ClientGuard />} />
                   <Route path="/partner/dashboard" element={<PartnerDashboard />} />
                   <Route path="/music-selection" element={<PublicMusicSelection />} />
                   <Route path="/teaser-preview" element={<PublicTeaserPreview />} />
                   <Route path="/invitation-hub" element={<PublicInvitationHub />} />
+                  <Route path="/photo-selection" element={<PhotoSelection />} />
+                  <Route path="/select/:sessionId" element={<PublicPhotoSelection />} />
                   <Route path="/view/:bookingId" element={<PublicInvoice />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </BrowserRouter>
-            </SettingsProvider>
-          </RefreshProvider>
+            </RefreshProvider>
+          </SettingsProvider>
         </SyncProvider>
       </ToastProvider>
     </ThemeProvider>

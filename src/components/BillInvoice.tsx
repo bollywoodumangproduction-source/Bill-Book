@@ -1,4 +1,4 @@
-import { formatINR, formatDate } from '@/lib/format';
+import { formatINR, formatDate, formatPhone } from '@/lib/format';
 import type { Booking, StudioSettings, BookingDeliverables } from '@/lib/types';
 
 const toNum = (v: string | number | undefined) => { const n = Number(v); return isNaN(n) ? 0 : n; };
@@ -94,8 +94,8 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
         <div>
           <p><strong>{booking.is_dual_side ? 'Groom:' : 'Client:'}</strong> {booking.client_name}</p>
           {booking.is_dual_side && booking.bride_name && <p><strong>Bride:</strong> {booking.bride_name}</p>}
-          <p><strong>Mobile:</strong> {booking.client_mobile}</p>
-          {booking.is_dual_side && booking.bride_mobile && <p><strong>Bride Mobile:</strong> {booking.bride_mobile}</p>}
+          <p><strong>Mobile:</strong> +91 {formatPhone(booking.client_mobile)}</p>
+          {booking.is_dual_side && booking.bride_mobile && <p><strong>Bride Mobile:</strong> +91 {formatPhone(booking.bride_mobile)}</p>}
           {booking.client_address && <p><strong>Address:</strong> {booking.client_address}</p>}
         </div>
         <div className="text-right">

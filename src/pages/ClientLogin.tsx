@@ -4,21 +4,58 @@ import { LogIn, Sparkles, ArrowLeft, Lock } from 'lucide-react';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { supabase } from '@/lib/supabase';
-import type { Booking } from '@/lib/types';
-import { inputClass } from '@/components/ui/Field';
+import type { Booking, StudioLabOrder } from '@/lib/types';
+import { PhoneInput } from '@/components/ui/PhoneInput';
+import { PinInput } from '@/components/ui/PinInput';
+import { formatPhone } from '@/lib/format';
 
-const CLIENT_SESSION_KEY = 'bup_client_session';
+const CLIENT_SESSION_KEY = 'buf_client_session';
+const LEGACY_CLIENT_SESSION_KEY = 'bup_client_session';
 
-export function setClientSession(bookingId: string) {
-  sessionStorage.setItem(CLIENT_SESSION_KEY, bookingId);
+export function setClientSession(record: Record<string, any>) {
+  localStorage.setItem(CLIENT_SESSION_KEY, JSON.stringify(record));
 }
 
-export function getClientSession(): string | null {
-  return sessionStorage.getItem(CLIENT_SESSION_KEY);
+export function setLabClientSession(order: Record<string, any>) {
+  localStorage.setItem(CLIENT_SESSION_KEY, JSON.stringify(order));
+}
+
+export function getClientSession(): Record<string, any> | null {
+  const raw = localStorage.getItem(CLIENT_SESSION_KEY);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch {
+      // ignore malformed session data and fall through to migration logic
+    }
+  }
+
+  const legacy = sessionStorage.getItem(LEGACY_CLIENT_SESSION_KEY);
+  if (legacy) {
+    const migrated = legacy.startsWith('lab:')
+      ? { id: legacy.slice('lab:'.length), __lab_session: true }
+      : { id: legacy };
+    localStorage.setItem(CLIENT_SESSION_KEY, JSON.stringify(migrated));
+    sessionStorage.removeItem(LEGACY_CLIENT_SESSION_KEY);
+    return migrated;
+  }
+
+  return null;
+}
+
+export function isLabSession(session: Record<string, any> | null): boolean {
+  return !!session && (Boolean((session as any).__lab_session) || Boolean((session as any).order_no) || Boolean((session as any).work_type));
+}
+
+export function getLabSessionId(session: Record<string, any> | null): string | null {
+  if (!session || !isLabSession(session)) return null;
+  return typeof (session as any).id === 'string' ? (session as any).id : null;
 }
 
 export function clearClientSession() {
-  sessionStorage.removeItem(CLIENT_SESSION_KEY);
+  localStorage.removeItem(CLIENT_SESSION_KEY);
+  sessionStorage.removeItem(LEGACY_CLIENT_SESSION_KEY);
 }
 
 export function ClientLogin() {
@@ -26,33 +63,62 @@ export function ClientLogin() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [mobile, setMobile] = useState('');
-  const [password, setPassword] = useState('');
+  const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
-    if (!mobile || !password) { toast('Enter both mobile number and password', 'error'); return; }
+    if (!mobile || !pin) { toast('Enter both mobile number and PIN', 'error'); return; }
+    if (mobile.length !== 10) { toast('Mobile number must be 10 digits', 'error'); return; }
+    if (pin.length !== 4) { toast('PIN must be 4 digits', 'error'); return; }
     setLoading(true);
-    const cleanMobile = mobile.replace(/\D/g, '');
-    const cleanPassword = password.replace(/\D/g, '');
-    const { data } = await supabase.from('bookings').select('*');
-    const match = ((data ?? []) as Booking[]).find(
-      (b) => b.client_mobile.replace(/\D/g, '') === cleanMobile,
+    const cleanMobile = formatPhone(mobile);
+
+    // 1. Check bookings table (end-client bookings)
+    const { data: bookingData } = await supabase.from('bookings').select('*');
+    const bookingMatch = ((bookingData ?? []) as Booking[]).find(
+      (b) => formatPhone(b.client_mobile) === cleanMobile,
     );
+
+    if (bookingMatch) {
+      if (!bookingMatch.is_login_allowed) {
+        setLoading(false);
+        toast('Login access is currently disabled for your account. Please contact studio admin.', 'error');
+        return;
+      }
+      const storedPin = (bookingMatch.access_pin ?? '').replace(/\D/g, '');
+      if (!storedPin || pin !== storedPin) {
+        setLoading(false);
+        toast('Incorrect PIN. Please try again or contact the studio.', 'error');
+        return;
+      }
+      setClientSession(bookingMatch);
+      setLoading(false);
+      navigate('/client/dashboard');
+      return;
+    }
+
+    // 2. Check studio_lab_orders table (lab partner orders)
+    const { data: labData } = await supabase.from('studio_lab_orders').select('*');
+    const labMatch = ((labData ?? []) as StudioLabOrder[]).find(
+      (o) => formatPhone(o.studio_mobile) === cleanMobile,
+    );
+
     setLoading(false);
-    if (!match) {
+
+    if (!labMatch) {
       toast('No account found with that mobile number', 'error');
       return;
     }
-    if (!match.is_login_allowed) {
+    if (!labMatch.is_login_allowed) {
       toast('Login access is currently disabled for your account. Please contact studio admin.', 'error');
       return;
     }
-    const storedPwd = (match.client_password ?? '').replace(/\D/g, '');
-    if (!storedPwd || cleanPassword !== storedPwd) {
-      toast('Incorrect password. Please try again or contact the studio.', 'error');
+    const storedLabPin = (labMatch.access_pin ?? '').replace(/\D/g, '');
+    if (!storedLabPin || pin !== storedLabPin) {
+      toast('Incorrect PIN. Please try again or contact the studio.', 'error');
       return;
     }
-    setClientSession(match.id);
+    setLabClientSession({ ...labMatch, __lab_session: true });
     navigate('/client/dashboard');
   };
 
@@ -73,30 +139,18 @@ export function ClientLogin() {
               </div>
             )}
             <h1 className="mt-3 text-xl font-bold text-slate-900 dark:text-white">Client Portal</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Sign in to view your booking details</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Sign in to view your booking or order details</p>
           </div>
 
           <div className="space-y-4">
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Mobile Number</label>
-              <input
-                value={mobile}
-                onChange={(e) => setMobile(e.target.value)}
-                className={inputClass}
-                placeholder="+91 ..."
-              />
+              <PhoneInput value={mobile} onChange={setMobile} />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleLogin(); }}
-                className={inputClass}
-                placeholder="Default: your mobile number"
-              />
-              <p className="mt-1 text-xs text-slate-400">First time? Your password is your registered mobile number.</p>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">4-Digit Access PIN</label>
+              <PinInput value={pin} onChange={setPin} placeholder="0000" onKeyDown={(e) => { if (e.key === 'Enter') handleLogin(); }} />
+              <p className="mt-1 text-xs text-slate-400">Default PIN is the last 4 digits of your mobile number.</p>
             </div>
             <button
               onClick={handleLogin}

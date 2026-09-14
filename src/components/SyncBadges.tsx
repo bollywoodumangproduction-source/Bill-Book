@@ -1,5 +1,5 @@
 import { useSync } from '@/context/SyncContext';
-import { Zap, Cloud, RefreshCw } from 'lucide-react';
+import { Cloud, RefreshCw } from 'lucide-react';
 
 function Dot({ status }: { status: 'online' | 'offline' }) {
   return (
@@ -14,24 +14,23 @@ function Dot({ status }: { status: 'online' | 'offline' }) {
 }
 
 export function SyncBadges() {
-  const { supa, drive, syncing, pendingCount, triggerSync } = useSync();
+  let syncState = null as ReturnType<typeof useSync> | null;
+  try {
+    syncState = useSync();
+  } catch {
+    syncState = null;
+  }
 
-  const supaLabel = supa === 'online' ? 'Supabase connected' : 'Supabase offline — local mode';
+  const drive = syncState?.drive ?? 'offline';
+  const syncing = syncState?.syncing ?? false;
+  const pendingCount = syncState?.pendingCount ?? 0;
+  const triggerSync = syncState?.triggerSync ?? (() => {});
+
   const driveLabel = drive === 'online' ? 'Drive backup connected' : 'Drive backup pending — local mode';
   const pendingLabel = pendingCount > 0 ? `${pendingCount} pending` : 'All synced';
 
   return (
     <div className="flex items-center gap-2">
-      {/* SUPA badge */}
-      <div
-        className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-white/10 dark:bg-slate-800/60"
-        title={supaLabel}
-      >
-        <Zap className="h-3.5 w-3.5 text-amber-500" />
-        <span className="text-[10px] font-semibold tracking-wide text-slate-500 dark:text-slate-400">SUPA</span>
-        <Dot status={supa} />
-      </div>
-
       {/* DRIVE badge */}
       <div
         className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-white/10 dark:bg-slate-800/60"

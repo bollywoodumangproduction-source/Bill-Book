@@ -45,11 +45,11 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
         if (!mounted) return;
         const allBookings = Array.isArray(bookings) ? bookings as Booking[] : [];
-        const activeBookings = allBookings.filter((b) => !b.archived_at && !b.deleted_at);
+        const activeBookings = allBookings.filter((b) => !b.archived_at && !b.deleted_at && (b.booking_status ?? '').toUpperCase() !== 'CANCELLED');
         setTodaysBookings(activeBookings.filter((b) => isToday(b.shoot_date)));
         setUpcomingBookings(activeBookings.filter((b) => isUpcoming(b.shoot_date)).slice(0, 5));
         setActiveLabOrders(Array.isArray(lab) ? lab as StudioLabOrder[] : []);
-        setTotalDue(allBookings.reduce((s, b) => s + Number(b.net_due ?? 0), 0));
+        setTotalDue(activeBookings.reduce((s, b) => s + Number(b.net_due ?? 0), 0));
       } catch (error) {
         console.error('Failed to load dashboard:', error);
         if (mounted) {

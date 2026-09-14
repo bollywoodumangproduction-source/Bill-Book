@@ -44,7 +44,7 @@ import type {
   WorkStatus,
 } from '@/lib/types';
 import { WORK_STATUSES, WORK_STATUS_LABELS } from '@/lib/types';
-import { formatINR, formatDate, todayISO } from '@/lib/format';
+import { formatINR, formatDate, todayISO, formatPhone, defaultPinFromPhone } from '@/lib/format';
 import { logPaymentNotification, logWorkStatusNotification } from '@/lib/notifications';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
@@ -64,6 +64,8 @@ import { BillInvoice, formatDeliverablesList } from '@/components/BillInvoice';
 import { copyToClipboard } from '@/lib/clipboard';
 import { Modal } from '@/components/ui/Modal';
 import { Field, inputClass, selectClass } from '@/components/ui/Field';
+import { PhoneInput } from '@/components/ui/PhoneInput';
+import { PinInput } from '@/components/ui/PinInput';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { MasterPinDialog } from '@/components/ui/MasterPinDialog';
@@ -166,7 +168,12 @@ export function Bookings() {
 
   const filtered = bookings.filter((b) => {
     const q = search.toLowerCase();
-    const lifecycleMatch = view === 'recycle' ? !!b.deleted_at : view === 'archived' ? !!b.archived_at && !b.deleted_at : !b.archived_at && !b.deleted_at;
+    const isCancelled = (b.booking_status ?? '').toUpperCase() === 'CANCELLED';
+    const lifecycleMatch = view === 'recycle'
+      ? !!b.deleted_at
+      : view === 'archived'
+        ? !!b.archived_at && !b.deleted_at
+        : !b.archived_at && !b.deleted_at && !isCancelled;
     return lifecycleMatch && ((b.client_name ?? '').toLowerCase().includes(q) || (b.event_function ?? '').toLowerCase().includes(q) || (b.booking_no ?? '').toLowerCase().includes(q));
   });
 
@@ -307,8 +314,12 @@ export function Bookings() {
 }
 
 function nextBookingNo(existing: Booking[]): string {
-  const max = existing.reduce((m, b) => {
-    const n = parseInt(b.booking_no.replace(/\D/g, ''), 10);
+  const realBookings = existing.filter((b) => {
+    const value = String(b.booking_no ?? '');
+    return !b.isDemo && !b.is_demo && !value.startsWith('DEMO-') && !value.startsWith('demo-') && /^BUF-\d{3}$/i.test(value);
+  });
+  const max = realBookings.reduce((m, b) => {
+    const n = parseInt(String(b.booking_no).replace(/\D/g, ''), 10);
     return isNaN(n) ? m : Math.max(m, n);
   }, 0);
   return `BUF-${String(max + 1).padStart(3, '0')}`;
@@ -617,7 +628,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       shoot_time: primaryTime,
       venue: events.find((event) => event.venue)?.venue ?? venue,
       booking_status: bookingStatus,
-      archived_at: bookingStatus === 'COMPLETED' ? (editing?.archived_at ?? new Date().toISOString()) : null,
+      archived_at: bookingStatus === 'COMPLETED' || bookingStatus === 'CANCELLED' ? (editing?.archived_at ?? new Date().toISOString()) : null,
       total_amount: totalAmountNum,
       discount: toNum(discount),
       advance_paid: paymentHistory.reduce((sum, payment) => sum + toNum(payment.paid_amount), 0),
@@ -635,9 +646,11 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
         } satisfies BookingPaymentDetails,
       },
       base_amount: toNum(baseAmount),
+      is_demo: editing?.is_demo ?? false,
+      isDemo: false,
       is_login_allowed: editing?.is_login_allowed ?? false,
-      client_password: editing?.client_password ?? clientMobile,
-      password_changed: editing?.password_changed ?? false,
+      access_pin: editing?.access_pin ?? defaultPinFromPhone(clientMobile),
+      pin_changed: editing?.pin_changed ?? false,
       work_status: editing?.work_status ?? 'pending',
     });
     const newAdvance = paymentHistory.reduce((sum, payment) => sum + toNum(payment.paid_amount), 0);
@@ -729,7 +742,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
               <input value={clientName} onChange={(e) => setClientName(e.target.value)} className={inputClass} placeholder={isDualSide ? 'Groom name' : 'Client name'} />
             </Field>
             <Field label={isDualSide ? 'Groom Mobile (WhatsApp)' : 'Mobile (WhatsApp)'}>
-              <input type="tel" value={clientMobile} onChange={(e) => setClientMobile(e.target.value)} className={inputClass} placeholder="+91 ..." />
+              <PhoneInput value={clientMobile} onChange={setClientMobile} />
             </Field>
           </div>
           {isDualSide && (
@@ -738,7 +751,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
                 <input value={brideName} onChange={(e) => setBrideName(e.target.value)} className={inputClass} placeholder="Bride name" />
               </Field>
               <Field label="Bride Mobile (WhatsApp)">
-                <input type="tel" value={brideMobile} onChange={(e) => setBrideMobile(e.target.value)} className={inputClass} placeholder="+91 ..." />
+                <PhoneInput value={brideMobile} onChange={setBrideMobile} />
               </Field>
             </div>
           )}
@@ -1402,9 +1415,11 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
   const safeDeliverables = booking.deliverables_data ?? DEFAULT_DELIVERABLES;
   const netDue = bookingDue(booking);
   const delivList = formatDeliverablesList(safeDeliverables);
-  const [showPassword, setShowPassword] = useState(false);
+  const [showPin, setShowPin] = useState(false);
   const [loginAllowed, setLoginAllowed] = useState(booking.is_login_allowed ?? false);
-  const [currentPassword, setCurrentPassword] = useState(booking.client_password ?? booking.client_mobile);
+  const [currentPin, setCurrentPin] = useState(booking.access_pin ?? defaultPinFromPhone(booking.client_mobile));
+  const [editingPin, setEditingPin] = useState(false);
+  const [editPinValue, setEditPinValue] = useState('');
   const [partners, setPartners] = useState<Partner[]>([]);
   const [assignments, setAssignments] = useState<ShootAssignment[]>([]);
   const [assignmentPartner, setAssignmentPartner] = useState('');
@@ -1422,12 +1437,22 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
     toast(newVal ? 'Portal login enabled for this client' : 'Portal login disabled for this client', 'success');
   };
 
-  const resetPassword = async () => {
-    const defaultPwd = booking.client_mobile;
-    setCurrentPassword(defaultPwd);
-    await supabase.from('bookings').update({ client_password: defaultPwd, password_changed: false }).eq('id', booking.id);
+  const resetPin = async () => {
+    const defaultPin = defaultPinFromPhone(booking.client_mobile);
+    setCurrentPin(defaultPin);
+    await supabase.from('bookings').update({ access_pin: defaultPin, pin_changed: false }).eq('id', booking.id);
     triggerRefresh();
-    toast('Password reset to client mobile number', 'success');
+    toast('PIN reset to default (last 4 digits of mobile)', 'success');
+  };
+
+  const saveEditedPin = async () => {
+    if (editPinValue.length !== 4) { toast('PIN must be exactly 4 digits', 'error'); return; }
+    setCurrentPin(editPinValue);
+    await supabase.from('bookings').update({ access_pin: editPinValue, pin_changed: true }).eq('id', booking.id);
+    triggerRefresh();
+    setEditingPin(false);
+    setEditPinValue('');
+    toast('Access PIN updated', 'success');
   };
 
   useEffect(() => {
@@ -1486,7 +1511,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
       const staff = partners.find((item) => item.id === assignment.partner_id);
       return `Function: ${assignment.function_name}\nDate: ${event?.date ? formatDate(event.date) : formatDate(booking.shoot_date)}\nReporting: ${assignment.reporting_time || event?.start_time || event?.time || '—'}\nVenue: ${event?.venue || booking.venue || '—'}\nAssigned Role: ${assignment.role}\nAssigned Staff: ${staff?.name || '—'}`;
     }).join('\n\n');
-    const message = `*Shoot Duty Slip*\nClient: ${booking.client_name}\nHost Contact: ${booking.client_mobile}\n\n${slip || `Function: ${booking.event_function}\nDate: ${formatDate(booking.shoot_date)}\nReporting: ${booking.shoot_time || '—'}\nVenue: ${booking.venue || '—'}`}`;
+    const message = `*Shoot Duty Slip*\nClient: ${booking.client_name}\nHost Contact: +91 ${formatPhone(booking.client_mobile)}\n\n${slip || `Function: ${booking.event_function}\nDate: ${formatDate(booking.shoot_date)}\nReporting: ${booking.shoot_time || '—'}\nVenue: ${booking.venue || '—'}`}`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
   };
 
@@ -1494,7 +1519,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
     let phone = staff.mobile.replace(/\D/g, '');
     if (phone.length === 10) phone = `91${phone}`;
     const event = safeEvents.find((item) => item.name === assignment.function_name);
-    const message = `*Shoot Duty Slip*\nClient: ${booking.client_name}\nHost Contact: ${booking.client_mobile}\nFunction: ${assignment.function_name}\nDate: ${event?.date ? formatDate(event.date) : formatDate(booking.shoot_date)}\nReporting Time: ${assignment.reporting_time || event?.start_time || event?.time || '—'}\nRole: ${assignment.role}\nVenue: ${event?.venue || booking.venue || '—'}`;
+    const message = `*Shoot Duty Slip*\nClient: ${booking.client_name}\nHost Contact: +91 ${formatPhone(booking.client_mobile)}\nFunction: ${assignment.function_name}\nDate: ${event?.date ? formatDate(event.date) : formatDate(booking.shoot_date)}\nReporting Time: ${assignment.reporting_time || event?.start_time || event?.time || '—'}\nRole: ${assignment.role}\nVenue: ${event?.venue || booking.venue || '—'}`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
   };
 
@@ -1513,8 +1538,8 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
       `Booking: ${booking.booking_no}\n\n` +
       `*Client:* ${booking.client_name}\n` +
       (booking.is_dual_side && booking.bride_name ? `*Bride:* ${booking.bride_name}\n` : '') +
-      `*Mobile:* ${booking.client_mobile}\n` +
-      (booking.is_dual_side && booking.bride_mobile ? `*Bride Mobile:* ${booking.bride_mobile}\n` : '') +
+      `*Mobile:* +91 ${formatPhone(booking.client_mobile)}\n` +
+      (booking.is_dual_side && booking.bride_mobile ? `*Bride Mobile:* +91 ${formatPhone(booking.bride_mobile)}\n` : '') +
       `*Venue:* ${booking.venue || '—'}\n\n` +
       `*Functions:*\n${fnList}\n\n` +
       `*Deliverables:*\n${delivText}\n\n` +
@@ -1538,7 +1563,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
       {/* Client info */}
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/5">
         <div className="grid grid-cols-2 gap-3">
-          <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><Phone className="h-4 w-4 text-slate-400" /> {booking.client_mobile}</div>
+          <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><Phone className="h-4 w-4 text-slate-400" /> +91 {formatPhone(booking.client_mobile)}</div>
           <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><MapPin className="h-4 w-4 text-slate-400" /> {booking.venue || '—'}</div>
           <div className="text-sm text-slate-600 dark:text-slate-300">{booking.event_function} · {formatDate(booking.shoot_date)} {booking.shoot_time && `· ${booking.shoot_time}`}</div>
           <div className="text-sm text-slate-600 dark:text-slate-300">{booking.client_address || '—'}</div>
@@ -1547,7 +1572,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
           <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 dark:border-rose-500/20 dark:bg-rose-500/10">
             <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">Bride:</span>
             <span className="text-sm text-slate-700 dark:text-slate-200">{booking.bride_name}</span>
-            {booking.bride_mobile && <span className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400"><Phone className="h-3 w-3" /> {booking.bride_mobile}</span>}
+            {booking.bride_mobile && <span className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400"><Phone className="h-3 w-3" /> +91 {formatPhone(booking.bride_mobile)}</span>}
           </div>
         )}
       </div>
@@ -1733,23 +1758,44 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
 
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-slate-800">
             <KeyRound className="h-3.5 w-3.5 text-slate-400" />
-            <span className="text-sm text-slate-600 dark:text-slate-300">
-              Password: <span className="font-mono font-medium text-slate-900 dark:text-white">{showPassword ? currentPassword : '••••••••'}</span>
-            </span>
-            <button
-              onClick={() => setShowPassword(!showPassword)}
-              className="text-slate-400 hover:text-amber-500"
-              title={showPassword ? 'Hide password' : 'View password'}
-            >
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
+            {editingPin ? (
+              <>
+                <PinInput value={editPinValue} onChange={setEditPinValue} placeholder="0000" />
+                <button onClick={saveEditedPin} className="text-emerald-600 hover:text-emerald-500 dark:text-emerald-400" title="Save PIN">
+                  <CheckCircle2 className="h-4 w-4" />
+                </button>
+                <button onClick={() => { setEditingPin(false); setEditPinValue(''); }} className="text-rose-500 hover:text-rose-400" title="Cancel">
+                  <X className="h-4 w-4" />
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="text-sm text-slate-600 dark:text-slate-300">
+                  Access PIN: <span className="font-mono font-medium text-slate-900 dark:text-white">{showPin ? currentPin : '••••'}</span>
+                </span>
+                <button
+                  onClick={() => setShowPin(!showPin)}
+                  className="text-slate-400 hover:text-amber-500"
+                  title={showPin ? 'Hide PIN' : 'View PIN'}
+                >
+                  {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+                <button
+                  onClick={() => { setEditPinValue(currentPin); setEditingPin(true); }}
+                  className="text-slate-400 hover:text-amber-500"
+                  title="Edit PIN"
+                >
+                  <Edit3 className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
           </div>
 
           <button
-            onClick={resetPassword}
+            onClick={resetPin}
             className="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
           >
-            <RotateCcw className="h-3.5 w-3.5" /> Reset Password to Default
+            <RotateCcw className="h-3.5 w-3.5" /> Reset to Default PIN
           </button>
         </div>
         {!loginAllowed && (
@@ -1859,8 +1905,8 @@ function buildBookingSummaryText(booking: Booking, settings: StudioSettings | nu
     `Date: ${formatDate(booking.shoot_date)}\n\n` +
     `Client: ${booking.client_name}\n` +
     (booking.is_dual_side && booking.bride_name ? `Bride: ${booking.bride_name}\n` : '') +
-    `Mobile: ${booking.client_mobile}\n` +
-    (booking.is_dual_side && booking.bride_mobile ? `Bride Mobile: ${booking.bride_mobile}\n` : '') +
+    `Mobile: +91 ${formatPhone(booking.client_mobile)}\n` +
+    (booking.is_dual_side && booking.bride_mobile ? `Bride Mobile: +91 ${formatPhone(booking.bride_mobile)}\n` : '') +
     `Address: ${booking.client_address || '—'}\n` +
     `Venue: ${booking.venue || '—'}\n` +
     `Status: ${booking.booking_status}\n\n` +
@@ -1899,8 +1945,8 @@ function BookingSuccessModal({ booking, onClose, onView }: { booking: Booking; o
       `Booking: ${booking.booking_no}\n\n` +
       `*Client:* ${booking.client_name}\n` +
       (booking.is_dual_side && booking.bride_name ? `*Bride:* ${booking.bride_name}\n` : '') +
-      `*Mobile:* ${booking.client_mobile}\n` +
-      (booking.is_dual_side && booking.bride_mobile ? `*Bride Mobile:* ${booking.bride_mobile}\n` : '') +
+      `*Mobile:* +91 ${formatPhone(booking.client_mobile)}\n` +
+      (booking.is_dual_side && booking.bride_mobile ? `*Bride Mobile:* +91 ${formatPhone(booking.bride_mobile)}\n` : '') +
       `*Venue:* ${booking.venue || '—'}\n\n` +
       `*Functions:*\n${fnList}\n\n` +
       `*Deliverables:*\n${delivList.length > 0 ? delivList.join('\n') : 'None'}\n\n` +

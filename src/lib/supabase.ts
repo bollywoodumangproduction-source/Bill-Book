@@ -1,4 +1,4 @@
-import { loadDB, saveDB, resetDB, clearAllData, reloadDB, uuid, isoNow, type MockDB } from '@/lib/mockData';
+import { loadDB, saveDB, resetDB, clearAllData, reloadDB, resetDemoData, loadDemoData, wipeDemoData, uuid, isoNow, type MockDB } from '@/lib/mockData';
 
 type Row = Record<string, any>;
 
@@ -273,8 +273,16 @@ class MockSupabaseClient {
     this.db = reloadDB();
   }
 
+  loadDemoData(): void {
+    this.db = loadDemoData();
+  }
+
   resetToDemo(): void {
-    this.db = resetDB();
+    this.db = resetDemoData();
+  }
+
+  clearDemoData(): void {
+    this.db = wipeDemoData();
   }
 
   clearAll(): void {

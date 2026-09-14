@@ -11,7 +11,7 @@ export const EVENT_FUNCTIONS = [
   'Other',
 ] as const;
 
-export const BOOKING_STATUSES = ['CONFIRMED', 'TENTATIVE', 'COMPLETED'] as const;
+export const BOOKING_STATUSES = ['CONFIRMED', 'TENTATIVE', 'COMPLETED', 'CANCELLED'] as const;
 
 export const LAB_VIDEO_TYPES = [
   'Full Traditional Video',

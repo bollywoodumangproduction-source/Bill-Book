@@ -20,9 +20,12 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  CheckCircle2,
+  X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type {
+  Booking,
   PhotographerLedgerEntry,
   LedgerEntryType,
   Partner,
@@ -46,6 +49,7 @@ import {
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Field, inputClass, selectClass, textareaClass } from '@/components/ui/Field';
+import { PinInput } from '@/components/ui/PinInput';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useRefresh } from '@/context/RefreshContext';
@@ -69,6 +73,34 @@ const CATEGORY_ICON: Record<PartnerCategory, typeof Camera> = {
 };
 
 type LedgerView = 'main' | 'archived' | 'trash';
+type LedgerTab = 'partners' | 'clients' | 'archived' | 'recycle_bin';
+
+interface BookingClientLedgerEntry {
+  id: string;
+  client_id?: string | null;
+  booking_id?: string | null;
+  entity_type?: string | null;
+  entry_type?: string | null;
+  amount: number;
+  description?: string | null;
+  date?: string | null;
+  reference_order_id?: string | null;
+  created_at?: string | null;
+}
+
+interface BookingClientSummary {
+  id: string;
+  booking_id: string;
+  client_name: string;
+  phone: string;
+  event_name: string;
+  event_tag: string;
+  event_date: string;
+  debit: number;
+  credit: number;
+  balance: number;
+  payments: BookingClientLedgerEntry[];
+}
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -94,6 +126,8 @@ interface PartnerBalance {
   totalSettled: number;
   directGiven: number;
   directReceived: number;
+  labCredit: number;
+  labDebit: number;
   balance: number;
 }
 
@@ -102,10 +136,14 @@ export function Ledger() {
   const { settings } = useSettings();
   const { refreshToken } = useRefresh();
   const [partners, setPartners] = useState<Partner[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [labOrders, setLabOrders] = useState<any[]>([]);
   const [ledgerEntries, setLedgerEntries] = useState<PhotographerLedgerEntry[]>([]);
   const [directTxns, setDirectTxns] = useState<DirectTransaction[]>([]);
+  const [clientLedgerEntries, setClientLedgerEntries] = useState<BookingClientLedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [activeTab, setActiveTab] = useState<LedgerTab>('partners');
   const [view, setView] = useState<LedgerView>('main');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -121,10 +159,13 @@ export function Ledger() {
   const [permanentDeleteId, setPermanentDeleteId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [{ data: p }, { data: le }, { data: dt }] = await Promise.all([
+    const [{ data: p }, { data: le }, { data: dt }, { data: bookingData }, { data: labData }, { data: clientLedgerData }] = await Promise.all([
       supabase.from('partners').select('*').order('created_at'),
       supabase.from('photographer_ledger').select('*').order('created_at'),
       supabase.from('direct_transactions').select('*').order('created_at'),
+      supabase.from('bookings').select('*').order('shoot_date'),
+      supabase.from('studio_lab_orders').select('*').order('created_at'),
+      supabase.from('ledger_entries').select('*').order('date'),
     ]);
     const allPartners = (p ?? []) as Partner[];
     const expired = allPartners.filter((partner) => partner.status === 'Trash' && partner.trashed_at && daysRemaining(partner.trashed_at) <= 0);
@@ -137,8 +178,11 @@ export function Ledger() {
     }
     const surviving = expired.length > 0 ? purgeExpiredPartners(allPartners) : allPartners;
     setPartners(surviving);
+    setBookings((bookingData ?? []) as Booking[]);
+    setLabOrders((labData ?? []) as any[]);
     setLedgerEntries((le ?? []) as PhotographerLedgerEntry[]);
     setDirectTxns((dt ?? []) as DirectTransaction[]);
+    setClientLedgerEntries((clientLedgerData ?? []) as BookingClientLedgerEntry[]);
     setLoading(false);
   }, []);
 
@@ -149,18 +193,27 @@ export function Ledger() {
       const mobile = partner.mobile;
       const pLedger = ledgerEntries.filter((e) => e.mobile === mobile);
       const pDirect = directTxns.filter((d) => d.partner_id === partner.id);
+      const partnerName = (partner.name ?? '').trim().toLowerCase();
+      const activeLabOrders = (labOrders ?? []).filter((order) => {
+        if (order.deleted_at || order.archived_at) return false;
+        if (order.partner_id && partner.id && order.partner_id === partner.id) return true;
+        const orderPartner = (order.partner_name ?? order.studio_name ?? '').trim().toLowerCase();
+        return !!orderPartner && orderPartner === partnerName;
+      });
 
       const totalCredit = pLedger.filter((e) => e.entry_type === 'SHOOT_DUTY_CREDIT').reduce((s, e) => s + Number(e.amount ?? 0), 0);
       const totalDebit = pLedger.filter((e) => e.entry_type === 'LAB_WORK_DEBIT').reduce((s, e) => s + Number(e.amount ?? 0), 0);
       const totalSettled = pLedger.filter((e) => e.entry_type === 'PAYMENT_SETTLED').reduce((s, e) => s + Number(e.amount ?? 0), 0);
       const directGiven = pDirect.filter((d) => d.txn_type === 'Given').reduce((s, d) => s + Number(d.amount ?? 0), 0);
       const directReceived = pDirect.filter((d) => d.txn_type === 'Received').reduce((s, d) => s + Number(d.amount ?? 0), 0);
+      const labCredit = activeLabOrders.reduce((s, order) => s + Number(order.advance_paid ?? 0), 0);
+      const labDebit = activeLabOrders.reduce((s, order) => s + Number(order.current_order_total ?? 0) + Number(order.previous_back_due ?? order.back_due ?? 0), 0);
 
-      const balance = totalCredit + directReceived - totalDebit - totalSettled - directGiven;
+      const balance = totalCredit + directReceived + labCredit - totalDebit - totalSettled - directGiven - labDebit;
 
-      return { partner, totalCredit, totalDebit, totalSettled, directGiven, directReceived, balance };
+      return { partner, totalCredit, totalDebit, totalSettled, directGiven, directReceived, labCredit, labDebit, balance };
     });
-  }, [partners, ledgerEntries, directTxns]);
+  }, [partners, ledgerEntries, directTxns, labOrders]);
 
   const filteredBalances = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -174,6 +227,117 @@ export function Ledger() {
       return matchesView && matchesCategory && matchesSearch;
     });
   }, [balances, view, categoryFilter, search]);
+
+  const bookingClientSummaries = useMemo<BookingClientSummary[]>(() => {
+    const normalizePhone = (value?: string | null) => (value ?? '').replace(/\D/g, '');
+    const normalizeText = (value?: string | null) => (value ?? '').trim().toLowerCase();
+    const activeBookings = bookings.filter((booking) => !booking.deleted_at && !booking.archived_at);
+
+    const grouped = new Map<string, {
+      client_name: string;
+      phone: string;
+      event_name: string;
+      event_tag: string;
+      event_date: string;
+      booking_ids: Set<string>;
+      debit: number;
+      credit: number;
+      payments: BookingClientLedgerEntry[];
+      primary_booking_id: string;
+    }>();
+
+    activeBookings.forEach((booking) => {
+      const rawClientId = (booking as Booking & { client_id?: string | null }).client_id;
+      const clientKey = rawClientId
+        ? `client_id:${String(rawClientId)}`
+        : (() => {
+            const phone = normalizePhone(booking.client_mobile);
+            if (phone) return `phone:${phone}`;
+            const name = normalizeText(booking.client_name);
+            return name ? `name:${name}` : `booking:${booking.id}`;
+          })();
+
+      const existing = grouped.get(clientKey) ?? {
+        client_name: booking.client_name || 'Client',
+        phone: booking.client_mobile || '—',
+        event_name: booking.event_function || 'Booking',
+        event_tag: (booking.event_function || 'Booking').split(',')[0].trim() || 'Booking',
+        event_date: booking.shoot_date || '',
+        booking_ids: new Set<string>(),
+        debit: 0,
+        credit: 0,
+        payments: [],
+        primary_booking_id: booking.id,
+      };
+
+      existing.booking_ids.add(booking.id);
+      existing.debit += Number(booking.total_amount ?? 0);
+      existing.credit += Number(booking.advance_paid ?? 0);
+      existing.client_name = existing.client_name || booking.client_name || 'Client';
+      existing.phone = existing.phone === '—' && booking.client_mobile ? booking.client_mobile : existing.phone;
+      if (!existing.event_name || existing.event_name === 'Booking' || existing.event_name === 'Multiple Events') {
+        existing.event_name = booking.event_function || 'Booking';
+      }
+      if (!existing.event_tag || existing.event_tag === 'Booking') {
+        existing.event_tag = (booking.event_function || 'Booking').split(',')[0].trim() || 'Booking';
+      }
+      if (!existing.event_date || existing.event_date < booking.shoot_date) {
+        existing.event_date = booking.shoot_date || existing.event_date;
+      }
+      if (booking.shoot_date && new Date(booking.shoot_date).getTime() > new Date(existing.event_date || booking.shoot_date).getTime()) {
+        existing.primary_booking_id = booking.id;
+      }
+
+      grouped.set(clientKey, existing);
+    });
+
+    return Array.from(grouped.entries()).map(([clientKey, clientSummary]) => {
+      const bookingIds = Array.from(clientSummary.booking_ids);
+      const bookingEntries = clientLedgerEntries.filter((entry) => {
+        const matchesClient = Boolean(entry.client_id && entry.client_id === clientKey);
+        const matchesBooking = Boolean(entry.booking_id && bookingIds.includes(entry.booking_id));
+        return entry.entity_type === 'CLIENT' && (matchesClient || matchesBooking);
+      });
+
+      const additionalCredit = bookingEntries
+        .filter((entry) => (entry.entry_type ?? '').toUpperCase() === 'CREDIT')
+        .reduce((sum, entry) => sum + Number(entry.amount ?? 0), 0);
+
+      const debit = clientSummary.debit;
+      const credit = clientSummary.credit + additionalCredit;
+      const payments = [...bookingEntries].sort((a, b) => String(b.date ?? b.created_at ?? '').localeCompare(String(a.date ?? a.created_at ?? '')));
+
+      const primaryBooking = activeBookings.find((booking) => booking.id === clientSummary.primary_booking_id) ?? activeBookings[0];
+      const primaryEventName = primaryBooking?.event_function || clientSummary.event_name || 'Booking';
+      const primaryEventTag = (primaryEventName || 'Booking').split(',')[0].trim() || 'Booking';
+
+      return {
+        id: clientKey,
+        booking_id: clientSummary.primary_booking_id,
+        client_name: clientSummary.client_name,
+        phone: clientSummary.phone,
+        event_name: bookingIds.length > 1 ? 'Multiple Events' : primaryEventName,
+        event_tag: bookingIds.length > 1 ? 'Multi Booking' : primaryEventTag,
+        event_date: clientSummary.event_date,
+        debit,
+        credit,
+        balance: debit - credit,
+        payments,
+      };
+    });
+  }, [bookings, clientLedgerEntries]);
+
+  const filteredBookingClients = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return bookingClientSummaries.filter((client) => {
+      const matchesSearch = !q ||
+        (client.client_name ?? '').toLowerCase().includes(q) ||
+        (client.phone ?? '').includes(q) ||
+        (client.event_name ?? '').toLowerCase().includes(q) ||
+        (client.event_tag ?? '').toLowerCase().includes(q);
+      return matchesSearch;
+    });
+  }, [bookingClientSummaries, search]);
 
   const activePartners = filteredBalances.filter((b) => b.partner.status === 'Active');
   const inactivePartners = filteredBalances.filter((b) => b.partner.status === 'On Leave' || b.partner.status === 'Inactive');
@@ -220,6 +384,16 @@ export function Ledger() {
   const partnerDirectTxns = (pid: string) => directTxns.filter((d) => d.partner_id === pid);
   const partnerLedger = (mobile: string) => ledgerEntries.filter((e) => e.mobile === mobile);
 
+  const setLedgerTab = (tab: LedgerTab) => {
+    setActiveTab(tab);
+    if (tab === 'partners') { setView('main'); setCategoryFilter('all'); }
+    if (tab === 'archived') { setView('archived'); setCategoryFilter('all'); }
+    if (tab === 'recycle_bin') { setView('trash'); setCategoryFilter('all'); }
+  };
+
+  const [quickPayClient, setQuickPayClient] = useState<BookingClientSummary | null>(null);
+  const [statementClient, setStatementClient] = useState<BookingClientSummary | null>(null);
+
   return (
     <div className="flex h-full w-full flex-col space-y-5 overflow-y-auto">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -229,12 +403,17 @@ export function Ledger() {
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => { setEditingPartner(null); setShowPartnerForm(true); }}
-            className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"
+            type="button"
+            onClick={() => {
+              setEditingPartner(null);
+              setShowPartnerForm(true);
+            }}
+            className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20"
           >
             <Plus className="h-4 w-4" /> Add Partner
           </button>
           <button
+            type="button"
             onClick={() => setShowDirectTxn(true)}
             className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-white/5"
           >
@@ -245,9 +424,10 @@ export function Ledger() {
 
       {/* View tabs */}
       <div className="flex flex-wrap gap-2">
-        <TabButton active={view === 'main'} onClick={() => { setView('main'); setCategoryFilter('all'); }} icon={Users} label="Partners" count={balances.filter((b) => b.partner.status === 'Active' || b.partner.status === 'Inactive').length} />
-        <TabButton active={view === 'archived'} onClick={() => { setView('archived'); setCategoryFilter('all'); }} icon={FolderArchive} label="Archived" count={balances.filter((b) => b.partner.status === 'Archived').length} />
-        <TabButton active={view === 'trash'} onClick={() => { setView('trash'); setCategoryFilter('all'); }} icon={Trash2} label="Recycle Bin" count={balances.filter((b) => b.partner.status === 'Trash').length} />
+        <TabButton active={activeTab === 'partners'} onClick={() => setLedgerTab('partners')} icon={Users} label="Partners" count={balances.filter((b) => b.partner.status === 'Active' || b.partner.status === 'Inactive').length} />
+        <TabButton active={activeTab === 'clients'} onClick={() => setLedgerTab('clients')} icon={Wallet} label="Booking Clients" count={bookingClientSummaries.length} />
+        <TabButton active={activeTab === 'archived'} onClick={() => setLedgerTab('archived')} icon={FolderArchive} label="Archived" count={balances.filter((b) => b.partner.status === 'Archived').length} />
+        <TabButton active={activeTab === 'recycle_bin'} onClick={() => setLedgerTab('recycle_bin')} icon={Trash2} label="Recycle Bin" count={balances.filter((b) => b.partner.status === 'Trash').length} />
       </div>
 
       {/* Filters */}
@@ -269,6 +449,12 @@ export function Ledger() {
 
       {loading ? (
         <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
+      ) : activeTab === 'clients' ? (
+        <BookingClientsView
+          clients={filteredBookingClients}
+          onPayment={(client) => setQuickPayClient(client)}
+          onViewStatement={(client) => setStatementClient(client)}
+        />
       ) : view === 'main' ? (
         <MainView
           active={activePartners}
@@ -290,6 +476,24 @@ export function Ledger() {
           onOpen={(p) => setDetailPartner(p)}
           onRestore={(id) => { updatePartnerStatus(id, 'Active'); toast('Partner restored from Recycle Bin', 'success'); }}
           onPermanentDelete={(id) => setPermanentDeleteId(id)}
+        />
+      )}
+
+      {quickPayClient && (
+        <BookingClientQuickPayModal
+          client={quickPayClient}
+          onClose={() => setQuickPayClient(null)}
+          onSaved={(entry) => {
+            setClientLedgerEntries((current) => [entry, ...current]);
+            setQuickPayClient(null);
+          }}
+        />
+      )}
+
+      {statementClient && (
+        <BookingClientStatementModal
+          client={statementClient}
+          onClose={() => setStatementClient(null)}
         />
       )}
 
@@ -376,6 +580,212 @@ function TabButton({ active, onClick, icon: Icon, label, count }: { active: bool
   );
 }
 
+function BookingClientsView({
+  clients,
+  onPayment,
+  onViewStatement,
+}: {
+  clients: BookingClientSummary[];
+  onPayment: (client: BookingClientSummary) => void;
+  onViewStatement: (client: BookingClientSummary) => void;
+}) {
+  if (clients.length === 0) {
+    return <EmptyState icon={Wallet} title="No booking clients found" subtitle="Matching client bookings will appear here" />;
+  }
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {clients.map((client) => (
+        <div key={client.id} className="rounded-2xl border border-slate-200 bg-slate-950/90 p-4 shadow-sm shadow-slate-900/10 dark:border-white/10 dark:bg-slate-900/70">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-base font-bold text-white">{client.client_name}</p>
+              <div className="mt-1 flex items-center gap-2 text-xs text-slate-300">
+                <span className="rounded-full bg-amber-500/15 px-2 py-1 font-medium text-amber-300">{client.event_tag}</span>
+                <span className="truncate">{client.phone}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 border-y border-white/10 py-3 text-center">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.15em] text-slate-400">Debit</p>
+              <p className="mt-1 text-sm font-semibold text-rose-300">{formatINR(client.debit)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.15em] text-slate-400">Credit</p>
+              <p className="mt-1 text-sm font-semibold text-emerald-300">{formatINR(client.credit)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.15em] text-slate-400">Balance</p>
+              <p className={`mt-1 text-sm font-bold ${client.balance > 0 ? 'text-rose-300' : client.balance < 0 ? 'text-emerald-300' : 'text-slate-200'}`}>
+                {formatINR(client.balance)}
+              </p>
+            </div>
+          </div>
+
+          <div className={`mt-3 rounded-lg px-3 py-2 text-center text-xs font-medium ${client.balance === 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>
+            {client.balance === 0 ? 'Fully Settled' : `Client Owes Studio: ${formatINR(client.balance)}`}
+          </div>
+
+          <div className="mt-4 flex items-center gap-2">
+            <button
+              onClick={() => onPayment(client)}
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"
+            >
+              <Plus className="h-4 w-4" /> Payment
+            </button>
+            <button
+              onClick={() => onViewStatement(client)}
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700"
+            >
+              <Eye className="h-4 w-4" /> Statement
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BookingClientQuickPayModal({ client, onClose, onSaved }: { client: BookingClientSummary; onClose: () => void; onSaved: (entry: BookingClientLedgerEntry) => void; }) {
+  const { toast } = useToast();
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDate, setPaymentDate] = useState(todayISO());
+  const [paymentMode, setPaymentMode] = useState('Cash');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    const amount = Number(paymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast('Enter a valid payment amount', 'error');
+      return;
+    }
+
+    setSaving(true);
+    const safeId = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}`;
+    const payload: BookingClientLedgerEntry = {
+      id: safeId,
+      client_id: client.id,
+      booking_id: client.booking_id,
+      entity_type: 'CLIENT',
+      amount: Number(amount),
+      entry_type: 'CREDIT',
+      description: `Payment for ${client.event_name || 'Booking'} via ${paymentMode}${note ? ` — Note: ${note}` : ''}`,
+      reference_order_id: client.booking_id,
+      date: paymentDate,
+      created_at: new Date().toISOString(),
+    };
+
+    try {
+      const { error } = await supabase.from('ledger_entries').insert([{
+        client_id: client.id,
+        booking_id: client.booking_id,
+        entity_type: 'CLIENT',
+        amount: Number(paymentAmount),
+        entry_type: 'CREDIT',
+        description: `Payment for ${client.event_name || 'Booking'} via ${paymentMode}${note ? ` — Note: ${note}` : ''}`,
+        reference_order_id: client.booking_id,
+        date: paymentDate,
+      }]);
+      if (error) throw error;
+      onSaved(payload);
+      toast('Payment recorded', 'success');
+      onClose();
+    } catch (error) {
+      toast('Failed to record payment', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal open={true} onClose={onClose} title={`Quick Pay — ${client.client_name}`} size="sm" dismissible={false}>
+      <div className="space-y-4">
+        <div className="rounded-lg bg-slate-50 p-3 text-xs dark:bg-white/5">
+          <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Deal Amount</span><span className="font-medium text-slate-900 dark:text-white">{formatINR(client.debit)}</span></div>
+          <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Paid So Far</span><span className="text-emerald-600 dark:text-emerald-400">{formatINR(client.credit)}</span></div>
+          <div className="mt-1 flex justify-between border-t border-slate-200 pt-1 dark:border-white/10"><span className="font-semibold text-slate-700 dark:text-slate-300">Remaining Due</span><span className="font-bold text-rose-500 dark:text-rose-400">{formatINR(client.balance)}</span></div>
+        </div>
+
+        <Field label="Payment Amount (₹)">
+          <input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} className={inputClass} placeholder="0" />
+        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Mode">
+            <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className={selectClass}>
+              {PAYMENT_MODES.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+            </select>
+          </Field>
+          <Field label="Date">
+            <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputClass} />
+          </Field>
+        </div>
+        <Field label="Note (optional)">
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} className={textareaClass} placeholder="Settlement note or payment remark" />
+        </Field>
+        <div className="flex justify-end gap-3 pt-2">
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
+          <button onClick={handleSave} disabled={saving} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60">
+            {saving ? 'Saving...' : 'Record Payment'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function BookingClientStatementModal({ client, onClose }: { client: BookingClientSummary; onClose: () => void; }) {
+  const totalPaid = client.payments.reduce((sum, entry) => sum + Number(entry.amount ?? 0), 0);
+  const shareText = [
+    `Booking Client Statement`,
+    `Client: ${client.client_name}`,
+    `Phone: ${client.phone}`,
+    `Event: ${client.event_name}`,
+    `Deal Amount: ${formatINR(client.debit)}`,
+    `Paid So Far: ${formatINR(totalPaid)}`,
+    `Balance Due: ${formatINR(client.balance)}`,
+    '',
+    ...client.payments.map((entry) => `${entry.date || '—'} • ${entry.description || 'Payment'} • ${formatINR(Number(entry.amount ?? 0))}`),
+  ].join('\n');
+
+  return (
+    <Modal open={true} onClose={onClose} title={`Statement — ${client.client_name}`} size="md" dismissible={false}>
+      <div className="space-y-4">
+        <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-3 text-center dark:bg-white/5">
+          <div><p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">Debit</p><p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{formatINR(client.debit)}</p></div>
+          <div><p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">Credit</p><p className="mt-1 text-sm font-semibold text-emerald-500 dark:text-emerald-400">{formatINR(totalPaid)}</p></div>
+          <div><p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">Balance</p><p className={`mt-1 text-sm font-semibold ${client.balance > 0 ? 'text-rose-500 dark:text-rose-300' : 'text-emerald-500 dark:text-emerald-400'}`}>{formatINR(client.balance)}</p></div>
+        </div>
+
+        <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-3 dark:border-white/10">
+          {client.payments.length === 0 ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">No payment entries recorded yet.</p>
+          ) : client.payments.map((entry) => (
+            <div key={entry.id} className="rounded-lg border border-slate-200 bg-white p-2 dark:border-white/10 dark:bg-slate-800/40">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-slate-500 dark:text-slate-400">{entry.date || '—'}</span>
+                <span className="text-sm font-semibold text-emerald-500 dark:text-emerald-400">{formatINR(Number(entry.amount ?? 0))}</span>
+              </div>
+              <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">{entry.description || 'Payment received'}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            onClick={() => navigator.clipboard?.writeText(shareText).catch(() => undefined)}
+            className="rounded-lg bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-600"
+          >
+            Copy Summary
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function BalanceBadge({ balance }: { balance: number }) {
   return (
     <div className={`mt-3 rounded-lg px-3 py-2 text-center text-xs font-medium ${
@@ -434,11 +844,11 @@ function PartnerCard({
       <div className="grid grid-cols-3 gap-2 text-center">
         <div>
           <p className="text-xs text-slate-500 dark:text-slate-400">Credit</p>
-          <p className="text-sm font-semibold text-emerald-500 dark:text-emerald-400">{formatINR(b.totalCredit + b.directReceived)}</p>
+          <p className="text-sm font-semibold text-emerald-500 dark:text-emerald-400">{formatINR(b.totalCredit + b.directReceived + b.labCredit)}</p>
         </div>
         <div>
           <p className="text-xs text-slate-500 dark:text-slate-400">Debit</p>
-          <p className="text-sm font-semibold text-rose-500 dark:text-rose-400">{formatINR(b.totalDebit + b.totalSettled + b.directGiven)}</p>
+          <p className="text-sm font-semibold text-rose-500 dark:text-rose-400">{formatINR(b.totalDebit + b.totalSettled + b.directGiven + b.labDebit)}</p>
         </div>
         <div>
           <p className="text-xs text-slate-500 dark:text-slate-400">Balance</p>
@@ -879,14 +1289,27 @@ function PartnerDetailModal({
   const [showPwd, setShowPwd] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [togglingLogin, setTogglingLogin] = useState(false);
+  const [editingPin, setEditingPin] = useState(false);
+  const [editPinValue, setEditPinValue] = useState('');
 
   const handleResetPassword = async () => {
     setResetting(true);
-    const { data, error } = await supabase.from('partners').update({ portal_password: partner.mobile, password_changed: false }).eq('id', partner.id).select().single();
+    const defaultPin = partner.mobile.slice(-4);
+    const { data, error } = await supabase.from('partners').update({ portal_password: defaultPin, password_changed: false }).eq('id', partner.id).select().single();
     setResetting(false);
-    if (error || !data) { toast('Failed to reset password', 'error'); return; }
+    if (error || !data) { toast('Failed to reset PIN', 'error'); return; }
     onUpdated(data as Partner);
-    toast('Password reset to default (mobile number)', 'success');
+    toast('PIN reset to default (last 4 digits of mobile)', 'success');
+  };
+
+  const saveEditedPin = async () => {
+    if (editPinValue.length !== 4) { toast('PIN must be exactly 4 digits', 'error'); return; }
+    const { data, error } = await supabase.from('partners').update({ portal_password: editPinValue, password_changed: true }).eq('id', partner.id).select().single();
+    if (error || !data) { toast('Failed to update PIN', 'error'); return; }
+    onUpdated(data as Partner);
+    setEditingPin(false);
+    setEditPinValue('');
+    toast('Access PIN updated', 'success');
   };
 
   const handleToggleLogin = async () => {
@@ -956,33 +1379,45 @@ function PartnerDetailModal({
           </button>
         </div>
 
-        {/* Portal Access / Password Management */}
+        {/* Portal Access / PIN Management */}
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <KeyRound className="h-4 w-4 text-amber-500" />
               <div>
-                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Portal Password</p>
-                <p className="font-mono text-sm text-slate-900 dark:text-white">{showPwd ? (partner.portal_password || partner.mobile) : '••••••••'}</p>
-                {partner.password_changed ? (
-                  <p className="mt-0.5 text-[10px] text-amber-600 dark:text-amber-400">Custom password set</p>
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Access PIN</p>
+                {editingPin ? (
+                  <div className="mt-1 flex items-center gap-2">
+                    <PinInput value={editPinValue} onChange={setEditPinValue} placeholder="0000" />
+                    <button onClick={saveEditedPin} className="text-emerald-600 hover:text-emerald-500 dark:text-emerald-400" title="Save PIN">
+                      <CheckCircle2 className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => { setEditingPin(false); setEditPinValue(''); }} className="text-rose-500 hover:text-rose-400" title="Cancel">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
                 ) : (
-                  <p className="mt-0.5 text-[10px] text-slate-400">Default (mobile number)</p>
+                  <p className="font-mono text-sm text-slate-900 dark:text-white">{showPwd ? (partner.portal_password || partner.mobile.slice(-4)) : '••••'}</p>
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setShowPwd(!showPwd)} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5" title={showPwd ? 'Hide password' : 'View password'}>
-                {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-              <button
-                onClick={handleResetPassword}
-                disabled={resetting}
-                className="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
-              >
-                <RotateCcw className="h-3.5 w-3.5" /> Reset to Default
-              </button>
-            </div>
+            {!editingPin && (
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowPwd(!showPwd)} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5" title={showPwd ? 'Hide PIN' : 'View PIN'}>
+                  {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+                <button onClick={() => { setEditPinValue(partner.portal_password || partner.mobile.slice(-4)); setEditingPin(true); }} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5" title="Edit PIN">
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={handleResetPassword}
+                  disabled={resetting}
+                  className="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" /> Reset to Default PIN
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

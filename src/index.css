@@ -51,77 +51,56 @@ iframe[src*="bolt"] {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 4mm;
+    margin: 8mm 10mm 8mm 10mm;
   }
 
-  /* Reset page chrome */
-  html, body {
-    margin: 0 !important;
-    padding: 0 !important;
-    background: #ffffff !important;
-    overflow: visible !important;
-    height: auto !important;
+  body {
+    background: white !important;
+    color: black !important;
   }
 
-  /* Universal high-contrast black-on-white */
-  * {
-    color: #000000 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-
-  /* Hide the entire app UI (sidebar, header, dashboard, modals, backdrops) */
-  #root,
-  .no-print {
+  .no-print,
+  header,
+  aside,
+  button,
+  nav,
+  footer,
+  .modal,
+  [role='dialog'],
+  .toast,
+  .notification,
+  .backdrop,
+  .overlay {
     display: none !important;
   }
 
-  /* Show only the printable bill sheet and its children */
-  #printable-bill-sheet {
-    display: block !important;
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
+  .print-content,
+  #printable-bill-sheet,
+  .bill-page,
+  .dual-bill-page,
+  .dual-bill-copy {
     width: 100% !important;
-    background: #ffffff !important;
-    color: #000000 !important;
-    z-index: 9999999 !important;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
-    font-size: 10pt !important;
-    line-height: 1.35 !important;
-  }
-
-  #printable-bill-sheet * {
-    color: #000000 !important;
-    background: #ffffff !important;
-    border-color: #000000 !important;
-    box-shadow: none !important;
-    text-shadow: none !important;
-    opacity: 1 !important;
-  }
-
-  #printable-bill-sheet .bill-page {
-    page-break-after: avoid;
-    page-break-inside: avoid;
-    break-inside: avoid;
-    overflow: hidden;
-  }
-
-  #printable-bill-sheet table {
-    width: 100% !important;
-    border-collapse: collapse !important;
-    font-size: 9pt !important;
-  }
-
-  #printable-bill-sheet table th,
-  #printable-bill-sheet table td {
-    border: 1px solid #000000 !important;
-    padding: 3px 5px !important;
-  }
-
-  #printable-bill-sheet img {
     max-width: 100% !important;
-    page-break-inside: avoid;
+    margin: 0 !important;
+    padding: 0 !important;
+    break-inside: avoid !important;
+  }
+
+  * {
+    break-inside: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color: #000000 !important;
+    border-color: #000000 !important;
+  }
+
+  table,
+  thead,
+  tbody,
+  tr,
+  td,
+  th {
+    break-inside: avoid !important;
   }
 }
 

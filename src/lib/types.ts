@@ -1,5 +1,6 @@
 export interface StudioSettings {
   id: number;
+  isDemo?: boolean;
   films_title: string;
   films_subtitle: string;
   production_title: string;
@@ -32,6 +33,7 @@ export type PromoAdAudience = 'clients' | 'partners';
 
 export interface PromoAd {
   id: string;
+  is_demo?: boolean;
   title: string;
   description: string;
   image_url: string;
@@ -131,6 +133,8 @@ export interface BookingDeliverables {
 
 export interface Booking {
   id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
   booking_no: string;
   client_name: string;
   client_mobile: string;
@@ -151,8 +155,8 @@ export interface Booking {
   net_due: number;
   deliverables_data: BookingDeliverables;
   is_login_allowed: boolean;
-  client_password: string;
-  password_changed: boolean;
+  access_pin: string;
+  pin_changed: boolean;
   work_status: WorkStatus;
   created_at: string;
   archived_at?: string | null;
@@ -175,6 +179,7 @@ export type NotificationType = 'payment' | 'work_status' | 'reminder';
 
 export interface BookingNotification {
   id: string;
+  is_demo?: boolean;
   booking_id: string;
   type: NotificationType;
   title: string;
@@ -233,6 +238,8 @@ export type LabClientDispatchMode = 'By Hand' | 'Courier' | 'Drive';
 
 export interface StudioLabOrder {
   id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
   order_no: string;
   partner_id: string | null;
   partner_name: string;
@@ -248,7 +255,9 @@ export interface StudioLabOrder {
   previous_back_due: number;
   master_total: number;
   advance_paid: number;
+  net_due?: number;
   net_final_due: number;
+  back_due?: number;
   payment_mode: string;
   payment_date: string;
   payment_note: string;
@@ -260,6 +269,9 @@ export interface StudioLabOrder {
   video_rows: VideoRow[];
   album_rows: AlbumRow[];
   created_at: string;
+  access_pin: string;
+  pin_changed: boolean;
+  is_login_allowed: boolean;
   archived_at?: string | null;
   deleted_at?: string | null;
 }
@@ -284,6 +296,8 @@ export type PaymentSource = 'Booking' | 'Lab Order' | 'Photographer';
 
 export interface Payment {
   id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
   receipt_no: string;
   source: PaymentSource;
   party_name: string;
@@ -301,6 +315,8 @@ export type PartnerStatus = 'Active' | 'On Leave' | 'Inactive' | 'Archived' | 'T
 
 export interface Partner {
   id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
   name: string;
   mobile: string;
   studio_name: string;
@@ -340,6 +356,8 @@ export type DirectTxnType = 'Given' | 'Received';
 
 export interface DirectTransaction {
   id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
   partner_id: string;
   partner_name: string;
   partner_mobile: string;
@@ -351,12 +369,14 @@ export interface DirectTransaction {
   created_at: string;
 }
 
-export type PageKey = 'dashboard' | 'bookings' | 'lab' | 'ledger' | 'payments' | 'settings' | 'promo' | 'music' | 'teaser' | 'invitation';
+export type PageKey = 'dashboard' | 'bookings' | 'lab' | 'ledger' | 'payments' | 'settings' | 'promo' | 'music' | 'teaser' | 'invitation' | 'photo-selection';
 
 export type TeaserStatus = 'editing' | 'complete' | 'delivered';
 
 export interface TeaserProject {
   id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
   booking_id: string;
   client_name: string;
   video_url: string;
@@ -369,6 +389,8 @@ export interface TeaserProject {
 
 export interface InvitationProject {
   id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
   booking_id: string;
   client_name: string;
   video_url: string;
@@ -387,6 +409,8 @@ export type MusicCuePriority = 'must_use' | 'preferred' | 'reference';
 
 export interface MusicProject {
   id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
   client_name: string;
   booking_id: string | null;
   mode: MusicProjectMode;
@@ -398,6 +422,8 @@ export interface MusicProject {
 
 export interface MusicCue {
   id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
   project_id: string;
   category: string;
   track_title: string;
@@ -411,6 +437,8 @@ export interface MusicCue {
 
 export interface Banner {
   id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
   text: string;
   link: string;
   is_active: boolean;
@@ -419,6 +447,8 @@ export interface Banner {
 
 export interface Popup {
   id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
   title: string;
   message: string;
   is_active: boolean;
@@ -427,6 +457,8 @@ export interface Popup {
 
 export interface Coupon {
   id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
   code: string;
   percentage: number;
   valid_until: string;
@@ -436,8 +468,48 @@ export interface Coupon {
 
 export interface Broadcast {
   id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
   title: string;
   category: string;
   message: string;
   created_at: string;
+}
+
+export type SelectionClientType = 'B2C' | 'B2B' | 'Lab Order' | 'Booking Party';
+
+export interface PhotoItem {
+  id: string;
+  folder: string;
+  fileName: string;
+  previewUrl: string;
+  selected: boolean;
+}
+
+export interface SheetProofItem {
+  sheetNumber: number;
+  previewUrl: string;
+  correctionNote?: string;
+}
+
+export interface ClientSelectionSession {
+  id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
+  billId: string;
+  clientName: string;
+  phone: string;
+  pinCode: string;
+  clientType: SelectionClientType;
+  packageSheets: number;
+  extraSheetRate: number;
+  isLocked: boolean;
+  pdfDownloadAllowed: boolean;
+  shareableUrl: string;
+  folders: string[];
+  photos: PhotoItem[];
+  proofSheets: SheetProofItem[];
+  submitted_at: string | null;
+  created_at: string;
+  updated_at: string;
 }

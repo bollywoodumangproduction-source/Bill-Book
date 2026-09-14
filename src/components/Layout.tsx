@@ -18,6 +18,7 @@ import {
   Music2,
   Video,
   Mail,
+  Images,
 } from 'lucide-react';
 import type { PageKey } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
@@ -41,6 +42,7 @@ const desktopNav: { key: PageKey; label: string; icon: typeof Home }[] = [
   { key: 'music', label: 'Music Selection', icon: Music2 },
   { key: 'teaser', label: 'Teaser & Clearance', icon: Video },
   { key: 'invitation', label: 'Invitation Hub', icon: Mail },
+  { key: 'photo-selection', label: 'Photo Selection', icon: Images },
   { key: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -57,6 +59,7 @@ const moreNav: { key: PageKey; label: string; icon: typeof Home }[] = [
   { key: 'music', label: 'Music Selection', icon: Music2 },
   { key: 'teaser', label: 'Teaser & Clearance', icon: Video },
   { key: 'invitation', label: 'Invitation Hub', icon: Mail },
+  { key: 'photo-selection', label: 'Photo Selection', icon: Images },
   { key: 'settings', label: 'Settings', icon: Settings },
 ];
 

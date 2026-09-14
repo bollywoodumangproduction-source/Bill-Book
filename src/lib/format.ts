@@ -30,3 +30,11 @@ export function isUpcoming(dateStr: string | null): boolean {
   if (!dateStr) return false;
   return dateStr > todayISO();
 }
+
+export function formatPhone(raw: string): string {
+  return (raw ?? '').replace(/\D/g, '').slice(-10);
+}
+
+export function defaultPinFromPhone(raw: string): string {
+  return formatPhone(raw).slice(-4);
+}

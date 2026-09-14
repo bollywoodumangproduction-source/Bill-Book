@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Plus,
@@ -11,6 +11,7 @@ import {
   MessageCircle,
   Eye,
   X,
+  Archive,
   Video,
   Book,
   User,
@@ -22,10 +23,11 @@ import {
   Download,
   FileText,
   Wallet,
+  MoreVertical,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabClientDeliveryStatus, LabClientDispatchMode } from '@/lib/types';
-import { formatINR, formatDate, todayISO } from '@/lib/format';
+import { formatINR, formatDate, todayISO, defaultPinFromPhone } from '@/lib/format';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useDraftState } from '@/lib/useDraftState';
@@ -85,9 +87,17 @@ function uid(): string {
   });
 }
 
+function getOrderKey(order: Partial<StudioLabOrder> | null | undefined): string {
+  return String(order?.id ?? order?.order_no ?? (order as any)?.bup_no ?? '').trim();
+}
+
 function nextOrderNo(existing: StudioLabOrder[]): string {
-  const max = existing.reduce((m, o) => {
-    const n = parseInt(o.order_no.replace(/\D/g, ''), 10);
+  const realOrders = existing.filter((o) => {
+    const value = String(o.order_no ?? '');
+    return !o.isDemo && !o.is_demo && !value.startsWith('DEMO-') && !value.startsWith('demo-') && /^BUP-\d{3}$/i.test(value);
+  });
+  const max = realOrders.reduce((m, o) => {
+    const n = parseInt(String(o.order_no).replace(/\D/g, ''), 10);
     return isNaN(n) ? m : Math.max(m, n);
   }, 0);
   return `BUP-${String(max + 1).padStart(3, '0')}`;
@@ -155,6 +165,9 @@ function normalizeLabOrder(raw: Partial<StudioLabOrder>): StudioLabOrder {
     parcel_tracking_details: raw.parcel_tracking_details ?? '',
     video_rows: Array.isArray(raw.video_rows) ? raw.video_rows : [],
     album_rows: Array.isArray(raw.album_rows) ? raw.album_rows : [],
+    access_pin: raw.access_pin ?? '',
+    pin_changed: raw.pin_changed ?? false,
+    is_login_allowed: raw.is_login_allowed ?? false,
     created_at: raw.created_at ?? '',
   } as StudioLabOrder;
 }
@@ -180,10 +193,16 @@ export function LabOrders() {
   const [view, setView] = useState<'active' | 'archived' | 'recycle'>('active');
   const [showPin, setShowPin] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<'soft' | 'permanent'>('soft');
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('studio_lab_orders').select('*').order('created_at');
-    setOrders((data ?? []).map((order: Partial<StudioLabOrder>) => normalizeLabOrder(order)));
+    const normalized = (data ?? []).map((order: Partial<StudioLabOrder>, index: number) => {
+      const base = normalizeLabOrder(order);
+      const candidateId = String(base.id || base.order_no || (order as any)?.bup_no || '').trim();
+      return { ...base, id: candidateId || `BUP-${index + 1}` } as StudioLabOrder;
+    });
+    setOrders(normalized);
     setLoading(false);
   }, []);
 
@@ -197,15 +216,59 @@ export function LabOrders() {
     return lifecycleMatch && matchSearch && matchStatus;
   });
 
-  const handleDelete = async () => {
-    if (!deleteId) return;
-    await supabase.from('studio_lab_orders').update({ deleted_at: new Date().toISOString() }).eq('id', deleteId);
-    toast('Order moved to Recycle Bin', 'success');
-    setDeleteId(null); setShowPin(false); load();
+  const handleArchiveOrder = async (orderIdOrNo: string) => {
+    const targetKey = String(orderIdOrNo ?? '').trim();
+    if (!targetKey) return;
+    const targetOrder = orders.find((item) => getOrderKey(item) === targetKey) ?? null;
+    if (!targetOrder) return;
+
+    await supabase.from('studio_lab_orders').update({ archived_at: new Date().toISOString(), deleted_at: null }).eq('id', targetOrder.id);
+    setOrders((prev) => prev.map((item) => (getOrderKey(item) === targetKey ? { ...item, archived_at: new Date().toISOString(), deleted_at: null } : item)));
+    toast('Order archived', 'success');
+    setDeleteId(null); setShowPin(false);
   };
 
-  const restoreOrder = async (id: string) => { await supabase.from('studio_lab_orders').update({ archived_at: null, deleted_at: null }).eq('id', id); toast('Order restored to Active', 'success'); load(); };
-  const permanentlyDeleteOrder = async () => { if (!deleteId) return; await supabase.from('studio_lab_orders').delete().eq('id', deleteId); toast('Order permanently deleted', 'success'); setDeleteId(null); setShowPin(false); load(); };
+  const handleDeleteOrder = async (orderIdOrNo: string) => {
+    const targetKey = String(orderIdOrNo ?? '').trim();
+    if (!targetKey) return;
+    const targetOrder = orders.find((item) => getOrderKey(item) === targetKey) ?? null;
+    if (!targetOrder) return;
+
+    await supabase.from('studio_lab_orders').update({ deleted_at: new Date().toISOString(), archived_at: null }).eq('id', targetOrder.id);
+    setOrders((prev) => prev.map((item) => (getOrderKey(item) === targetKey ? { ...item, deleted_at: new Date().toISOString(), archived_at: null } : item)));
+    toast('Order moved to Recycle Bin', 'success');
+    setDeleteId(null); setShowPin(false);
+  };
+
+  const handleRestoreOrder = async (orderIdOrNo: string) => {
+    const targetKey = String(orderIdOrNo ?? '').trim();
+    if (!targetKey) return;
+    const targetOrder = orders.find((item) => getOrderKey(item) === targetKey) ?? null;
+    if (!targetOrder) return;
+
+    await supabase.from('studio_lab_orders').update({ archived_at: null, deleted_at: null }).eq('id', targetOrder.id);
+    setOrders((prev) => prev.map((item) => (getOrderKey(item) === targetKey ? { ...item, archived_at: null, deleted_at: null } : item)));
+    toast('Order restored to Active', 'success');
+  };
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    await handleDeleteOrder(deleteId);
+  };
+
+  const restoreOrder = async (id: string) => { await handleRestoreOrder(id); };
+  const permanentlyDeleteOrder = async () => {
+    if (!deleteId) return;
+    const targetKey = String(deleteId ?? '').trim();
+    if (!targetKey) return;
+    const targetOrder = orders.find((item) => getOrderKey(item) === targetKey) ?? null;
+    if (!targetOrder) return;
+
+    await supabase.from('studio_lab_orders').delete().eq('id', targetOrder.id);
+    setOrders((prev) => prev.filter((item) => getOrderKey(item) !== targetKey));
+    toast('Order permanently deleted', 'success');
+    setDeleteId(null); setShowPin(false);
+  };
 
   const copyOrderSummary = async (o: StudioLabOrder) => {
     const text = buildLabOrderSummaryText(o, settings);
@@ -267,7 +330,10 @@ export function LabOrders() {
                     <button onClick={() => { setEditing(o); setShowForm(true); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-amber-500 dark:hover:bg-white/10 dark:hover:text-amber-400">
                       <Edit3 className="h-3.5 w-3.5" />
                     </button>
-                    <button onClick={() => { setDeleteId(o.id); setPendingDelete('soft'); setShowPin(true); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-rose-500 dark:hover:bg-white/10 dark:hover:text-rose-400">
+                    <button onClick={() => handleArchiveOrder(o.id || o.order_no)} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-amber-500 dark:hover:bg-white/10 dark:hover:text-amber-400" title="Archive order">
+                      <Archive className="h-3.5 w-3.5" />
+                    </button>
+                    <button onClick={() => { setDeleteId(o.id || o.order_no); setPendingDelete('soft'); setShowPin(true); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-rose-500 dark:hover:bg-white/10 dark:hover:text-rose-400" title="Delete order">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -325,51 +391,34 @@ export function LabOrders() {
                     </span>
                   </div>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {view !== 'active' && <button onClick={() => restoreOrder(o.id)} className="rounded-lg border border-emerald-500/30 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">Restore</button>}
-                  {view === 'recycle' && <button onClick={() => { setDeleteId(o.id); setPendingDelete('permanent'); setShowPin(true); }} className="rounded-lg border border-rose-500/30 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">Delete Forever</button>}
-                  <button
-                    onClick={() => setViewBillOrder(o)}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
-                  >
-                    <Eye className="h-3.5 w-3.5" /> View Bill
-                  </button>
-                  <button
-                    onClick={() => setViewSlipOrder(o)}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
-                  >
-                    <FileText className="h-3.5 w-3.5" /> View Slip
-                  </button>
+                {view !== 'active' && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button onClick={() => handleRestoreOrder(o.id || o.order_no)} className="rounded-lg border border-emerald-500/30 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">Restore</button>
+                    {view === 'recycle' && <button onClick={() => { setDeleteId(o.id || o.order_no); setPendingDelete('permanent'); setShowPin(true); }} className="rounded-lg border border-rose-500/30 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">Delete Forever</button>}
+                  </div>
+                )}
+                <div className="mt-3 flex items-center gap-2">
                   <button
                     onClick={() => setSettleOrder(o)}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-sky-500/30 px-3 py-2 text-xs font-medium text-sky-600 transition-colors hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-500/10"
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20"
                   >
-                    <Wallet className="h-3.5 w-3.5" /> Settle Balance
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Settle Balance
                   </button>
                   <button
                     onClick={() => setQuickPayOrder(o)}
-                    className="flex items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-2 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-medium text-blue-400 transition-colors hover:bg-blue-500/20"
                   >
-                    <Plus className="h-3.5 w-3.5" /> Pay
+                    <Plus className="h-3.5 w-3.5" /> + Pay
                   </button>
-                  <button
-                    onClick={() => sendLabWhatsApp(o, settings)}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-600"
-                  >
-                    <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
-                  </button>
-                  <button
-                    onClick={() => setPrintOrder(o)}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-slate-900 transition-colors hover:bg-amber-400"
-                  >
-                    <Printer className="h-3.5 w-3.5" /> Print A4 Bill
-                  </button>
-                  <button
-                    onClick={() => copyOrderSummary(o)}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
-                  >
-                    <Copy className="h-3.5 w-3.5" /> Copy Summary
-                  </button>
+                  <LabOrderActionMenu
+                    open={activeMenuId === o.id}
+                    onToggle={() => setActiveMenuId((current) => current === o.id ? null : o.id)}
+                    onClose={() => setActiveMenuId(null)}
+                    onViewBill={() => { setViewBillOrder(o); setActiveMenuId(null); }}
+                    onViewSlip={() => { setViewSlipOrder(o); setActiveMenuId(null); }}
+                    onWhatsApp={() => { sendLabWhatsApp(o, settings); setActiveMenuId(null); }}
+                    onCopySummary={() => { void copyOrderSummary(o); setActiveMenuId(null); }}
+                  />
                 </div>
               </div>
             );
@@ -418,7 +467,8 @@ export function LabOrders() {
 }
 
 function sendLabWhatsApp(o: StudioLabOrder, settings: StudioSettings | null) {
-  const phone = (o.studio_mobile ?? '').replace(/[^0-9]/g, '');
+  let phone = (o.studio_mobile ?? '').replace(/\D/g, '');
+  if (phone.length === 10) phone = '91' + phone;
   const clientNames = (o.clients ?? []).map((c) => c.client_name || '—').join(', ');
   const msg =
     `*${settings?.production_title ?? 'Bollywood Umang Production'}*\n` +
@@ -439,17 +489,129 @@ function sendLabWhatsApp(o: StudioLabOrder, settings: StudioSettings | null) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+function sanitizeLabOrderFilenamePart(value: string): string {
+  return (value || 'Document').trim().replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'Document';
+}
+
+function buildLabOrderDocumentFilename(order: StudioLabOrder): string {
+  const orderNo = sanitizeLabOrderFilenamePart(order.order_no || 'Order');
+  const labPartner = sanitizeLabOrderFilenamePart(order.partner_name || order.studio_name || 'Partner');
+  const projectName = sanitizeLabOrderFilenamePart(order.project_name || (order.clients ?? []).map((client) => client.client_name).filter(Boolean).join('-') || 'Project');
+  return `${orderNo}_${labPartner}_${projectName}.pdf`;
+}
+
+function getStoredLabTerms(): string {
+  if (typeof window === 'undefined') return DEFAULT_PRODUCTION_TERMS;
+  try {
+    const saved = window.localStorage.getItem('lab_terms_conditions');
+    return saved && saved.trim() ? saved : DEFAULT_PRODUCTION_TERMS;
+  } catch {
+    return DEFAULT_PRODUCTION_TERMS;
+  }
+}
+
+function LabOrderActionMenu({
+  open,
+  onToggle,
+  onClose,
+  onViewBill,
+  onViewSlip,
+  onWhatsApp,
+  onCopySummary,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onViewBill: () => void;
+  onViewSlip: () => void;
+  onWhatsApp: () => void;
+  onCopySummary: () => void;
+}) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target;
+      if (menuRef.current && target instanceof Node && !menuRef.current.contains(target)) {
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open, onClose]);
+
+  const runAction = (action: () => void) => {
+    action();
+    onClose();
+  };
+
+  return (
+    <div ref={menuRef} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label="More lab order actions"
+        onClick={onToggle}
+        className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:bg-slate-900/80 dark:text-slate-300 dark:hover:bg-white/5"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-30 mt-2 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-white/10 dark:bg-slate-900">
+          <button type="button" onClick={() => runAction(onViewBill)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"><Eye className="h-4 w-4" /> View Bill</button>
+          <button type="button" onClick={() => runAction(onViewSlip)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"><FileText className="h-4 w-4" /> View Slip</button>
+          <button type="button" onClick={() => runAction(onWhatsApp)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"><MessageCircle className="h-4 w-4" /> WhatsApp</button>
+          <button type="button" onClick={() => runAction(onCopySummary)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"><Copy className="h-4 w-4" /> Copy Summary</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LabDigitalStamp({ order }: { order: StudioLabOrder }) {
+  const isFullyPaid = Number(order.net_final_due ?? order.net_due ?? 0) <= 0;
+  const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const fill = isFullyPaid ? 'bg-emerald-50 border-emerald-600 text-emerald-700' : 'bg-amber-50 border-sky-600 text-sky-700';
+  const statusText = isFullyPaid ? 'PAID' : 'CONFIRMED';
+  const title = isFullyPaid
+    ? 'BOLLYWOOD UMANG PRODUCTION • FULLY PAID & VERIFIED • KAMTAUL / DARBHANGA'
+    : 'BOLLYWOOD UMANG PRODUCTION • AUTHORIZED LAB SLIP • CONFIRMED';
+
+  return (
+    <div className={`flex items-center justify-center ${isFullyPaid ? 'text-emerald-700' : 'text-sky-700'}`}>
+      <div className={`relative flex h-32 w-32 items-center justify-center rounded-full border-[3px] p-3 text-center shadow-inner ${fill}`}>
+        <div className="absolute inset-2 rounded-full border border-current/70" />
+        <div className="absolute inset-x-3 top-4 text-[7px] font-bold uppercase leading-tight tracking-[0.12em]">{title}</div>
+        <div className="absolute inset-x-0 bottom-8 text-center text-[18px] font-black tracking-widest">{statusText}</div>
+        <div className="absolute inset-x-0 bottom-2 text-center text-[8px] font-semibold uppercase tracking-[0.12em]">{today}</div>
+      </div>
+    </div>
+  );
+}
+
 function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: StudioLabOrder | null; onClose: () => void; settings: StudioSettings | null; onCopySummary: (o: StudioLabOrder) => void }) {
+  const { toast } = useToast();
+  const { triggerRefresh } = useRefresh();
   const [paymentHistory, setPaymentHistory] = useState<LabPaymentInstallment[]>([]);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(todayISO());
   const [paymentMode, setPaymentMode] = useState('Cash');
   const [paymentNote, setPaymentNote] = useState('');
+  const [printPreview, setPrintPreview] = useState(false);
+  const [showStamp, setShowStamp] = useState(true);
+  const [termsText, setTermsText] = useState(getStoredLabTerms());
+  const [editingTerms, setEditingTerms] = useState(false);
+  const printId = `lab-bill-print-${order?.id ?? 'preview'}`;
+  const exportFilename = order ? buildLabOrderDocumentFilename(order) : 'lab-order.pdf';
   useEffect(() => {
     if (!order) return;
     setPaymentHistory(order.payment_history ?? (order.advance_paid ? [{ id: uid(), amount: toNum(order.advance_paid), payment_date: order.payment_date || '', payment_mode: order.payment_mode || 'Cash', note: order.payment_note || 'Existing payment' }] : []));
   }, [order]);
+  useEffect(() => {
+    try { window.localStorage.setItem('lab_terms_conditions', termsText); } catch { /* noop */ }
+  }, [termsText]);
   if (!order) return null;
+
   const clients = (order.clients ?? []).map((client) => ({
     ...emptyClient(),
     ...client,
@@ -469,6 +631,26 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
     const { error } = await supabase.from('studio_lab_orders').update({ payment_history: nextHistory, advance_paid: totalPaid + amount, net_final_due: toNum(order.master_total) - totalPaid - amount, payment_mode: paymentMode, payment_date: paymentDate, payment_note: paymentNote }).eq('id', order.id);
     if (!error) { setPaymentHistory(nextHistory); setPaymentAmount(''); setPaymentNote(''); }
   };
+
+  const handlePrintA4 = () => {
+    setPrintPreview(true);
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => setPrintPreview(false), 400);
+    }, 120);
+  };
+
+  const handleDownloadPdf = async () => {
+    setPrintPreview(true);
+    setTimeout(async () => {
+      const element = document.getElementById(printId);
+      if (element) {
+        await downloadA4Pdf(element, exportFilename);
+      }
+      setPrintPreview(false);
+    }, 120);
+  };
+
   return (
     <Modal open={!!order} onClose={onClose} title={`Bill — ${order.order_no}`} size="xl" dismissible>
       <div className="space-y-4">
@@ -634,16 +816,52 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
           </div>
         </div>
 
-        <div className="flex flex-wrap justify-end gap-2">
-          <button onClick={() => sendLabWhatsApp(order, settings)} className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600">
-            <MessageCircle className="h-4 w-4" /> Send WhatsApp
-          </button>
-          <button onClick={() => onCopySummary(order)} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
-            <Copy className="h-4 w-4" /> Copy Bill Summary
-          </button>
-          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Close</button>
+        <div className="border-t border-slate-200 pt-4 dark:border-white/10">
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">File: {exportFilename}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => setShowStamp((value) => !value)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-white/10 dark:text-slate-300">{showStamp ? 'Stamp On' : 'Stamp Off'}</button>
+              <button type="button" onClick={() => setEditingTerms((value) => !value)} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-white/10 dark:text-slate-300"><Edit3 className="h-3.5 w-3.5" /> Edit Terms</button>
+            </div>
+          </div>
+          {editingTerms && (
+            <div className="mb-4 rounded-xl border border-slate-200 p-3 dark:border-white/10">
+              <textarea value={termsText} onChange={(e) => setTermsText(e.target.value)} rows={8} className="w-full rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700 dark:border-white/10 dark:bg-slate-950 dark:text-slate-200" />
+              <div className="mt-2 flex justify-end">
+                <button type="button" onClick={() => setEditingTerms(false)} className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-white">Save Terms</button>
+              </div>
+            </div>
+          )}
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => sendLabWhatsApp(order, settings)} className="flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600"><MessageCircle className="h-4 w-4" /> Send on WhatsApp</button>
+              <button onClick={handleDownloadPdf} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"><Download className="h-4 w-4" /> Download PDF</button>
+              <button onClick={handlePrintA4} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-amber-400">Print A4</button>
+            </div>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button onClick={() => onCopySummary(order)} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
+              <Copy className="h-4 w-4" /> Copy Bill Summary
+            </button>
+            <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Close</button>
+          </div>
+        </div>
+        <div className="mt-4 border-t border-slate-200 pt-4 dark:border-white/10">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Terms & Conditions</p>
+              <div className="whitespace-pre-line text-xs leading-5 text-slate-600 dark:text-slate-300">{termsText || DEFAULT_PRODUCTION_TERMS}</div>
+            </div>
+            {showStamp && <LabDigitalStamp order={order} />}
+          </div>
         </div>
       </div>
+      {printPreview && createPortal(
+        <div id={printId} aria-hidden>
+          <LabOrderPrintTemplate order={order} settings={settings} termsText={termsText} />
+        </div>,
+        document.body,
+      )}
     </Modal>
   );
 }
@@ -651,18 +869,38 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
 function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: StudioLabOrder | null; onClose: () => void; settings: StudioSettings | null; onDualPrint?: () => void }) {
   if (!order) return null;
   const slipId = `lab-slip-${order.id}`;
+  const exportFilename = buildLabOrderDocumentFilename(order);
+  const [printPreview, setPrintPreview] = useState(false);
+  const [showStamp, setShowStamp] = useState(true);
+  const [termsText, setTermsText] = useState(getStoredLabTerms());
+  const [editingTerms, setEditingTerms] = useState(false);
   const download = async () => {
-    const element = document.getElementById(slipId);
-    if (element) await downloadA4Pdf(element, buildPdfFilename(order.partner_name || order.studio_name, order.order_no));
+    setPrintPreview(true);
+    setTimeout(async () => {
+      const element = document.getElementById(slipId);
+      if (element) await downloadA4Pdf(element, exportFilename);
+      setPrintPreview(false);
+    }, 120);
   };
+  useEffect(() => {
+    try { window.localStorage.setItem('lab_terms_conditions', termsText); } catch { /* noop */ }
+  }, [termsText]);
   const albumRows = (order.clients ?? []).flatMap((client) => client.album_rows ?? []);
   const videoRows = (order.clients ?? []).flatMap((client) => client.video_rows ?? []);
   const shareSlip = () => {
-    const phone = (order.studio_mobile ?? '').replace(/\D/g, '');
+    let phone = (order.studio_mobile ?? '').replace(/\D/g, '');
+    if (phone.length === 10) phone = '91' + phone;
     const albums = albumRows.map((row) => `Album: ${row.album_type || 'Album'} | Size: ${row.size || '—'} | Sheets: ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} | Paper: ${row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} | Cover/Box: ${row.packaging || '—'}`).join('\n');
     const videos = videoRows.map((row) => `Video: ${row.video_type || 'Edit'} | Format: ${row.quality || '—'} | Output specs: ${row.quality || '—'}`).join('\n');
     const message = `*Lab Work Slip*\nProject: ${order.project_name}\nLab Partner: ${order.partner_name || '—'}\n${albums}\n${videos}\nPromised Delivery: ${order.promised_delivery_date ? formatDate(order.promised_delivery_date) : '—'}\nDrive / Delivery Link: ${order.parcel_tracking_details || '—'}`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+  };
+  const handlePrintA4 = () => {
+    setPrintPreview(true);
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => setPrintPreview(false), 400);
+    }, 120);
   };
 
   return (
@@ -677,9 +915,47 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
         {albumRows.length > 0 && <div><h3 className="mb-2 font-semibold">Album Designing &amp; Printing</h3><div className="space-y-1 text-sm">{albumRows.map((row, index) => <p key={index}>{row.album_type || 'Album'} · Size {row.size || '—'} · {row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} sheets · Paper {row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} · Cover/Box {row.packaging || '—'}</p>)}</div></div>}
         {videoRows.length > 0 && <div><h3 className="mb-2 font-semibold">Video Editing</h3><div className="space-y-1 text-sm">{videoRows.map((row, index) => <p key={index}>{row.video_type || 'Video Edit'} · Format {row.quality || '—'} · Output specs {row.quality || '—'}</p>)}</div></div>}
         <div><h3 className="mb-2 font-semibold">Delivery / Drive Links</h3><p className="break-all text-sm">{order.parcel_tracking_details || 'No link provided'}</p></div>
-        <div className="border-t border-black pt-2"><h3 className="mb-1 font-semibold">Production &amp; Lab Terms &amp; Conditions</h3><p className="whitespace-pre-line text-xs">{settings?.production_terms || DEFAULT_PRODUCTION_TERMS}</p></div>
+        <div className="border-t border-black pt-2">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 className="mb-1 font-semibold">Production &amp; Lab Terms &amp; Conditions</h3>
+            <button type="button" onClick={() => setEditingTerms((value) => !value)} className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-medium text-slate-700"> <Edit3 className="h-3 w-3" /> Edit Terms </button>
+          </div>
+          {editingTerms && (
+            <div className="mb-3 rounded-lg border border-slate-200 p-3">
+              <textarea value={termsText} onChange={(e) => setTermsText(e.target.value)} rows={8} className="w-full rounded border border-slate-200 p-2 text-xs text-slate-700" />
+              <div className="mt-2 flex justify-end"><button type="button" onClick={() => setEditingTerms(false)} className="rounded bg-slate-800 px-3 py-2 text-[10px] font-medium text-white">Save Terms</button></div>
+            </div>
+          )}
+          <p className="whitespace-pre-line text-xs">{termsText || DEFAULT_PRODUCTION_TERMS}</p>
+        </div>
+        <div className="mt-4 border-t border-black pt-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1 text-xs text-slate-600">Authorized Signatory</div>
+            {showStamp && <LabDigitalStamp order={order} />}
+          </div>
+        </div>
       </div>
-      <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4 dark:border-white/10"><button onClick={() => window.print()} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900">Print Work Slip</button><button onClick={download} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300"><Download className="h-4 w-4" /> Download PDF</button>{onDualPrint && <button onClick={onDualPrint} className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white">🖨️ Print 2-in-1 (Half Cut / 2 Copies per A4)</button>}<button onClick={shareSlip} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white">Share on WhatsApp to Lab Vendor</button><button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300">Close</button></div>
+      <div className="mt-4 border-t border-slate-200 pt-4 dark:border-white/10">
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">File: {exportFilename}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => setShowStamp((value) => !value)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-white/10 dark:text-slate-300">{showStamp ? 'Stamp On' : 'Stamp Off'}</button>
+            <button onClick={handlePrintA4} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900">Print A4</button>
+            <button onClick={download} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300"><Download className="h-4 w-4" /> Download PDF</button>
+            <button onClick={shareSlip} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white">Send via WhatsApp</button>
+          </div>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          {onDualPrint && <button onClick={onDualPrint} className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white">🖨️ Print 2-in-1</button>}
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300">Close</button>
+        </div>
+      </div>
+      {printPreview && createPortal(
+        <div id={slipId} aria-hidden>
+          <LabOrderPrintTemplate order={order} settings={settings} termsText={termsText} />
+        </div>,
+        document.body,
+      )}
     </Modal>
   );
 }
@@ -724,41 +1000,166 @@ function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder
 
 function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; onClose: () => void; onSaved: () => void }) {
   const { toast } = useToast();
+  const paymentOptions = ['Cash', 'UPI / Online', 'Bank Transfer', 'Cheque'];
+  const [currentOrder, setCurrentOrder] = useState<StudioLabOrder>(order);
   const [amount, setAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(todayISO());
-  const [paymentMode, setPaymentMode] = useState('Cash');
+  const [paymentMode, setPaymentMode] = useState<string>('Cash');
+  const [paymentNote, setPaymentNote] = useState('');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setCurrentOrder(order);
+  }, [order]);
+
+  const orderTotal = Number(currentOrder.current_order_total ?? currentOrder.total_album_bill ?? currentOrder.total_video_bill ?? 0);
+  const previousBackDue = Number(currentOrder.previous_back_due ?? currentOrder.back_due ?? 0);
+  const orderPaid = Number(currentOrder.advance_paid || 0);
+  const orderDue = Math.max(0, orderTotal - orderPaid);
+  const netDue = Number(currentOrder.net_final_due ?? currentOrder.net_due ?? Math.max(0, orderTotal + previousBackDue - orderPaid));
+  const paymentAmount = Number(amount || 0);
+  const remainingBalance = Math.max(0, Number(currentOrder.net_due || currentOrder.net_final_due || netDue) - paymentAmount);
+  const isOverPayment = paymentAmount > Number(currentOrder.net_due || currentOrder.net_final_due || netDue);
+  const totalPaidAfterPay = Number(currentOrder.advance_paid || 0) + paymentAmount;
+  const paymentHistoryList = currentOrder.payment_history ?? [];
 
   const handleSave = async () => {
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) { toast('Enter a valid payment amount', 'error'); return; }
+    const selectedMode = paymentMode || 'Cash';
+    const trimmedNote = paymentNote.trim();
     setSaving(true);
-    const nextAdvance = toNum(order.advance_paid) + value;
-    const paymentHistory: LabPaymentInstallment[] = [...(order.payment_history ?? []), { id: uid(), amount: value, payment_date: paymentDate, payment_mode: paymentMode, note: 'Quick payment' }];
+
+    const currentNetDue = Number(currentOrder.net_due ?? currentOrder.net_final_due ?? netDue ?? 0);
+    const nextAdvance = Number(currentOrder.advance_paid || 0) + value;
+    const nextNetDue = Math.max(0, currentNetDue - value);
+    const nextHistory: LabPaymentInstallment[] = [...(currentOrder.payment_history ?? []), {
+      id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : uid(),
+      amount: value,
+      payment_date: paymentDate,
+      payment_mode: selectedMode,
+      note: trimmedNote || '',
+    }];
+
+    const nextOrder: StudioLabOrder = {
+      ...currentOrder,
+      advance_paid: nextAdvance,
+      net_due: nextNetDue,
+      net_final_due: nextNetDue,
+      payment_mode: selectedMode,
+      payment_date: paymentDate,
+      payment_note: trimmedNote,
+      payment_history: nextHistory,
+    };
+
+    setCurrentOrder(nextOrder);
+
     const { error } = await supabase.from('studio_lab_orders').update({
       advance_paid: nextAdvance,
-      net_final_due: toNum(order.master_total) - nextAdvance,
-      payment_mode: paymentMode,
+      net_due: nextNetDue,
+      net_final_due: nextNetDue,
+      payment_mode: selectedMode,
       payment_date: paymentDate,
-      payment_history: paymentHistory,
-    }).eq('id', order.id);
+      payment_note: trimmedNote,
+      payment_history: nextHistory,
+    }).eq('id', currentOrder.id);
+
+    if (!error && currentOrder.partner_id) {
+      const ledgerDescription = `Order #${currentOrder.order_no} (${currentOrder.project_name || 'Project'}) payment via ${selectedMode}${trimmedNote ? ` - Note: ${trimmedNote}` : ''}`;
+      const ledgerPayload = {
+        partner_id: currentOrder.partner_id,
+        amount: value,
+        entry_type: 'CREDIT',
+        description: ledgerDescription,
+        reference_order_id: currentOrder.id,
+        date: paymentDate,
+      };
+      try {
+        const { error: ledgerError } = await supabase.from('ledger_entries').insert([ledgerPayload]);
+        if (ledgerError) {
+          await supabase.from('photographer_ledger').insert([{ photographer_name: currentOrder.partner_name || currentOrder.studio_name, mobile: currentOrder.studio_mobile, entry_type: 'PAYMENT_SETTLED', description: ledgerDescription, amount: value, created_at: new Date().toISOString() }]);
+        }
+      } catch {
+        try {
+          await supabase.from('photographer_ledger').insert([{ photographer_name: currentOrder.partner_name || currentOrder.studio_name, mobile: currentOrder.studio_mobile, entry_type: 'PAYMENT_SETTLED', description: ledgerDescription, amount: value, created_at: new Date().toISOString() }]);
+        } catch {
+          // no-op: fail-safe fallback during legacy schema compatibility
+        }
+      }
+    }
+
     setSaving(false);
     if (error) { toast('Failed to record payment', 'error'); return; }
     toast('Payment recorded', 'success');
     onSaved();
+    onClose();
   };
 
-  return <Modal open={true} onClose={onClose} title={`Quick Pay — ${order.partner_name || order.studio_name}`} size="sm" dismissible={false}>
+  return <Modal open={true} onClose={onClose} title={`Quick Pay — ${currentOrder.partner_name || currentOrder.studio_name}`} size="sm" dismissible={false}>
     <div className="space-y-4">
       <div className="rounded-lg bg-slate-50 p-3 text-xs dark:bg-white/5">
-        <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Master Total</span><span className="font-medium text-slate-900 dark:text-white">{formatINR(toNum(order.master_total))}</span></div>
-        <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Already Paid</span><span className="text-emerald-600 dark:text-emerald-400">{formatINR(toNum(order.advance_paid))}</span></div>
-        <div className="mt-1 flex justify-between border-t border-slate-200 pt-1 dark:border-white/10"><span className="font-semibold text-slate-700 dark:text-slate-300">Net Due</span><span className="font-bold text-rose-500 dark:text-rose-400">{formatINR(toNum(order.net_final_due))}</span></div>
+        <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">This Order Total</span><span className="font-medium text-slate-900 dark:text-white">{formatINR(orderTotal)}</span></div>
+        <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Already Paid (This Order)</span><span className="text-emerald-600 dark:text-emerald-400">{formatINR(orderPaid)}</span></div>
+        <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">This Order Due</span><span className="font-medium text-slate-900 dark:text-white">{formatINR(orderDue)}</span></div>
+        {previousBackDue > 0 && <div className="flex justify-between"><span className="text-rose-500 dark:text-rose-400">Previous Back Due</span><span className="font-semibold text-rose-500 dark:text-rose-400">{formatINR(previousBackDue)}</span></div>}
+        <div className="mt-1 flex justify-between border-t border-slate-200 pt-1 dark:border-white/10"><span className="font-semibold text-slate-700 dark:text-slate-300">Net Due</span><span className="font-bold text-rose-500 dark:text-rose-400">{formatINR(netDue)}</span></div>
       </div>
+
+      <div className={`rounded-xl border-2 p-3 ${remainingBalance === 0 ? 'border-emerald-200 bg-emerald-50/80 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200' : 'border-emerald-200 bg-emerald-50/70 text-slate-700 dark:border-emerald-500/30 dark:bg-emerald-500/5 dark:text-slate-200'}`}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide">Remaining Balance</span>
+          <span className={`text-base font-bold ${remainingBalance === 0 ? 'text-emerald-700 dark:text-emerald-300' : isOverPayment ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-300'}`}>
+            {formatINR(remainingBalance)}
+          </span>
+        </div>
+        {paymentAmount > 0 && (
+          <div className="mt-1 text-[11px] text-slate-600 dark:text-slate-300">
+            {remainingBalance === 0 ? 'FULL SETTLE' : isOverPayment ? `This payment exceeds the current due by ${formatINR(paymentAmount - Number(currentOrder.net_due || currentOrder.net_final_due || netDue))}.` : `Total paid after this entry: ${formatINR(totalPaidAfterPay)}.`}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-white/10 dark:bg-white/5">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Payment History</span>
+          <span className="text-[10px] text-slate-500 dark:text-slate-400">{paymentHistoryList.length} entries</span>
+        </div>
+        <div className="max-h-40 space-y-2 overflow-y-auto pr-1">
+          {paymentHistoryList.length === 0 ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400">No advance payments recorded yet.</p>
+          ) : (
+            paymentHistoryList.map((entry) => {
+              const entryDate = entry.payment_date || '';
+              const entryMode = entry.payment_mode || 'Cash';
+              const entryNote = entry.note || '';
+              return (
+                <div key={entry.id} className="rounded-lg border border-slate-200 bg-white p-2 dark:border-white/10 dark:bg-slate-900/60">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">{entryDate ? formatDate(entryDate) : '—'}</span>
+                    <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">{entryMode}</span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">₹{formatINR(entry.amount)}</span>
+                    {entryNote && <span className="text-[10px] text-slate-500 dark:text-slate-400">{entryNote}</span>}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
       <Field label="Payment Amount (₹)"><input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} placeholder="0" autoFocus /></Field>
+      <Field label="Payment Note / Kab Dega"><input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} className={inputClass} placeholder="Optional note for this payment" /></Field>
       <div className="grid grid-cols-2 gap-4">
         <Field label="Date"><input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputClass} /></Field>
-        <Field label="Mode"><select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className={selectClass}><option>Cash</option><option>UPI</option><option>Bank Transfer</option></select></Field>
+        <Field label="Mode">
+          <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className={selectClass}>
+            {paymentOptions.map((option) => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+        </Field>
       </div>
       <div className="flex justify-end gap-3">
         <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300">Cancel</button>
@@ -994,6 +1395,8 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
         project_name: projectName,
         work_type: allVideoRows.length > 0 ? 'Video Mixing' : allAlbumRows.length > 0 ? 'Album Design' : 'Other',
         clients,
+        is_demo: editing?.is_demo ?? false,
+        isDemo: false,
         total_album_bill: totalAlbumBill,
         total_video_bill: totalVideoBill,
         current_order_total: currentOrderTotal,
@@ -1012,6 +1415,9 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
         parcel_tracking_details: parcelTracking,
         video_rows: allVideoRows,
         album_rows: allAlbumRows,
+        access_pin: editing?.access_pin || defaultPinFromPhone(studioMobile),
+        pin_changed: editing?.pin_changed ?? false,
+        is_login_allowed: editing?.is_login_allowed ?? false,
       });
       let savedOrder: StudioLabOrder | null = null;
       const { data, error } = await supabase.from('studio_lab_orders').upsert(payload).select().single();
@@ -1418,10 +1824,12 @@ function PrintTrigger({ order, onDone }: { order: StudioLabOrder; onDone: () => 
   return null;
 }
 
-function LabOrderPrintTemplate({ order, settings, compact = false }: { order: StudioLabOrder; settings: StudioSettings | null; compact?: boolean }) {
+function LabOrderPrintTemplate({ order, settings, compact = false, termsText }: { order: StudioLabOrder; settings: StudioSettings | null; compact?: boolean; termsText?: string }) {
   const s = settings;
   const clients = order.clients ?? [];
   const cn = compact ? 'compact-bill' : '';
+  const resolvedTerms = termsText || settings?.production_terms || DEFAULT_PRODUCTION_TERMS;
+  const isFullyPaid = Number(order.net_final_due ?? 0) <= 0;
   return (
     <div className={`bill-page bg-white text-black ${cn}`} style={{ userSelect: 'text', padding: compact ? '3mm 4mm' : undefined }}>
       {/* Header */}
@@ -1597,6 +2005,14 @@ function LabOrderPrintTemplate({ order, settings, compact = false }: { order: St
         {s?.stamp_image_url && (
           <img src={s.stamp_image_url} alt="stamp" className={compact ? "h-12 w-12 rounded-full object-cover opacity-80" : "h-20 w-20 rounded-full object-cover opacity-80"} />
         )}
+        <div className="flex flex-col items-center justify-center">
+          <div className={`relative flex h-24 w-24 items-center justify-center rounded-full border-[3px] text-center shadow-inner ${isFullyPaid ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-sky-600 bg-amber-50 text-sky-700'}`}>
+            <div className="absolute inset-2 rounded-full border border-current/70" />
+            <div className="absolute inset-x-1 top-3 text-[7px] font-bold uppercase leading-tight tracking-[0.12em]">BOLLYWOOD UMANG PRODUCTION</div>
+            <div className="absolute inset-x-0 bottom-7 text-center text-[15px] font-black tracking-widest">{isFullyPaid ? 'PAID' : 'CONFIRMED'}</div>
+            <div className="absolute inset-x-0 bottom-2 text-center text-[7px] font-semibold uppercase tracking-[0.12em]">{new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+          </div>
+        </div>
         {compact && (
           <div className="text-right text-xs">
             <div className="border-t border-black pt-0.5 px-2">Production Signature</div>
@@ -1605,10 +2021,10 @@ function LabOrderPrintTemplate({ order, settings, compact = false }: { order: St
       </div>
 
       {/* Terms */}
-      {(s?.production_terms || DEFAULT_PRODUCTION_TERMS) && (
+      {(resolvedTerms) && (
         <div className={compact ? "mt-1 border-t border-black pt-0.5" : "mt-4 border-t border-black pt-2"}>
           <p className={compact ? "mb-0 text-[10px] font-bold" : "mb-1 text-xs font-bold"}>Production &amp; Lab Terms &amp; Conditions:</p>
-          <div className={compact ? "whitespace-pre-line text-[10px] text-gray-700 max-h-12 overflow-hidden" : "whitespace-pre-line text-xs text-gray-700"}>{s?.production_terms || DEFAULT_PRODUCTION_TERMS}</div>
+          <div className={compact ? "whitespace-pre-line text-[10px] text-gray-700 max-h-12 overflow-hidden" : "whitespace-pre-line text-xs text-gray-700"}>{resolvedTerms}</div>
         </div>
       )}
     </div>

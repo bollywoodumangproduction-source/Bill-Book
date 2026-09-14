@@ -23,18 +23,38 @@ import { Modal } from '@/components/ui/Modal';
 import { Field } from '@/components/ui/Field';
 import { useToast } from '@/context/ToastContext';
 
-const PARTNER_SESSION_KEY = 'bup_partner_session';
+const PARTNER_SESSION_KEY = 'buf_partner_session';
+const LEGACY_PARTNER_SESSION_KEY = 'bup_partner_session';
 
-function setPartnerSession(partnerId: string) {
-  sessionStorage.setItem(PARTNER_SESSION_KEY, partnerId);
+function setPartnerSession(partner: Partner) {
+  localStorage.setItem(PARTNER_SESSION_KEY, JSON.stringify(partner));
 }
 
-function getPartnerSession(): string | null {
-  return sessionStorage.getItem(PARTNER_SESSION_KEY);
+function getPartnerSession(): Partner | null {
+  const raw = localStorage.getItem(PARTNER_SESSION_KEY);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed as Partner;
+    } catch {
+      // ignore malformed session data
+    }
+  }
+
+  const legacy = sessionStorage.getItem(LEGACY_PARTNER_SESSION_KEY);
+  if (legacy) {
+    const migrated = { id: legacy } as Partner;
+    localStorage.setItem(PARTNER_SESSION_KEY, JSON.stringify(migrated));
+    sessionStorage.removeItem(LEGACY_PARTNER_SESSION_KEY);
+    return migrated;
+  }
+
+  return null;
 }
 
 function clearPartnerSession() {
-  sessionStorage.removeItem(PARTNER_SESSION_KEY);
+  localStorage.removeItem(PARTNER_SESSION_KEY);
+  sessionStorage.removeItem(LEGACY_PARTNER_SESSION_KEY);
 }
 
 interface CrewBooking {
@@ -61,9 +81,9 @@ export function PartnerDashboard() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   const loadFromSession = useCallback(async () => {
-    const sessionId = getPartnerSession();
-    if (!sessionId) return;
-    const { data: partnerData } = await supabase.from('partners').select('*').eq('id', sessionId).maybeSingle();
+    const session = getPartnerSession();
+    if (!session?.id) return;
+    const { data: partnerData } = await supabase.from('partners').select('*').eq('id', session.id).maybeSingle();
     if (!partnerData) { clearPartnerSession(); return; }
     const p = partnerData as Partner;
     if (!p.is_login_allowed) { clearPartnerSession(); return; }
@@ -110,7 +130,7 @@ export function PartnerDashboard() {
       setLoading(false);
       return;
     }
-    setPartnerSession(p.id);
+    setPartnerSession(p);
     setPartner(p);
     await loadBookings(p.id);
     setLoading(false);

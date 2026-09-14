@@ -27,8 +27,10 @@ import { supabase } from '@/lib/supabase';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import type { Booking, StudioLabOrder, Partner, PromoAd, PromoAdAudience } from '@/lib/types';
-import { formatINR, formatDate } from '@/lib/format';
+import { formatINR, formatDate, formatPhone } from '@/lib/format';
 import { inputClass } from '@/components/ui/Field';
+import { PhoneInput } from '@/components/ui/PhoneInput';
+import { PinInput } from '@/components/ui/PinInput';
 import { Modal } from '@/components/ui/Modal';
 
 type PortalType = 'client' | 'partner';
@@ -49,6 +51,7 @@ export function PortalModal({ open, onClose, portalType }: PortalModalProps) {
   const [error, setError] = useState('');
 
   const [clientBooking, setClientBooking] = useState<Booking | null>(null);
+  const [clientLabOrder, setClientLabOrder] = useState<StudioLabOrder | null>(null);
   const [partner, setPartner] = useState<Partner | null>(null);
   const [partnerBookings, setPartnerBookings] = useState<Array<{ booking: Booking; role: string; functionName: string; reportingTime: string }>>([]);
   const [partnerLabOrders, setPartnerLabOrders] = useState<StudioLabOrder[]>([]);
@@ -74,30 +77,45 @@ export function PortalModal({ open, onClose, portalType }: PortalModalProps) {
 
   const resetState = () => {
     setMobile(''); setPassword(''); setError(''); setLoading(false);
-    setClientBooking(null); setPartner(null); setPartnerBookings([]); setPartnerLabOrders([]); setPartnerBalance({ credit: 0, debit: 0, balance: 0 });
+    setClientBooking(null); setClientLabOrder(null); setPartner(null); setPartnerBookings([]); setPartnerLabOrders([]); setPartnerBalance({ credit: 0, debit: 0, balance: 0 });
   };
 
   const handleClose = () => { resetState(); onClose(); };
 
   const handleLogin = async () => {
-    if (!mobile || !password) { setError('Enter both mobile number and password'); return; }
+    if (!mobile || !password) { setError('Enter both mobile number and PIN'); return; }
     setLoading(true);
     setError('');
 
     if (portalType === 'client') {
-      const cleanMobile = mobile.replace(/\D/g, '');
-      const { data } = await supabase.from('bookings').select('*');
-      const match = ((data ?? []) as Booking[]).find((b) => b.client_mobile.replace(/\D/g, '') === cleanMobile);
-      if (!match) { setError('No account found with that mobile number'); setLoading(false); return; }
-      if (!match.is_login_allowed) { setError('Login access is currently disabled. Please contact studio admin.'); setLoading(false); return; }
-      if (!match.client_password || password !== match.client_password) { setError('Incorrect password. Please try again.'); setLoading(false); return; }
-      setClientBooking(match);
+      const cleanMobile = formatPhone(mobile);
+      const { data: bookingData } = await supabase.from('bookings').select('*');
+      const bookingMatch = ((bookingData ?? []) as Booking[]).find((b) => formatPhone(b.client_mobile) === cleanMobile);
+      if (bookingMatch) {
+        if (!bookingMatch.is_login_allowed) { setError('Login access is currently disabled. Please contact studio admin.'); setLoading(false); return; }
+        if (!bookingMatch.access_pin || password !== bookingMatch.access_pin) { setError('Incorrect PIN. Please try again.'); setLoading(false); return; }
+        setClientBooking(bookingMatch);
+        setLoading(false);
+        return;
+      }
+      const { data: labData } = await supabase.from('studio_lab_orders').select('*');
+      const labMatch = ((labData ?? []) as StudioLabOrder[]).find((o) => formatPhone(o.studio_mobile) === cleanMobile);
+      if (labMatch) {
+        if (!labMatch.is_login_allowed) { setError('Login access is currently disabled. Please contact studio admin.'); setLoading(false); return; }
+        if (!labMatch.access_pin || password !== labMatch.access_pin) { setError('Incorrect PIN. Please try again.'); setLoading(false); return; }
+        setClientLabOrder(labMatch);
+        setLoading(false);
+        return;
+      }
+      setError('No account found with that mobile number');
+      setLoading(false);
+      return;
     } else {
       const { data } = await supabase.from('partners').select('*').eq('mobile', mobile.trim()).maybeSingle();
       if (!data) { setError('No staff profile found for this mobile number'); setLoading(false); return; }
       const p = data as Partner;
       if (!p.is_login_allowed) { setError('Login access is currently disabled. Please contact studio admin.'); setLoading(false); return; }
-      if (!p.portal_password || password !== p.portal_password) { setError('Incorrect password. Please try again.'); setLoading(false); return; }
+      if (!p.portal_password || password !== p.portal_password) { setError('Incorrect PIN. Please try again.'); setLoading(false); return; }
       setPartner(p);
       await loadPartnerData(p);
     }
@@ -137,7 +155,7 @@ export function PortalModal({ open, onClose, portalType }: PortalModalProps) {
     setPartnerBalance({ credit, debit, balance: credit - debit });
   };
 
-  const isLoggedIn = portalType === 'client' ? !!clientBooking : !!partner;
+  const isLoggedIn = portalType === 'client' ? (!!clientBooking || !!clientLabOrder) : !!partner;
 
   return (
     <>
@@ -156,6 +174,8 @@ export function PortalModal({ open, onClose, portalType }: PortalModalProps) {
           />
         ) : portalType === 'client' && clientBooking ? (
           <ClientDetailView booking={clientBooking} settings={settings} ads={ads} />
+        ) : portalType === 'client' && clientLabOrder ? (
+          <LabOrderDetailView order={clientLabOrder} settings={settings} ads={ads} />
         ) : partner ? (
           <PartnerDetailView
             partner={partner}
@@ -215,19 +235,19 @@ function LoginView({ portalType, settings, mobile, password, loading, error, onM
           {isClient ? 'Client Portal' : 'Lab / Partner Portal'}
         </h2>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          {isClient ? 'Sign in to view your booking details' : 'Sign in to view your assigned jobs & ledger'}
+          {isClient ? 'Sign in with your mobile number and 4-digit PIN' : 'Sign in with your mobile number and 4-digit PIN'}
         </p>
       </div>
 
       <div className="space-y-4">
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Mobile Number</label>
-          <input value={mobile} onChange={(e) => onMobileChange(e.target.value)} className={inputClass} placeholder="+91 ..." />
+          <PhoneInput value={mobile} onChange={onMobileChange} />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Password</label>
-          <input type="password" value={password} onChange={(e) => onPasswordChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onLogin(); }} className={inputClass} placeholder="Default: your mobile number" />
-          <p className="mt-1 text-xs text-slate-400">First time? Your password is your registered mobile number.</p>
+          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">4-Digit PIN</label>
+          <PinInput value={password} onChange={onPasswordChange} placeholder="0000" onKeyDown={(e) => { if (e.key === 'Enter') onLogin(); }} />
+          <p className="mt-1 text-xs text-slate-400">Default PIN is the last 4 digits of your mobile number.</p>
         </div>
         {error && <p className="text-xs text-rose-500">{error}</p>}
         <button onClick={onLogin} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-3 text-sm font-semibold text-slate-900 transition-colors hover:from-amber-400 hover:to-orange-400 disabled:opacity-50">
@@ -350,6 +370,90 @@ function ClientDetailView({ booking, settings, ads }: { booking: Booking; settin
   );
 }
 
+function LabOrderDetailView({ order, settings, ads }: { order: StudioLabOrder; settings: ReturnType<typeof useSettings>['settings']; ads: PromoAd[] }) {
+  const whatsappNumber = (settings?.studio_whatsapp || settings?.whatsapp_number || '').replace(/\D/g, '');
+  const callNumber = (settings?.studio_call_number || settings?.phone || '').replace(/\D/g, '');
+  const instaUrl = settings?.studio_instagram_url || (settings?.films_insta ? `https://instagram.com/${settings.films_insta.replace('@', '')}` : '');
+
+  return (
+    <div className="space-y-5">
+      {/* Contact Hub */}
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/20 dark:bg-amber-500/10">
+        <p className="mb-3 text-xs font-semibold text-amber-700 dark:text-amber-400">Connect with Studio</p>
+        <div className="grid grid-cols-3 gap-2">
+          {whatsappNumber && (
+            <a href={`https://wa.me/${whatsappNumber}`} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 p-3 text-xs font-medium text-green-700 transition-colors hover:bg-green-100 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-400 dark:hover:bg-green-500/20">
+              <MessageCircle className="h-5 w-5" />
+              WhatsApp
+            </a>
+          )}
+          {callNumber && (
+            <a href={`tel:${callNumber}`} className="flex flex-col items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-100 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-400 dark:hover:bg-sky-500/20">
+              <Phone className="h-5 w-5" />
+              Call
+            </a>
+          )}
+          {instaUrl && (
+            <a href={instaUrl} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-1.5 rounded-lg border border-pink-200 bg-pink-50 p-3 text-xs font-medium text-pink-700 transition-colors hover:bg-pink-100 dark:border-pink-500/20 dark:bg-pink-500/10 dark:text-pink-400 dark:hover:bg-pink-500/20">
+              <Instagram className="h-5 w-5" />
+              Instagram
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* Active Promo Ads */}
+      {ads.length > 0 && (
+        <div className="space-y-2">
+          {ads.map((ad) => <PromoAdCard key={ad.id} ad={ad} />)}
+        </div>
+      )}
+
+      {/* Lab Order Details */}
+      <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900/50">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">{order.project_name || order.order_no}</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{order.order_no} · {order.work_type}</p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-medium ${Number(order.net_final_due) > 0 ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400' : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'}`}>
+            {Number(order.net_final_due) > 0 ? 'Balance Due' : 'Fully Paid'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <InfoRow icon={Package} label="Work Type" value={order.work_type || 'TBD'} />
+          <InfoRow icon={Calendar} label="Promised Delivery" value={order.promised_delivery_date ? formatDate(order.promised_delivery_date) : 'TBD'} />
+        </div>
+
+        {/* Payment Summary */}
+        <div className="mt-4 grid grid-cols-3 gap-3 border-t border-slate-100 pt-3 dark:border-white/5">
+          <div className="rounded-lg bg-emerald-50 p-3 text-center dark:bg-emerald-500/10">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Advance Paid</p>
+            <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatINR(Number(order.advance_paid))}</p>
+          </div>
+          <div className="rounded-lg bg-amber-50 p-3 text-center dark:bg-amber-500/10">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Total</p>
+            <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{formatINR(Number(order.current_order_total))}</p>
+          </div>
+          <div className="rounded-lg bg-rose-50 p-3 text-center dark:bg-rose-500/10">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Remaining</p>
+            <p className="text-sm font-bold text-rose-600 dark:text-rose-400">{formatINR(Number(order.net_final_due))}</p>
+          </div>
+        </div>
+
+        {/* Delivery Status */}
+        <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3 dark:border-white/5">
+          <CheckCircle2 className={`h-4 w-4 ${order.order_status === 'Delivered' ? 'text-emerald-500' : 'text-slate-300 dark:text-slate-600'}`} />
+          <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+            {order.order_status || 'Processing'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PartnerDetailView({ partner, bookings, labOrders, balance, ads, onChangePassword }: {
   partner: Partner;
   bookings: Array<{ booking: Booking; role: string; functionName: string; reportingTime: string }>;
@@ -364,10 +468,10 @@ function PartnerDetailView({ partner, bookings, labOrders, balance, ads, onChang
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-bold text-slate-900 dark:text-white">{partner.name}</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{partner.mobile} · {partner.category}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">+91 {formatPhone(partner.mobile)} · {partner.category}</p>
         </div>
         <button onClick={onChangePassword} className="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20">
-          <KeyRound className="h-3.5 w-3.5" /> Change Password
+          <KeyRound className="h-3.5 w-3.5" /> Change PIN
         </button>
       </div>
 
@@ -487,55 +591,44 @@ function PartnerPwdModal({ open, onClose, partner, onUpdated, toast }: {
   const [currentPwd, setCurrentPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
   const [confirmPwd, setConfirmPwd] = useState('');
-  const [showCurrent, setShowCurrent] = useState(false);
-  const [showNew, setShowNew] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async () => {
-    if (!currentPwd || !newPwd || !confirmPwd) { toast('Please fill all fields', 'error'); return; }
-    if (currentPwd !== (partner.portal_password ?? '')) { toast('Current password is incorrect', 'error'); return; }
-    if (newPwd.length < 6) { toast('New password must be at least 6 characters', 'error'); return; }
-    if (newPwd !== confirmPwd) { toast('New passwords do not match', 'error'); return; }
+    if (currentPwd.length !== 4) { toast('Current PIN must be 4 digits', 'error'); return; }
+    if (newPwd.length !== 4) { toast('New PIN must be 4 digits', 'error'); return; }
+    if (confirmPwd.length !== 4) { toast('Confirm PIN must be 4 digits', 'error'); return; }
+    if (currentPwd !== (partner.portal_password ?? '')) { toast('Current PIN is incorrect', 'error'); return; }
+    if (newPwd !== confirmPwd) { toast('New PIN and Confirm PIN do not match', 'error'); return; }
     setSaving(true);
     const { data, error } = await supabase.from('partners').update({ portal_password: newPwd, password_changed: true }).eq('id', partner.id).select().single();
     setSaving(false);
-    if (error || !data) { toast('Failed to change password', 'error'); return; }
+    if (error || !data) { toast('Failed to update PIN', 'error'); return; }
     onUpdated(data as Partner);
-    toast('Password updated successfully!', 'success');
+    toast('PIN updated successfully', 'success');
     setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
     onClose();
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Change Password" size="sm" dismissible={false}>
+    <Modal open={open} onClose={onClose} title="Change Access PIN" size="sm" dismissible={false}>
       <div className="space-y-4">
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Current Password</label>
-          <div className="relative">
-            <input type={showCurrent ? 'text' : 'password'} value={currentPwd} onChange={(e) => setCurrentPwd(e.target.value)} className={inputClass} placeholder="Enter current password" />
-            <button onClick={() => setShowCurrent(!showCurrent)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-amber-500">
-              {showCurrent ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
-          </div>
+          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Current PIN</label>
+          <PinInput value={currentPwd} onChange={setCurrentPwd} placeholder="Enter current 4-digit PIN" autoFocus />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">New Password</label>
-          <div className="relative">
-            <input type={showNew ? 'text' : 'password'} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} className={inputClass} placeholder="Min 6 characters" />
-            <button onClick={() => setShowNew(!showNew)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-amber-500">
-              {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
-          </div>
+          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">New PIN</label>
+          <PinInput value={newPwd} onChange={setNewPwd} placeholder="Enter new 4-digit PIN" />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Confirm New Password</label>
-          <input type={showNew ? 'text' : 'password'} value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} className={inputClass} placeholder="Re-enter new password" />
+          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Confirm New PIN</label>
+          <PinInput value={confirmPwd} onChange={setConfirmPwd} placeholder="Confirm new 4-digit PIN" onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }} />
         </div>
         <div className="flex justify-end gap-3 pt-2">
           <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
           <button onClick={handleSubmit} disabled={saving} className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:from-amber-400 hover:to-orange-400 disabled:opacity-50">
             {saving ? <Sparkles className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-            {saving ? 'Saving...' : 'Update Password'}
+            {saving ? 'Saving...' : 'Update PIN'}
           </button>
         </div>
       </div>
