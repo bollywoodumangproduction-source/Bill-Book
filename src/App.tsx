@@ -14,6 +14,7 @@ import { Bookings } from '@/pages/Bookings';
 import { LabOrders } from '@/pages/StudioWork';
 import { Ledger } from '@/pages/Photographers';
 import { Payments } from '@/pages/Payments';
+import { DairyBook } from '@/pages/DairyBook';
 import { PublicInvoice } from '@/pages/PublicInvoice';
 import { ClientLogin } from '@/pages/ClientLogin';
 import { ClientDashboard } from '@/pages/ClientDashboard';
@@ -47,6 +48,7 @@ function DesktopPage({ page, onNavigate }: { page: PageKey; onNavigate: (page: P
       {page === 'lab' && <LabOrders />}
       {page === 'ledger' && <Ledger />}
       {page === 'payments' && <Payments />}
+      {page === 'dairy' && <DairyBook />}
       {page === 'promo' && <PromoManagement />}
       {page === 'music' && <MusicSelection />}
       {page === 'teaser' && <TeaserPreview />}

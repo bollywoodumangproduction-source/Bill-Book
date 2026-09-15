@@ -19,6 +19,7 @@ import {
   Video,
   Mail,
   Images,
+  BookOpen,
 } from 'lucide-react';
 import type { PageKey } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
@@ -38,6 +39,7 @@ const desktopNav: { key: PageKey; label: string; icon: typeof Home }[] = [
   { key: 'lab', label: 'Lab Orders', icon: Clapperboard },
   { key: 'ledger', label: 'Ledger', icon: Camera },
   { key: 'payments', label: 'Payments', icon: Wallet },
+  { key: 'dairy', label: 'Dairy Book', icon: BookOpen },
   { key: 'promo', label: 'Promo & Setup', icon: Megaphone },
   { key: 'music', label: 'Music Selection', icon: Music2 },
   { key: 'teaser', label: 'Teaser & Clearance', icon: Video },
@@ -55,6 +57,7 @@ const mobileNav: { key: PageKey; label: string; icon: typeof Home }[] = [
 
 const moreNav: { key: PageKey; label: string; icon: typeof Home }[] = [
   { key: 'ledger', label: 'Ledger', icon: Camera },
+  { key: 'dairy', label: 'Dairy Book', icon: BookOpen },
   { key: 'promo', label: 'Promo & Setup', icon: Megaphone },
   { key: 'music', label: 'Music Selection', icon: Music2 },
   { key: 'teaser', label: 'Teaser & Clearance', icon: Video },

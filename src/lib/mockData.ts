@@ -22,6 +22,8 @@ import type {
   TeaserProject,
   InvitationProject,
   ClientSelectionSession,
+  DairyBookEntry,
+  DairyOpeningBalance,
 } from '@/lib/types';
 
 function uuid(): string {
@@ -62,6 +64,8 @@ export interface MockDB {
   teaser_projects: TeaserProject[];
   invitation_projects: InvitationProject[];
   photo_selection_sessions: ClientSelectionSession[];
+  dairy_book_entries: DairyBookEntry[];
+  dairy_book_opening_balance: DairyOpeningBalance[];
 }
 
 function demoId(prefix: string, fallbackId?: string): string {
@@ -330,6 +334,8 @@ function seedDB(): MockDB {
     teaser_projects: [],
     invitation_projects: [],
     photo_selection_sessions: [],
+    dairy_book_entries: [],
+    dairy_book_opening_balance: [{ id: 1, opening_amount: 0, is_locked: false, effective_date: '', updated_at: isoNow() }],
   };
 }
 
@@ -371,6 +377,8 @@ export function seedDemoDB(): MockDB {
     teaser_projects: db.teaser_projects.map((row, index) => ({ ...row, id: `demo-teaser-project-${index + 1}`, isDemo: true, is_demo: true })),
     invitation_projects: db.invitation_projects.map((row, index) => ({ ...row, id: `demo-invitation-project-${index + 1}`, isDemo: true, is_demo: true })),
     photo_selection_sessions: db.photo_selection_sessions.map((row, index) => ({ ...row, id: `demo-photo-selection-${index + 1}`, isDemo: true, is_demo: true })),
+    dairy_book_entries: db.dairy_book_entries.map((row, index) => ({ ...row, id: `demo-dairy-entry-${index + 1}`, isDemo: true, is_demo: true })),
+    dairy_book_opening_balance: db.dairy_book_opening_balance.map((row) => ({ ...row, isDemo: true, is_demo: true })),
   };
 }
 
@@ -408,6 +416,8 @@ export function loadDB(): MockDB {
         teaser_projects: Array.isArray(db.teaser_projects) ? db.teaser_projects : fallback.teaser_projects,
         invitation_projects: Array.isArray(db.invitation_projects) ? db.invitation_projects : fallback.invitation_projects,
         photo_selection_sessions: Array.isArray(db.photo_selection_sessions) ? db.photo_selection_sessions : fallback.photo_selection_sessions,
+        dairy_book_entries: Array.isArray(db.dairy_book_entries) ? db.dairy_book_entries : fallback.dairy_book_entries,
+        dairy_book_opening_balance: Array.isArray(db.dairy_book_opening_balance) && db.dairy_book_opening_balance.length > 0 ? db.dairy_book_opening_balance : fallback.dairy_book_opening_balance,
       };
       return merged;
     }
@@ -474,6 +484,8 @@ export function loadDemoData(): MockDB {
     teaser_projects: mergeLists(current.teaser_projects, demoSeed.teaser_projects, 'teaser-project'),
     invitation_projects: mergeLists(current.invitation_projects, demoSeed.invitation_projects, 'invitation-project'),
     photo_selection_sessions: mergeLists(current.photo_selection_sessions, demoSeed.photo_selection_sessions, 'photo-selection'),
+    dairy_book_entries: mergeLists(current.dairy_book_entries, demoSeed.dairy_book_entries, 'dairy-entry'),
+    dairy_book_opening_balance: current.dairy_book_opening_balance ?? demoSeed.dairy_book_opening_balance,
   };
 
   saveDB(next);
@@ -506,6 +518,8 @@ export function wipeDemoData(): MockDB {
     teaser_projects: (current.teaser_projects ?? []).filter((row) => !isDemoRecord(row)),
     invitation_projects: (current.invitation_projects ?? []).filter((row) => !isDemoRecord(row)),
     photo_selection_sessions: (current.photo_selection_sessions ?? []).filter((row) => !isDemoRecord(row)),
+    dairy_book_entries: (current.dairy_book_entries ?? []).filter((row) => !isDemoRecord(row)),
+    dairy_book_opening_balance: current.dairy_book_opening_balance ?? [],
   };
   saveDB(next);
   return next;
@@ -532,6 +546,8 @@ export function clearAllData(): MockDB {
     teaser_projects: [],
     invitation_projects: [],
     photo_selection_sessions: [],
+    dairy_book_entries: [],
+    dairy_book_opening_balance: [],
   };
   try {
     localStorage.removeItem(STORAGE_KEY);

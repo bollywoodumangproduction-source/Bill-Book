@@ -369,7 +369,36 @@ export interface DirectTransaction {
   created_at: string;
 }
 
-export type PageKey = 'dashboard' | 'bookings' | 'lab' | 'ledger' | 'payments' | 'settings' | 'promo' | 'music' | 'teaser' | 'invitation' | 'photo-selection';
+export type DairyEntryType = 'B2C_CASH_IN' | 'B2B_CASH_OUT' | 'MANUAL_EXPENSE' | 'MANUAL_INCOME';
+
+export interface DairyBookEntry {
+  id: string;
+  is_demo?: boolean;
+  isDemo?: boolean;
+  entry_type: DairyEntryType;
+  is_auto: boolean;
+  source_table: string | null;
+  source_id: string | null;
+  source_ref: string | null;
+  party_name: string;
+  amount: number;
+  category: string;
+  payment_mode: string;
+  note: string;
+  entry_date: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DairyOpeningBalance {
+  id: number;
+  opening_amount: number;
+  is_locked: boolean;
+  effective_date: string;
+  updated_at: string;
+}
+
+export type PageKey = 'dashboard' | 'bookings' | 'lab' | 'ledger' | 'payments' | 'dairy' | 'settings' | 'promo' | 'music' | 'teaser' | 'invitation' | 'photo-selection';
 
 export type TeaserStatus = 'editing' | 'complete' | 'delivered';
 
