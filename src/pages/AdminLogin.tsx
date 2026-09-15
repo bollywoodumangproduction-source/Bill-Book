@@ -96,6 +96,16 @@ export function AdminLogin() {
             </button>
           </div>
         </div>
+
+        <div className="mt-4 flex items-center justify-center gap-4 text-sm">
+          <Link to="/client/login" className="flex items-center gap-1.5 text-amber-400 hover:text-amber-300 transition-colors">
+            <Lock className="h-4 w-4" /> Client Login
+          </Link>
+          <span className="text-slate-600">|</span>
+          <Link to="/partner/dashboard" className="flex items-center gap-1.5 text-sky-400 hover:text-sky-300 transition-colors">
+            <LogIn className="h-4 w-4" /> Partner / Crew Login
+          </Link>
+        </div>
       </div>
 
       <RecoveryModal open={showRecovery} onClose={() => setShowRecovery(false)} settings={settings} />

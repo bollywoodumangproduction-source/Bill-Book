@@ -16,9 +16,20 @@ import {
   Package,
   Truck,
   FileText,
+  Megaphone,
+  ExternalLink,
+  MessageCircle,
+  Instagram,
+  Music2,
+  Film,
+  Mail,
+  Images,
+  ReceiptText,
+  QrCode,
+  HelpCircle,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { Booking, PromoAd, StudioLabOrder, LabClientRow } from '@/lib/types';
+import type { Booking, PromoAd, StudioLabOrder, LabClientRow, TeaserProject, InvitationProject, MusicProject, ClientSelectionSession, BookingPaymentInstallment } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { formatINR, formatDate, formatPhone } from '@/lib/format';
@@ -30,7 +41,6 @@ import { PinInput } from '@/components/ui/PinInput';
 import { Badge } from '@/components/ui/Badge';
 import { NotificationBell } from '@/components/NotificationBell';
 import { ProjectTimeline } from '@/components/ProjectTimeline';
-import { Megaphone, ExternalLink } from 'lucide-react';
 
 const DEFAULT_DELIVERABLES = {
   raw_video: false,
@@ -63,6 +73,10 @@ export function ClientDashboard() {
   const [loading, setLoading] = useState(true);
   const [showPinModal, setShowPinModal] = useState(false);
   const [promoAds, setPromoAds] = useState<PromoAd[]>([]);
+  const [teaserProject, setTeaserProject] = useState<TeaserProject | null>(null);
+  const [invitationProject, setInvitationProject] = useState<InvitationProject | null>(null);
+  const [musicProject, setMusicProject] = useState<MusicProject | null>(null);
+  const [photoSession, setPhotoSession] = useState<ClientSelectionSession | null>(null);
 
   const load = useCallback(async () => {
     const session = getClientSession();
@@ -87,9 +101,21 @@ export function ClientDashboard() {
 
     const { data } = await supabase.from('bookings').select('*').eq('id', sessionId).maybeSingle();
     if (data) {
-      setBooking(data as Booking);
+      const b = data as Booking;
+      setBooking(b);
       const { data: ads } = await supabase.from('promo_ads').select('*').eq('is_active', true).eq('audience', 'clients').order('sort_order');
       setPromoAds((ads ?? []) as PromoAd[]);
+
+      const [teaserRes, inviteRes, musicRes, photoRes] = await Promise.all([
+        supabase.from('teaser_projects').select('*').eq('booking_id', b.id).maybeSingle(),
+        supabase.from('invitation_projects').select('*').eq('booking_id', b.id).maybeSingle(),
+        supabase.from('music_projects').select('*').eq('booking_id', b.id).maybeSingle(),
+        supabase.from('photo_selection_sessions').select('*').eq('bill_id', b.booking_no).maybeSingle(),
+      ]);
+      setTeaserProject((teaserRes.data as TeaserProject | null) ?? null);
+      setInvitationProject((inviteRes.data as InvitationProject | null) ?? null);
+      setMusicProject((musicRes.data as MusicProject | null) ?? null);
+      setPhotoSession((photoRes.data as ClientSelectionSession | null) ?? null);
     } else {
       clearClientSession();
       navigate('/client/login');
@@ -122,6 +148,11 @@ export function ClientDashboard() {
   const safeDeliverables = booking.deliverables_data ?? DEFAULT_DELIVERABLES;
   const delivList = formatDeliverablesList(safeDeliverables);
   const netDue = Number(booking.net_due ?? 0);
+  const paymentHistory: BookingPaymentInstallment[] = booking.deliverables_data?.payment_details?.payment_history ?? [];
+  const whatsappNumber = (settings?.studio_whatsapp || settings?.whatsapp_number || '').replace(/\D/g, '');
+  const callNumber = (settings?.studio_call_number || settings?.phone || '').replace(/\D/g, '');
+  const instaUrl = settings?.studio_instagram_url || (settings?.films_insta ? `https://instagram.com/${settings.films_insta.replace('@', '')}` : '');
+  const hasCreativePortals = teaserProject || invitationProject || musicProject || photoSession;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
@@ -168,12 +199,20 @@ export function ClientDashboard() {
             <span className="flex items-center gap-1.5"><Phone className="h-4 w-4 text-slate-400" /> +91 {formatPhone(booking.client_mobile)}</span>
             <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4 text-slate-400" /> {booking.venue || '—'}</span>
           </div>
-          <button
-            onClick={() => setShowPinModal(true)}
-            className="mt-4 flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
-          >
-            <KeyRound className="h-3.5 w-3.5" /> Change PIN
-          </button>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              onClick={() => setShowPinModal(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
+            >
+              <KeyRound className="h-3.5 w-3.5" /> Change PIN
+            </button>
+            <Link
+              to={`/view/${booking.id}`}
+              className="flex items-center gap-1.5 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-100 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-400 dark:hover:bg-sky-500/20"
+            >
+              <ReceiptText className="h-3.5 w-3.5" /> View Bill / Receipt
+            </Link>
+          </div>
         </div>
 
         {/* Event Details & Function Schedule */}
@@ -212,7 +251,7 @@ export function ClientDashboard() {
         {/* Deliverables Status */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-            <Video className="h-4 w-4 text-amber-500" /> Deliverables
+            <Video className="h-4 w-4 text-amber-500" /> Final Deliverables
           </h2>
           {delivList.length > 0 ? (
             <div className="flex flex-wrap gap-2">
@@ -231,7 +270,7 @@ export function ClientDashboard() {
         {/* Payment Summary */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-            <Wallet className="h-4 w-4 text-amber-500" /> Payment Summary
+            <Wallet className="h-4 w-4 text-amber-500" /> Payment &amp; Balance
           </h2>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center dark:border-white/10 dark:bg-white/5">
@@ -252,6 +291,110 @@ export function ClientDashboard() {
             </div>
           </div>
         </div>
+
+        {/* Payment History */}
+        {paymentHistory.length > 0 && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+              <Wallet className="h-4 w-4 text-amber-500" /> Payment History
+            </h2>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[480px] text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-slate-400 dark:border-white/10">
+                    <th className="px-2 py-1">Date</th>
+                    <th className="px-2 py-1">Mode</th>
+                    <th className="px-2 py-1">Note</th>
+                    <th className="px-2 py-1 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paymentHistory.map((p, i) => (
+                    <tr key={p.id || i} className="border-b border-slate-100 dark:border-white/5">
+                      <td className="px-2 py-1 text-slate-600 dark:text-slate-300">{formatDate(p.payment_date)}</td>
+                      <td className="px-2 py-1 text-slate-600 dark:text-slate-300">{p.payment_mode}</td>
+                      <td className="px-2 py-1 text-slate-500 dark:text-slate-400">{p.custom_note || '—'}</td>
+                      <td className="px-2 py-1 text-right font-medium text-emerald-600 dark:text-emerald-400">{formatINR(Number(p.paid_amount))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Pay Now — UPI QR when balance is due */}
+        {netDue > 0 && settings?.upi_id && (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50/50 p-5 dark:border-rose-500/20 dark:bg-rose-500/5">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+              <QrCode className="h-4 w-4 text-rose-500" /> Pay Now
+            </h2>
+            <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
+              <div className="flex flex-col items-center gap-1">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=upi://pay?pa=${encodeURIComponent(settings.upi_id)}`}
+                  alt="UPI QR"
+                  className="h-32 w-32 rounded-lg"
+                />
+                <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Scan to Pay {formatINR(netDue)}</p>
+                <p className="text-[11px] text-slate-400">{settings.upi_id}</p>
+              </div>
+              <div className="flex-1">
+                <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-white p-3 text-xs text-rose-700 dark:border-rose-500/20 dark:bg-white/5 dark:text-rose-300">
+                  <Wallet className="h-4 w-4 shrink-0" />
+                  Your remaining balance of {formatINR(netDue)} can be paid via UPI. Once the studio confirms your payment, your deliverables and download links will be unlocked.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Creative Portals — Music, Teaser, Invitation, Photo Selection */}
+        {hasCreativePortals && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+              <Sparkles className="h-4 w-4 text-amber-500" /> Your Creative Portals
+            </h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {/* Music Selection */}
+              <CreativePortalCard
+                icon={Music2}
+                title="Music Selection"
+                description={musicProject ? `Status: ${musicProject.status === 'locked' ? 'Finalized' : musicProject.status === 'submitted' ? 'Submitted' : 'Open for selection'}` : 'Choose songs for your video edit'}
+                href={musicProject ? `/music-selection?party=${encodeURIComponent(booking.client_name)}` : null}
+                badgeColor={musicProject?.status === 'locked' ? 'emerald' : musicProject ? 'amber' : undefined}
+                badgeText={musicProject?.status === 'locked' ? 'Locked' : musicProject ? 'Active' : undefined}
+              />
+              {/* Teaser Preview */}
+              <CreativePortalCard
+                icon={Film}
+                title="Teaser Preview"
+                description={teaserProject ? `Status: ${teaserProject.status === 'editing' ? 'Editing in progress' : teaserProject.status === 'complete' ? 'Ready to watch' : 'Delivered'}` : 'Watch your cinematic teaser'}
+                href={teaserProject ? `/teaser-preview?project=${teaserProject.id}` : null}
+                badgeColor={teaserProject?.status === 'delivered' ? 'emerald' : teaserProject ? 'amber' : undefined}
+                badgeText={teaserProject ? teaserProject.status : undefined}
+              />
+              {/* Invitation Hub */}
+              <CreativePortalCard
+                icon={Mail}
+                title="Invitation Hub"
+                description={invitationProject ? `${invitationProject.groom_name || invitationProject.client_name}${invitationProject.bride_name ? ` & ${invitationProject.bride_name}` : ''}` : 'Digital wedding invitation'}
+                href={invitationProject ? `/invitation-hub?project=${invitationProject.id}` : null}
+                badgeColor={invitationProject ? 'sky' : undefined}
+                badgeText={invitationProject ? 'Active' : undefined}
+              />
+              {/* Photo Selection */}
+              <CreativePortalCard
+                icon={Images}
+                title="Photo Selection"
+                description={photoSession ? `${photoSession.photos.filter(p => p.selected).length} of ${photoSession.photos.length} selected${photoSession.isLocked ? ' · Submitted' : ''}` : 'Select your favorite photos'}
+                href={photoSession ? `/select/${photoSession.id}` : null}
+                badgeColor={photoSession?.isLocked ? 'emerald' : photoSession ? 'amber' : undefined}
+                badgeText={photoSession?.isLocked ? 'Locked' : photoSession ? 'Active' : undefined}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Project Status Timeline — only for confirmed/completed bookings */}
         {booking.booking_status !== 'TENTATIVE' && (
@@ -290,6 +433,33 @@ export function ClientDashboard() {
           </div>
         )}
 
+        {/* Messages / Support — Contact Hub */}
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5 dark:border-amber-500/20 dark:bg-amber-500/5">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+            <HelpCircle className="h-4 w-4 text-amber-500" /> Messages &amp; Support
+          </h2>
+          <div className="grid grid-cols-3 gap-2">
+            {whatsappNumber && (
+              <a href={`https://wa.me/${whatsappNumber}`} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 p-3 text-xs font-medium text-green-700 transition-colors hover:bg-green-100 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-400 dark:hover:bg-green-500/20">
+                <MessageCircle className="h-5 w-5" />
+                WhatsApp
+              </a>
+            )}
+            {callNumber && (
+              <a href={`tel:${callNumber}`} className="flex flex-col items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-100 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-400 dark:hover:bg-sky-500/20">
+                <Phone className="h-5 w-5" />
+                Call
+              </a>
+            )}
+            {instaUrl && (
+              <a href={instaUrl} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-1.5 rounded-lg border border-pink-200 bg-pink-50 p-3 text-xs font-medium text-pink-700 transition-colors hover:bg-pink-100 dark:border-pink-500/20 dark:bg-pink-500/10 dark:text-pink-400 dark:hover:bg-pink-500/20">
+                <Instagram className="h-5 w-5" />
+                Instagram
+              </a>
+            )}
+          </div>
+        </div>
+
         {/* Footer */}
         <div className="flex items-center justify-center gap-1.5 pt-2 text-xs text-slate-400">
           <Link to="/client-login" className="flex items-center gap-1 hover:text-slate-600 dark:hover:text-slate-300">
@@ -307,6 +477,30 @@ export function ClientDashboard() {
       />
     </div>
   );
+}
+
+/* ---------- Creative Portal Card ---------- */
+
+function CreativePortalCard({ icon: Icon, title, description, href, badgeColor, badgeText }: { icon: typeof Music2; title: string; description: string; href: string | null; badgeColor?: 'amber' | 'emerald' | 'sky'; badgeText?: string }) {
+  const content = (
+    <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 transition-colors hover:border-amber-300 dark:border-white/10 dark:bg-white/5 dark:hover:border-amber-500/30">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold text-slate-900 dark:text-white">{title}</p>
+          {badgeText && badgeColor && <Badge color={badgeColor}>{badgeText}</Badge>}
+        </div>
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{description}</p>
+      </div>
+      {href && <ExternalLink className="h-4 w-4 shrink-0 text-slate-400" />}
+    </div>
+  );
+  if (!href) {
+    return <div className="opacity-60">{content}</div>;
+  }
+  return <a href={href} target="_blank" rel="noopener noreferrer" className="block">{content}</a>;
 }
 
 /* ---------- Lab Order Dashboard ---------- */
