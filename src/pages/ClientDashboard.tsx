@@ -524,6 +524,18 @@ function LabOrderDashboard({
   const masterTotal = Number(order.master_total ?? 0);
   const netDue = Number(order.net_final_due ?? 0);
   const safeClients: LabClientRow[] = order.clients ?? [];
+  const [labPhotoSession, setLabPhotoSession] = useState<ClientSelectionSession | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPhotoSession = async () => {
+      if (!order.order_no) return;
+      const { data } = await supabase.from('photo_selection_sessions').select('*').eq('bill_id', order.order_no).maybeSingle();
+      if (!cancelled) setLabPhotoSession((data as ClientSelectionSession | null) ?? null);
+    };
+    void loadPhotoSession();
+    return () => { cancelled = true; };
+  }, [order.order_no]);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
@@ -688,6 +700,37 @@ function LabOrderDashboard({
             </div>
           </div>
         )}
+
+        {/* Photo Selection */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+            <Images className="h-4 w-4 text-amber-500" /> Album Photo Selection &amp; Proofing
+          </h2>
+          {labPhotoSession ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5">
+                <div>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{labPhotoSession.clientName}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {labPhotoSession.photos.filter((p) => p.selected).length} of {labPhotoSession.photos.length} selected
+                    {labPhotoSession.isLocked ? ' · Submitted' : ''}
+                  </p>
+                </div>
+                <Badge color={labPhotoSession.isLocked ? 'emerald' : 'amber'}>
+                  {labPhotoSession.isLocked ? 'Locked' : 'Active'}
+                </Badge>
+              </div>
+              <Link
+                to={`/select/${labPhotoSession.id}`}
+                className="flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-amber-400"
+              >
+                <Images className="h-4 w-4" /> Open Selection Gallery
+              </Link>
+            </div>
+          ) : (
+            <p className="py-3 text-center text-sm text-slate-400">Photo selection link will be available once studio uploads photos.</p>
+          )}
+        </div>
 
         {/* Footer */}
         <div className="flex items-center justify-center gap-1.5 pt-2 text-xs text-slate-400">

@@ -22,11 +22,14 @@ import {
   ExternalLink,
   Camera,
   Clapperboard,
+  Images,
+  Send,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
-import type { Booking, StudioLabOrder, Partner, PromoAd, PromoAdAudience } from '@/lib/types';
+import type { Booking, StudioLabOrder, Partner, PromoAd, PromoAdAudience, ClientSelectionSession } from '@/lib/types';
+import { copyToClipboard } from '@/lib/clipboard';
 import { formatINR, formatDate, formatPhone } from '@/lib/format';
 import { inputClass } from '@/components/ui/Field';
 import { PhoneInput } from '@/components/ui/PhoneInput';
@@ -371,9 +374,28 @@ function ClientDetailView({ booking, settings, ads }: { booking: Booking; settin
 }
 
 function LabOrderDetailView({ order, settings, ads }: { order: StudioLabOrder; settings: ReturnType<typeof useSettings>['settings']; ads: PromoAd[] }) {
+  const { toast } = useToast();
   const whatsappNumber = (settings?.studio_whatsapp || settings?.whatsapp_number || '').replace(/\D/g, '');
   const callNumber = (settings?.studio_call_number || settings?.phone || '').replace(/\D/g, '');
   const instaUrl = settings?.studio_instagram_url || (settings?.films_insta ? `https://instagram.com/${settings.films_insta.replace('@', '')}` : '');
+  const [photoSession, setPhotoSession] = useState<ClientSelectionSession | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!order.order_no) return;
+      const { data } = await supabase.from('photo_selection_sessions').select('*').eq('bill_id', order.order_no).maybeSingle();
+      if (!cancelled) setPhotoSession((data as ClientSelectionSession | null) ?? null);
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [order.order_no]);
+
+  const copySelectionLink = async () => {
+    if (!photoSession) return;
+    const ok = await copyToClipboard(photoSession.shareableUrl);
+    toast(ok ? 'Selection link copied' : 'Could not copy link', ok ? 'success' : 'error');
+  };
 
   return (
     <div className="space-y-5">
@@ -450,6 +472,47 @@ function LabOrderDetailView({ order, settings, ads }: { order: StudioLabOrder; s
           </span>
         </div>
       </div>
+
+      {/* Photo Selection */}
+      <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900/50">
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+          <Images className="h-4 w-4 text-amber-500" /> Album Photo Selection &amp; Proofing
+        </h3>
+        {photoSession ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5">
+              <div>
+                <p className="text-sm font-medium text-slate-900 dark:text-white">{photoSession.clientName}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {photoSession.photos.filter((p) => p.selected).length} of {photoSession.photos.length} selected
+                  {photoSession.isLocked ? ' · Submitted' : ''}
+                </p>
+              </div>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${photoSession.isLocked ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400'}`}>
+                {photoSession.isLocked ? 'Locked' : 'Active'}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <a
+                href={photoSession.shareableUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-amber-400"
+              >
+                <Images className="h-4 w-4" /> Open Gallery
+              </a>
+              <button
+                onClick={copySelectionLink}
+                className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+              >
+                <Send className="h-4 w-4" /> Copy Link
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="py-3 text-center text-sm text-slate-400">Photo selection link will be available once studio uploads photos.</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -462,6 +525,34 @@ function PartnerDetailView({ partner, bookings, labOrders, balance, ads, onChang
   ads: PromoAd[];
   onChangePassword: () => void;
 }) {
+  const { toast } = useToast();
+  const [orderSessions, setOrderSessions] = useState<Record<string, ClientSelectionSession | null>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const entries = await Promise.all(
+        labOrders.map(async (o) => {
+          if (!o.order_no) return [o.id, null] as const;
+          const { data } = await supabase.from('photo_selection_sessions').select('*').eq('bill_id', o.order_no).maybeSingle();
+          return [o.id, (data as ClientSelectionSession | null) ?? null] as const;
+        }),
+      );
+      if (!cancelled) {
+        const map: Record<string, ClientSelectionSession | null> = {};
+        for (const [id, session] of entries) { (map as any)[id] = session; }
+        setOrderSessions(map);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [labOrders]);
+
+  const copySelectionLink = async (session: ClientSelectionSession) => {
+    const ok = await copyToClipboard(session.shareableUrl);
+    toast(ok ? 'Selection link copied' : 'Could not copy link', ok ? 'success' : 'error');
+  };
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -530,19 +621,32 @@ function PartnerDetailView({ partner, bookings, labOrders, balance, ads, onChang
         <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900/50">
           <h4 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Lab Orders</h4>
           <div className="space-y-2">
-            {labOrders.map((order) => (
-              <div key={order.id} className="rounded-lg bg-slate-50 p-3 dark:bg-white/5">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{order.project_name || order.order_no}</p>
-                  <span className={`rounded-full px-2 py-0.5 text-xs ${order.order_status === 'Delivered' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400'}`}>{order.order_status}</span>
+            {labOrders.map((order) => {
+              const session = orderSessions[order.id];
+              return (
+                <div key={order.id} className="rounded-lg bg-slate-50 p-3 dark:bg-white/5">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{order.project_name || order.order_no}</p>
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${order.order_status === 'Delivered' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400'}`}>{order.order_status}</span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
+                    <span>{order.work_type}</span>
+                    <span>Due: {formatINR(Number(order.net_final_due))}</span>
+                    {order.promised_delivery_date && <span>Delivery: {formatDate(order.promised_delivery_date)}</span>}
+                  </div>
+                  {session && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2 dark:border-white/5">
+                      <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                        <Images className="h-3.5 w-3.5" /> Photo Selection: {session.photos.filter((p) => p.selected).length}/{session.photos.length}
+                        {session.isLocked && ' · Locked'}
+                      </span>
+                      <a href={session.shareableUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-amber-600 hover:text-amber-500 dark:text-amber-400">Open</a>
+                      <button onClick={() => copySelectionLink(session)} className="text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">Copy Link</button>
+                    </div>
+                  )}
                 </div>
-                <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
-                  <span>{order.work_type}</span>
-                  <span>Due: {formatINR(Number(order.net_final_due))}</span>
-                  {order.promised_delivery_date && <span>Delivery: {formatDate(order.promised_delivery_date)}</span>}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

@@ -274,6 +274,9 @@ export interface StudioLabOrder {
   is_login_allowed: boolean;
   archived_at?: string | null;
   deleted_at?: string | null;
+  is_emergency?: boolean;
+  album_required_date?: string;
+  video_delivery_date?: string;
 }
 
 export type LedgerEntryType = 'LAB_WORK_DEBIT' | 'SHOOT_DUTY_CREDIT' | 'PAYMENT_SETTLED';

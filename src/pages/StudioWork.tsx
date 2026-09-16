@@ -1,30 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  Plus,
-  Search,
-  Sparkles,
-  Clapperboard,
-  Edit3,
-  Trash2,
-  Truck,
-  MessageCircle,
-  Eye,
-  X,
-  Archive,
-  Video,
-  Book,
-  User,
-  Phone,
-  MapPin,
-  Printer,
-  Copy,
-  CheckCircle2,
-  Download,
-  FileText,
-  Wallet,
-  MoreVertical,
-} from 'lucide-react';
+import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, MoveVertical as MoreVertical, FolderOpen, ChevronRight, ArrowLeft, TriangleAlert as AlertTriangle, Zap, CalendarClock, PackageCheck, Images } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabClientDeliveryStatus, LabClientDispatchMode } from '@/lib/types';
 import { formatINR, formatDate, todayISO, defaultPinFromPhone } from '@/lib/format';
@@ -44,6 +20,7 @@ import {
 } from '@/lib/constants';
 import { Badge } from '@/components/ui/Badge';
 import { copyToClipboard } from '@/lib/clipboard';
+import type { ClientSelectionSession } from '@/lib/types';
 import { Modal } from '@/components/ui/Modal';
 import { Field, inputClass, selectClass } from '@/components/ui/Field';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -168,6 +145,9 @@ function normalizeLabOrder(raw: Partial<StudioLabOrder>): StudioLabOrder {
     access_pin: raw.access_pin ?? '',
     pin_changed: raw.pin_changed ?? false,
     is_login_allowed: raw.is_login_allowed ?? false,
+    is_emergency: raw.is_emergency ?? false,
+    album_required_date: raw.album_required_date ?? '',
+    video_delivery_date: raw.video_delivery_date ?? '',
     created_at: raw.created_at ?? '',
   } as StudioLabOrder;
 }
@@ -194,15 +174,48 @@ export function LabOrders() {
   const [showPin, setShowPin] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<'soft' | 'permanent'>('soft');
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [displayMode, setDisplayMode] = useState<'cards' | 'folders'>('cards');
+  const [openPartner, setOpenPartner] = useState<string | null>(null);
+  const [openClientFile, setOpenClientFile] = useState<string | null>(null);
+  const [folderView, setFolderView] = useState<'partners' | 'delivered'>('partners');
+  const [photoSessions, setPhotoSessions] = useState<Record<string, ClientSelectionSession | null>>({});
+
+  const loadPhotoSessions = useCallback(async () => {
+    const { data } = await supabase.from('photo_selection_sessions').select('*');
+    const map: Record<string, ClientSelectionSession | null> = {};
+    for (const row of (data ?? []) as ClientSelectionSession[]) {
+      if (row.billId) { (map as any)[row.billId] = row; }
+    }
+    setPhotoSessions(map);
+  }, []);
+
+  useEffect(() => { void loadPhotoSessions(); }, [loadPhotoSessions, refreshToken]);
+
+  const handlePhotoSelectionAction = async (o: StudioLabOrder) => {
+    const billId = o.order_no;
+    if (!billId) { toast('Order number missing', 'error'); return; }
+    const session = photoSessions[billId];
+    if (session) {
+      const ok = await copyToClipboard(session.shareableUrl);
+      toast(ok ? `Selection link copied — PIN: ${session.pinCode}` : 'Could not copy link', ok ? 'success' : 'error');
+    } else {
+      toast('No photo selection session found for this order. Create one in the Photo Selection page.', 'info');
+    }
+  };
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('studio_lab_orders').select('*').order('created_at');
-    const normalized = (data ?? []).map((order: Partial<StudioLabOrder>, index: number) => {
+    const allNormalized = (data ?? []).map((order: Partial<StudioLabOrder>, index: number) => {
       const base = normalizeLabOrder(order);
       const candidateId = String(base.id || base.order_no || (order as any)?.bup_no || '').trim();
       return { ...base, id: candidateId || `BUP-${index + 1}` } as StudioLabOrder;
     });
-    setOrders(normalized);
+    // If real (non-demo) orders exist, hide demo orders to prevent duplicate/phantom cards
+    const hasRealOrders = allNormalized.some((o: StudioLabOrder) => !o.isDemo && !o.is_demo && !String(o.order_no ?? '').startsWith('DEMO-') && !String(o.id ?? '').startsWith('demo-'));
+    const visibleOrders = hasRealOrders
+      ? allNormalized.filter((o: StudioLabOrder) => !o.isDemo && !o.is_demo && !String(o.order_no ?? '').startsWith('DEMO-') && !String(o.id ?? '').startsWith('demo-'))
+      : allNormalized;
+    setOrders(visibleOrders);
     setLoading(false);
   }, []);
 
@@ -216,13 +229,100 @@ export function LabOrders() {
     return lifecycleMatch && matchSearch && matchStatus;
   });
 
+  // Partner Folders grouping
+  const partnerFolders = useMemo(() => {
+    const activeOrders = orders.filter((o) => !o.archived_at && !o.deleted_at);
+    const map = new Map<string, { name: string; mobile: string; orders: StudioLabOrder[] }>();
+    for (const o of activeOrders) {
+      if (o.order_status === 'Delivered') continue;
+      const key = (o.studio_name || o.partner_name || 'Unassigned Partner').trim() || 'Unassigned Partner';
+      const existing = map.get(key) ?? { name: key, mobile: o.studio_mobile || '', orders: [] };
+      if (!existing.mobile && o.studio_mobile) existing.mobile = o.studio_mobile;
+      existing.orders.push(o);
+      map.set(key, existing);
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [orders]);
+
+  const deliveredOrders = useMemo(() => {
+    return orders.filter((o) => !o.archived_at && !o.deleted_at && o.order_status === 'Delivered');
+  }, [orders]);
+
+  // Client Files within a partner folder
+  const partnerClientFiles = useMemo(() => {
+    if (!openPartner) return [];
+    const partnerOrders = partnerFolders.find((f) => f.name === openPartner)?.orders ?? [];
+    const map = new Map<string, { clientName: string; orders: StudioLabOrder[] }>();
+    for (const o of partnerOrders) {
+      const names = (o.clients ?? []).map((c) => (c.client_name || '').trim()).filter(Boolean);
+      if (names.length === 0) names.push('Unassigned Client');
+      for (const name of names) {
+        const existing = map.get(name) ?? { clientName: name, orders: [] };
+        if (!existing.orders.some((ord) => ord.id === o.id)) existing.orders.push(o);
+        map.set(name, existing);
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.clientName.localeCompare(b.clientName));
+  }, [openPartner, partnerFolders]);
+
+  const deliveredClientFiles = useMemo(() => {
+    const map = new Map<string, { clientName: string; orders: StudioLabOrder[] }>();
+    for (const o of deliveredOrders) {
+      const names = (o.clients ?? []).map((c) => (c.client_name || '').trim()).filter(Boolean);
+      if (names.length === 0) names.push('Unassigned Client');
+      for (const name of names) {
+        const existing = map.get(name) ?? { clientName: name, orders: [] };
+        if (!existing.orders.some((ord) => ord.id === o.id)) existing.orders.push(o);
+        map.set(name, existing);
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.clientName.localeCompare(b.clientName));
+  }, [deliveredOrders]);
+
+  // Deadline alerts
+  const deadlineAlerts = useMemo(() => {
+    const today = todayISO();
+    const todayMs = new Date(today + 'T00:00:00').getTime();
+    const fiveDayMs = 5 * 24 * 60 * 60 * 1000;
+    const alerts: Array<{ type: 'album' | 'video'; severity: 'overdue' | 'today' | 'soon'; order: StudioLabOrder; date: string }> = [];
+    for (const o of orders) {
+      if (o.archived_at || o.deleted_at || o.order_status === 'Delivered') continue;
+      if (o.album_required_date) {
+        const dMs = new Date(o.album_required_date + 'T00:00:00').getTime();
+        const diff = dMs - todayMs;
+        if (diff < 0) alerts.push({ type: 'album', severity: 'overdue', order: o, date: o.album_required_date });
+        else if (diff === 0) alerts.push({ type: 'album', severity: 'today', order: o, date: o.album_required_date });
+        else if (diff <= fiveDayMs) alerts.push({ type: 'album', severity: 'soon', order: o, date: o.album_required_date });
+      }
+      if (o.video_delivery_date) {
+        const dMs = new Date(o.video_delivery_date + 'T00:00:00').getTime();
+        const diff = dMs - todayMs;
+        if (diff < 0) alerts.push({ type: 'video', severity: 'overdue', order: o, date: o.video_delivery_date });
+        else if (diff === 0) alerts.push({ type: 'video', severity: 'today', order: o, date: o.video_delivery_date });
+        else if (diff <= fiveDayMs) alerts.push({ type: 'video', severity: 'soon', order: o, date: o.video_delivery_date });
+      }
+    }
+    // Sort: emergency first, then overdue, today, soon
+    const severityOrder = { overdue: 0, today: 1, soon: 2 };
+    alerts.sort((a, b) => {
+      if (a.order.is_emergency !== b.order.is_emergency) return a.order.is_emergency ? -1 : 1;
+      return severityOrder[a.severity] - severityOrder[b.severity];
+    });
+    return alerts;
+  }, [orders]);
+
   const handleArchiveOrder = async (orderIdOrNo: string) => {
     const targetKey = String(orderIdOrNo ?? '').trim();
     if (!targetKey) return;
     const targetOrder = orders.find((item) => getOrderKey(item) === targetKey) ?? null;
     if (!targetOrder) return;
 
-    await supabase.from('studio_lab_orders').update({ archived_at: new Date().toISOString(), deleted_at: null }).eq('id', targetOrder.id);
+    const isDemo = !targetOrder.id || String(targetOrder.id).startsWith('DEMO-') || String(targetOrder.id).startsWith('demo-');
+    if (!isDemo && targetOrder.id) {
+      await supabase.from('studio_lab_orders').update({ archived_at: new Date().toISOString(), deleted_at: null }).eq('id', targetOrder.id);
+    } else if (targetOrder.order_no) {
+      await supabase.from('studio_lab_orders').update({ archived_at: new Date().toISOString(), deleted_at: null }).eq('order_no', targetOrder.order_no);
+    }
     setOrders((prev) => prev.map((item) => (getOrderKey(item) === targetKey ? { ...item, archived_at: new Date().toISOString(), deleted_at: null } : item)));
     toast('Order archived', 'success');
     setDeleteId(null); setShowPin(false);
@@ -234,7 +334,12 @@ export function LabOrders() {
     const targetOrder = orders.find((item) => getOrderKey(item) === targetKey) ?? null;
     if (!targetOrder) return;
 
-    await supabase.from('studio_lab_orders').update({ deleted_at: new Date().toISOString(), archived_at: null }).eq('id', targetOrder.id);
+    const isDemo = !targetOrder.id || String(targetOrder.id).startsWith('DEMO-') || String(targetOrder.id).startsWith('demo-');
+    if (!isDemo && targetOrder.id) {
+      await supabase.from('studio_lab_orders').update({ deleted_at: new Date().toISOString(), archived_at: null }).eq('id', targetOrder.id);
+    } else if (targetOrder.order_no) {
+      await supabase.from('studio_lab_orders').update({ deleted_at: new Date().toISOString(), archived_at: null }).eq('order_no', targetOrder.order_no);
+    }
     setOrders((prev) => prev.map((item) => (getOrderKey(item) === targetKey ? { ...item, deleted_at: new Date().toISOString(), archived_at: null } : item)));
     toast('Order moved to Recycle Bin', 'success');
     setDeleteId(null); setShowPin(false);
@@ -246,7 +351,12 @@ export function LabOrders() {
     const targetOrder = orders.find((item) => getOrderKey(item) === targetKey) ?? null;
     if (!targetOrder) return;
 
-    await supabase.from('studio_lab_orders').update({ archived_at: null, deleted_at: null }).eq('id', targetOrder.id);
+    const isDemo = !targetOrder.id || String(targetOrder.id).startsWith('DEMO-') || String(targetOrder.id).startsWith('demo-');
+    if (!isDemo && targetOrder.id) {
+      await supabase.from('studio_lab_orders').update({ archived_at: null, deleted_at: null }).eq('id', targetOrder.id);
+    } else if (targetOrder.order_no) {
+      await supabase.from('studio_lab_orders').update({ archived_at: null, deleted_at: null }).eq('order_no', targetOrder.order_no);
+    }
     setOrders((prev) => prev.map((item) => (getOrderKey(item) === targetKey ? { ...item, archived_at: null, deleted_at: null } : item)));
     toast('Order restored to Active', 'success');
   };
@@ -264,7 +374,12 @@ export function LabOrders() {
     const targetOrder = orders.find((item) => getOrderKey(item) === targetKey) ?? null;
     if (!targetOrder) return;
 
-    await supabase.from('studio_lab_orders').delete().eq('id', targetOrder.id);
+    const isDemo = !targetOrder.id || String(targetOrder.id).startsWith('DEMO-') || String(targetOrder.id).startsWith('demo-');
+    if (!isDemo && targetOrder.id) {
+      await supabase.from('studio_lab_orders').delete().eq('id', targetOrder.id);
+    } else if (targetOrder.order_no) {
+      await supabase.from('studio_lab_orders').delete().eq('order_no', targetOrder.order_no);
+    }
     setOrders((prev) => prev.filter((item) => getOrderKey(item) !== targetKey));
     toast('Order permanently deleted', 'success');
     setDeleteId(null); setShowPin(false);
@@ -274,6 +389,136 @@ export function LabOrders() {
     const text = buildLabOrderSummaryText(o, settings);
     const ok = await copyToClipboard(text);
     toast(ok ? 'Bill summary copied to clipboard' : 'Failed to copy bill summary', ok ? 'success' : 'error');
+  };
+
+  const renderOrderCard = (o: StudioLabOrder) => {
+    const clientCount = (o.clients ?? []).length;
+    const totalVideo = toNum(o.total_video_bill);
+    const totalAlbum = toNum(o.total_album_bill);
+    return (
+      <div key={o.id} className={`rounded-xl border bg-white p-4 dark:bg-slate-900/50 ${o.is_emergency ? 'border-rose-300 dark:border-rose-500/40 ring-1 ring-rose-200 dark:ring-rose-500/20' : 'border-slate-200 dark:border-white/10'}`}>
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              {o.is_emergency && <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white"><Zap className="h-2.5 w-2.5" />EMERGENCY</span>}
+              <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{o.project_name}</p>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{o.order_no}</p>
+          </div>
+          {view === 'recycle' && <span className="text-[11px] text-amber-600 dark:text-amber-400">Expires in {recycleDaysRemaining(o.deleted_at)} days</span>}
+          <div className="flex gap-1">
+            <button onClick={() => { setEditing(o); setShowForm(true); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-amber-500 dark:hover:bg-white/10 dark:hover:text-amber-400">
+              <Edit3 className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={() => handleArchiveOrder(getOrderKey(o))} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-amber-500 dark:hover:bg-white/10 dark:hover:text-amber-400" title="Archive order">
+              <Archive className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={() => { const key = getOrderKey(o); if (!key) return; setDeleteId(key); setPendingDelete('soft'); setShowPin(true); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-rose-500 dark:hover:bg-white/10 dark:hover:text-rose-400" title="Delete order">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          <Badge color={STATUS_COLORS[o.order_status] ?? 'slate'}>{o.order_status}</Badge>
+          <Badge color="slate">{o.delivery_mode}</Badge>
+          {(() => {
+            const allClients = o.clients ?? [];
+            const deliveredCount = allClients.filter((c) => c.delivery_status === 'Delivered').length;
+            const total = allClients.length;
+            if (total > 0) {
+              if (deliveredCount === total) {
+                return <Badge color="emerald">Delivered</Badge>;
+              } else if (deliveredCount > 0) {
+                return <Badge color="amber">Partially Delivered ({deliveredCount}/{total})</Badge>;
+              }
+            }
+            return null;
+          })()}
+        </div>
+        <p className="mb-1 text-xs text-slate-500 dark:text-slate-400">{o.studio_name} · {o.studio_mobile}</p>
+        {o.partner_name && (
+          <p className="mb-1 text-xs text-amber-600 dark:text-amber-400">Partner: {o.partner_name}</p>
+        )}
+        {(o.album_required_date || o.video_delivery_date) && (
+          <div className="mb-1 flex flex-wrap gap-2 text-[11px]">
+            {o.album_required_date && <span className={`flex items-center gap-0.5 ${deadlineAlerts.some(a => a.order.id === o.id && a.type === 'album' && (a.severity === 'overdue' || a.severity === 'today')) ? 'text-rose-500 dark:text-rose-400 font-medium' : 'text-slate-500 dark:text-slate-400'}`}><CalendarClock className="h-3 w-3" /> Album: {formatDate(o.album_required_date)}</span>}
+            {o.video_delivery_date && <span className={`flex items-center gap-0.5 ${deadlineAlerts.some(a => a.order.id === o.id && a.type === 'video' && (a.severity === 'overdue' || a.severity === 'today')) ? 'text-rose-500 dark:text-rose-400 font-medium' : 'text-slate-500 dark:text-slate-400'}`}><CalendarClock className="h-3 w-3" /> Video: {formatDate(o.video_delivery_date)}</span>}
+          </div>
+        )}
+        {o.parcel_tracking_details && (
+          <p className="mb-2 flex items-center gap-1 text-xs text-sky-500 dark:text-sky-400">
+            <Truck className="h-3 w-3" /> {o.parcel_tracking_details}
+          </p>
+        )}
+        {o.order_no && photoSessions[o.order_no] && (
+          <a
+            href={photoSessions[o.order_no]!.shareableUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mb-2 flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-500 dark:text-amber-400"
+          >
+            <Images className="h-3 w-3" /> Photo Selection: {photoSessions[o.order_no]!.photos.filter((p) => p.selected).length}/{photoSessions[o.order_no]!.photos.length} selected{photoSessions[o.order_no]!.isLocked ? ' · Locked' : ''}
+          </a>
+        )}
+        {clientCount > 0 && (
+          <div className="mb-2 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+            <p>Users: {clientCount}</p>
+            {totalVideo > 0 && <p>Video Bill: {formatINR(totalVideo)}</p>}
+            {totalAlbum > 0 && <p>Album Bill: {formatINR(totalAlbum)}</p>}
+          </div>
+        )}
+        <div className="border-t border-slate-100 pt-2 dark:border-white/5">
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-500 dark:text-slate-400">Order Total</span>
+            <span className="font-medium text-slate-900 dark:text-white">{formatINR(toNum(o.current_order_total))}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-500 dark:text-slate-400">Back Due</span>
+            <span className="text-rose-500 dark:text-rose-400">{formatINR(toNum(o.previous_back_due))}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-500 dark:text-slate-400">Advance Paid</span>
+            <span className="text-emerald-500 dark:text-emerald-400">{formatINR(toNum(o.advance_paid))}</span>
+          </div>
+          <div className="mt-1 flex justify-between border-t border-slate-100 pt-1 dark:border-white/5">
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">Net Due</span>
+            <span className={`text-sm font-bold ${toNum(o.net_final_due) > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
+              {formatINR(toNum(o.net_final_due))}
+            </span>
+          </div>
+        </div>
+        {view !== 'active' && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={() => handleRestoreOrder(getOrderKey(o))} className="rounded-lg border border-emerald-500/30 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">Restore</button>
+            {view === 'recycle' && <button onClick={() => { const key = getOrderKey(o); if (!key) return; setDeleteId(key); setPendingDelete('permanent'); setShowPin(true); }} className="rounded-lg border border-rose-500/30 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">Delete Forever</button>}
+          </div>
+        )}
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            onClick={() => setSettleOrder(o)}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" /> Settle Balance
+          </button>
+          <button
+            onClick={() => setQuickPayOrder(o)}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-medium text-blue-400 transition-colors hover:bg-blue-500/20"
+          >
+            <Plus className="h-3.5 w-3.5" /> + Pay
+          </button>
+          <LabOrderActionMenu
+            open={activeMenuId === o.id}
+            onToggle={() => setActiveMenuId((current) => current === o.id ? null : o.id)}
+            onClose={() => setActiveMenuId(null)}
+            onViewBill={() => { setViewBillOrder(o); setActiveMenuId(null); }}
+            onViewSlip={() => { setViewSlipOrder(o); setActiveMenuId(null); }}
+            onWhatsApp={() => { sendLabWhatsApp(o, settings); setActiveMenuId(null); }}
+            onCopySummary={() => { void copyOrderSummary(o); setActiveMenuId(null); }}
+            onPhotoSelection={() => { handlePhotoSelectionAction(o); setActiveMenuId(null); }}
+          />
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -291,139 +536,242 @@ export function LabOrders() {
         </button>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by studio, partner, project, or order no..."
-            className={`${inputClass} pl-10`}
-          />
+      {/* View toggle: Cards vs Folders */}
+      <div className="flex items-center gap-2">
+        <div className="flex rounded-lg border border-slate-200 p-1 dark:border-white/10">
+          <button onClick={() => setDisplayMode('cards')} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${displayMode === 'cards' ? 'bg-amber-500 text-slate-900' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'}`}>
+            <Clapperboard className="h-3.5 w-3.5" /> All Order Cards
+          </button>
+          <button onClick={() => { setDisplayMode('folders'); setOpenPartner(null); setOpenClientFile(null); }} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${displayMode === 'folders' ? 'bg-amber-500 text-slate-900' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'}`}>
+            <FolderOpen className="h-3.5 w-3.5" /> Partner Folders
+          </button>
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} sm:w-auto`}>
-          <option value="all">All Statuses</option>
-          {LAB_ORDER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
       </div>
-      <div className="flex gap-2"><button onClick={() => setView('active')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'active' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Active</button><button onClick={() => setView('archived')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'archived' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Archived</button><button onClick={() => setView('recycle')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'recycle' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Recycle Bin</button></div>
 
-      {loading ? (
-        <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
-      ) : filtered.length === 0 ? (
-        <EmptyState icon={Clapperboard} title="No lab orders found" subtitle="Create a new lab order to get started" />
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((o) => {
-            const clientCount = (o.clients ?? []).length;
-            const totalVideo = toNum(o.total_video_bill);
-            const totalAlbum = toNum(o.total_album_bill);
+      {/* Deadline Alerts */}
+      {deadlineAlerts.length > 0 && (
+        <div className="space-y-2">
+          {deadlineAlerts.slice(0, 6).map((alert, i) => {
+            const isOverdue = alert.severity === 'overdue';
+            const isToday = alert.severity === 'today';
+            const isEmergency = alert.order.is_emergency;
+            const bgClass = isOverdue ? 'border-rose-300 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10' : isToday ? 'border-amber-300 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10' : 'border-sky-200 bg-sky-50 dark:border-sky-500/20 dark:bg-sky-500/5';
+            const iconClass = isOverdue ? 'text-rose-500' : isToday ? 'text-amber-500' : 'text-sky-500';
+            const label = isOverdue ? 'OVERDUE' : isToday ? 'DUE TODAY' : 'DUE SOON';
             return (
-              <div key={o.id} className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900/50">
-                <div className="mb-2 flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{o.project_name}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{o.order_no}</p>
-                  </div>
-                  {view === 'recycle' && <span className="text-[11px] text-amber-600 dark:text-amber-400">Expires in {recycleDaysRemaining(o.deleted_at)} days</span>}
-                  <div className="flex gap-1">
-                    <button onClick={() => { setEditing(o); setShowForm(true); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-amber-500 dark:hover:bg-white/10 dark:hover:text-amber-400">
-                      <Edit3 className="h-3.5 w-3.5" />
-                    </button>
-                    <button onClick={() => handleArchiveOrder(o.id || o.order_no)} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-amber-500 dark:hover:bg-white/10 dark:hover:text-amber-400" title="Archive order">
-                      <Archive className="h-3.5 w-3.5" />
-                    </button>
-                    <button onClick={() => { setDeleteId(o.id || o.order_no); setPendingDelete('soft'); setShowPin(true); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-rose-500 dark:hover:bg-white/10 dark:hover:text-rose-400" title="Delete order">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+              <div key={i} className={`flex items-center gap-3 rounded-xl border p-3 ${bgClass} ${isEmergency ? 'ring-1 ring-rose-300 dark:ring-rose-500/30' : ''}`}>
+                <div className="flex items-center gap-2">
+                  {isEmergency && <Zap className="h-4 w-4 text-rose-500" />}
+                  {alert.type === 'album' ? <Book className={`h-4 w-4 ${iconClass}`} /> : <Video className={`h-4 w-4 ${iconClass}`} />}
                 </div>
-                <div className="mb-3 flex flex-wrap gap-1.5">
-                  <Badge color={STATUS_COLORS[o.order_status] ?? 'slate'}>{o.order_status}</Badge>
-                  <Badge color="slate">{o.delivery_mode}</Badge>
-                  {(() => {
-                    const allClients = o.clients ?? [];
-                    const deliveredCount = allClients.filter((c) => c.delivery_status === 'Delivered').length;
-                    const total = allClients.length;
-                    if (total > 0) {
-                      if (deliveredCount === total) {
-                        return <Badge color="emerald">Delivered</Badge>;
-                      } else if (deliveredCount > 0) {
-                        return <Badge color="amber">Partially Delivered ({deliveredCount}/{total})</Badge>;
-                      }
-                    }
-                    return null;
-                  })()}
-                </div>
-                <p className="mb-1 text-xs text-slate-500 dark:text-slate-400">{o.studio_name} · {o.studio_mobile}</p>
-                {o.partner_name && (
-                  <p className="mb-1 text-xs text-amber-600 dark:text-amber-400">Partner: {o.partner_name}</p>
-                )}
-                {o.parcel_tracking_details && (
-                  <p className="mb-2 flex items-center gap-1 text-xs text-sky-500 dark:text-sky-400">
-                    <Truck className="h-3 w-3" /> {o.parcel_tracking_details}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-slate-900 dark:text-white">
+                    {alert.type === 'album' ? 'Album' : 'Video'} {label} — {alert.order.project_name} ({alert.order.order_no})
                   </p>
-                )}
-                {clientCount > 0 && (
-                  <div className="mb-2 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
-                    <p>Users: {clientCount}</p>
-                    {totalVideo > 0 && <p>Video Bill: {formatINR(totalVideo)}</p>}
-                    {totalAlbum > 0 && <p>Album Bill: {formatINR(totalAlbum)}</p>}
-                  </div>
-                )}
-                <div className="border-t border-slate-100 pt-2 dark:border-white/5">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-500 dark:text-slate-400">Order Total</span>
-                    <span className="font-medium text-slate-900 dark:text-white">{formatINR(toNum(o.current_order_total))}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-500 dark:text-slate-400">Back Due</span>
-                    <span className="text-rose-500 dark:text-rose-400">{formatINR(toNum(o.previous_back_due))}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-500 dark:text-slate-400">Advance Paid</span>
-                    <span className="text-emerald-500 dark:text-emerald-400">{formatINR(toNum(o.advance_paid))}</span>
-                  </div>
-                  <div className="mt-1 flex justify-between border-t border-slate-100 pt-1 dark:border-white/5">
-                    <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">Net Due</span>
-                    <span className={`text-sm font-bold ${toNum(o.net_final_due) > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
-                      {formatINR(toNum(o.net_final_due))}
-                    </span>
-                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {alert.order.studio_name} · Due: {formatDate(alert.date)}
+                  </p>
                 </div>
-                {view !== 'active' && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button onClick={() => handleRestoreOrder(o.id || o.order_no)} className="rounded-lg border border-emerald-500/30 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">Restore</button>
-                    {view === 'recycle' && <button onClick={() => { setDeleteId(o.id || o.order_no); setPendingDelete('permanent'); setShowPin(true); }} className="rounded-lg border border-rose-500/30 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">Delete Forever</button>}
-                  </div>
-                )}
-                <div className="mt-3 flex items-center gap-2">
-                  <button
-                    onClick={() => setSettleOrder(o)}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20"
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Settle Balance
-                  </button>
-                  <button
-                    onClick={() => setQuickPayOrder(o)}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-medium text-blue-400 transition-colors hover:bg-blue-500/20"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> + Pay
-                  </button>
-                  <LabOrderActionMenu
-                    open={activeMenuId === o.id}
-                    onToggle={() => setActiveMenuId((current) => current === o.id ? null : o.id)}
-                    onClose={() => setActiveMenuId(null)}
-                    onViewBill={() => { setViewBillOrder(o); setActiveMenuId(null); }}
-                    onViewSlip={() => { setViewSlipOrder(o); setActiveMenuId(null); }}
-                    onWhatsApp={() => { sendLabWhatsApp(o, settings); setActiveMenuId(null); }}
-                    onCopySummary={() => { void copyOrderSummary(o); setActiveMenuId(null); }}
-                  />
-                </div>
+                <Badge color={isOverdue ? 'rose' : isToday ? 'amber' : 'sky'}>{label}</Badge>
               </div>
             );
           })}
         </div>
+      )}
+
+      {displayMode === 'cards' ? (
+        <>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by studio, partner, project, or order no..."
+                className={`${inputClass} pl-10`}
+              />
+            </div>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} sm:w-auto`}>
+              <option value="all">All Statuses</option>
+              {LAB_ORDER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="flex gap-2"><button onClick={() => setView('active')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'active' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Active</button><button onClick={() => setView('archived')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'archived' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Archived</button><button onClick={() => setView('recycle')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'recycle' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Recycle Bin</button></div>
+
+          {loading ? (
+            <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
+          ) : filtered.length === 0 ? (
+            <EmptyState icon={Clapperboard} title="No lab orders found" subtitle="Create a new lab order to get started" />
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((o) => renderOrderCard(o))}
+            </div>
+          )}
+        </>
+      ) : (
+        /* Partner Folders View */
+        loading ? (
+          <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
+        ) : openPartner ? (
+          /* Inside a Partner Folder — show Client Files or individual orders */
+          <div className="space-y-4">
+            <button onClick={() => { setOpenPartner(null); setOpenClientFile(null); }} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
+              <ArrowLeft className="h-3.5 w-3.5" /> Back to Partner Folders
+            </button>
+            <div className="flex items-center gap-2">
+              <FolderOpen className="h-5 w-5 text-amber-500" />
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">{openPartner}</h2>
+            </div>
+            {openClientFile ? (
+              /* Inside a Client File — show order cards */
+              <div className="space-y-3">
+                <button onClick={() => setOpenClientFile(null)} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
+                  <ArrowLeft className="h-3.5 w-3.5" /> Back to Client Files
+                </button>
+                <div className="flex items-center gap-2">
+                  <User className="h-4 w-4 text-sky-500" />
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{openClientFile}</h3>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {(partnerClientFiles.find((f) => f.clientName === openClientFile)?.orders ?? []).map((o) => renderOrderCard(o))}
+                </div>
+              </div>
+            ) : (
+              /* Show Client Files */
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {partnerClientFiles.map((cf) => {
+                  const processingCount = cf.orders.filter((o) => o.order_status === 'Processing' || o.order_status === 'Pending' || o.order_status === 'In Design').length;
+                  const readyCount = cf.orders.filter((o) => o.order_status === 'Ready' || o.order_status === 'Printed/Ready').length;
+                  const netDue = cf.orders.reduce((s, o) => s + toNum(o.net_final_due), 0);
+                  const hasEmergency = cf.orders.some((o) => o.is_emergency);
+                  return (
+                    <button key={cf.clientName} onClick={() => setOpenClientFile(cf.clientName)} className={`rounded-xl border p-4 text-left transition hover:border-amber-300 dark:hover:border-amber-500/30 ${hasEmergency ? 'border-rose-200 dark:border-rose-500/30' : 'border-slate-200 dark:border-white/10'}`}>
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            {hasEmergency && <Zap className="h-3 w-3 text-rose-500" />}
+                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{cf.clientName}</p>
+                          </div>
+                          <p className="text-xs text-slate-400">{cf.orders.length} order{cf.orders.length === 1 ? '' : 's'}</p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {processingCount > 0 && <Badge color="amber">{processingCount} Processing</Badge>}
+                        {readyCount > 0 && <Badge color="sky">{readyCount} Ready</Badge>}
+                        {netDue > 0 && <Badge color="rose">Due: {formatINR(netDue)}</Badge>}
+                      </div>
+                    </button>
+                  );
+                })}
+                {partnerClientFiles.length === 0 && <EmptyState icon={User} title="No client files" subtitle="No orders in this partner folder" />}
+              </div>
+            )}
+          </div>
+        ) : folderView === 'delivered' ? (
+          /* Delivered folder view */
+          <div className="space-y-4">
+            <button onClick={() => setFolderView('partners')} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
+              <ArrowLeft className="h-3.5 w-3.5" /> Back to Partner Folders
+            </button>
+            <div className="flex items-center gap-2">
+              <PackageCheck className="h-5 w-5 text-emerald-500" />
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Delivered Orders</h2>
+              <Badge color="emerald">{deliveredOrders.length}</Badge>
+            </div>
+            {openClientFile ? (
+              <div className="space-y-3">
+                <button onClick={() => setOpenClientFile(null)} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
+                  <ArrowLeft className="h-3.5 w-3.5" /> Back to Delivered
+                </button>
+                <div className="flex items-center gap-2">
+                  <User className="h-4 w-4 text-sky-500" />
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{openClientFile}</h3>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {(deliveredClientFiles.find((f) => f.clientName === openClientFile)?.orders ?? []).map((o) => renderOrderCard(o))}
+                </div>
+              </div>
+            ) : deliveredOrders.length === 0 ? (
+              <EmptyState icon={PackageCheck} title="No delivered orders" subtitle="Orders marked as Delivered will appear here" />
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {deliveredClientFiles.map((cf) => {
+                  const netDue = cf.orders.reduce((s, o) => s + toNum(o.net_final_due), 0);
+                  return (
+                    <button key={cf.clientName} onClick={() => setOpenClientFile(cf.clientName)} className="rounded-xl border border-emerald-200 p-4 text-left transition hover:border-emerald-400 dark:border-emerald-500/20 dark:hover:border-emerald-500/40">
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{cf.clientName}</p>
+                          <p className="text-xs text-slate-400">{cf.orders.length} order{cf.orders.length === 1 ? '' : 's'}</p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Badge color="emerald">Delivered</Badge>
+                        {netDue > 0 && <Badge color="rose">Due: {formatINR(netDue)}</Badge>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Partner Folders landing view */
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {/* Partner folder cards */}
+              {partnerFolders.map((pf) => {
+                const processingCount = pf.orders.filter((o) => o.order_status === 'Processing' || o.order_status === 'Pending' || o.order_status === 'In Design').length;
+                const readyCount = pf.orders.filter((o) => o.order_status === 'Ready' || o.order_status === 'Printed/Ready').length;
+                const clientCount = new Set(pf.orders.flatMap((o) => (o.clients ?? []).map((c) => c.client_name).filter(Boolean))).size;
+                const netDue = pf.orders.reduce((s, o) => s + toNum(o.net_final_due), 0);
+                const hasEmergency = pf.orders.some((o) => o.is_emergency);
+                return (
+                  <button key={pf.name} onClick={() => setOpenPartner(pf.name)} className={`rounded-xl border p-4 text-left transition hover:border-amber-300 dark:hover:border-amber-500/30 ${hasEmergency ? 'border-rose-200 dark:border-rose-500/30' : 'border-slate-200 dark:border-white/10'}`}>
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          {hasEmergency && <Zap className="h-3 w-3 text-rose-500" />}
+                          <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{pf.name}</p>
+                        </div>
+                        {pf.mobile && <p className="text-xs text-slate-400">{pf.mobile}</p>}
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Badge color="slate">{pf.orders.length} Orders</Badge>
+                      <Badge color="sky">{clientCount} Clients</Badge>
+                      {processingCount > 0 && <Badge color="amber">{processingCount} Processing</Badge>}
+                      {readyCount > 0 && <Badge color="sky">{readyCount} Ready</Badge>}
+                      {netDue > 0 && <Badge color="rose">Due: {formatINR(netDue)}</Badge>}
+                    </div>
+                  </button>
+                );
+              })}
+              {/* Delivered folder card */}
+              <button onClick={() => setFolderView('delivered')} className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 text-left transition hover:border-emerald-400 dark:border-emerald-500/20 dark:bg-emerald-500/5 dark:hover:border-emerald-500/40">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <PackageCheck className="h-4 w-4 text-emerald-500" />
+                      <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">Delivered</p>
+                    </div>
+                    <p className="text-xs text-slate-400">System folder</p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge color="emerald">{deliveredOrders.length} Delivered</Badge>
+                </div>
+              </button>
+              {partnerFolders.length === 0 && deliveredOrders.length === 0 && (
+                <div className="col-span-full"><EmptyState icon={FolderOpen} title="No partner folders" subtitle="Create lab orders to see partner folders here" /></div>
+              )}
+            </div>
+          </div>
+        )
       )}
 
       <ErrorBoundary>
@@ -518,6 +866,7 @@ function LabOrderActionMenu({
   onViewSlip,
   onWhatsApp,
   onCopySummary,
+  onPhotoSelection,
 }: {
   open: boolean;
   onToggle: () => void;
@@ -526,6 +875,7 @@ function LabOrderActionMenu({
   onViewSlip: () => void;
   onWhatsApp: () => void;
   onCopySummary: () => void;
+  onPhotoSelection: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -562,6 +912,7 @@ function LabOrderActionMenu({
           <button type="button" onClick={() => runAction(onViewSlip)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"><FileText className="h-4 w-4" /> View Slip</button>
           <button type="button" onClick={() => runAction(onWhatsApp)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"><MessageCircle className="h-4 w-4" /> WhatsApp</button>
           <button type="button" onClick={() => runAction(onCopySummary)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"><Copy className="h-4 w-4" /> Copy Summary</button>
+          <button type="button" onClick={() => runAction(onPhotoSelection)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"><Images className="h-4 w-4" /> Photo Selection</button>
         </div>
       )}
     </div>
@@ -1192,6 +1543,9 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
   const [paymentNote, setPaymentNote] = useDraftState<string>(`${draftKey}-paymentNote`, '');
   const [promisedDeliveryDate, setPromisedDeliveryDate] = useDraftState<string>(`${draftKey}-promisedDeliveryDate`, '');
   const [paymentHistory, setPaymentHistory] = useDraftState<LabPaymentInstallment[]>(`${draftKey}-paymentHistory`, []);
+  const [isEmergency, setIsEmergency] = useDraftState<boolean>(`${draftKey}-isEmergency`, false);
+  const [albumRequiredDate, setAlbumRequiredDate] = useDraftState<string>(`${draftKey}-albumRequiredDate`, '');
+  const [videoDeliveryDate, setVideoDeliveryDate] = useDraftState<string>(`${draftKey}-videoDeliveryDate`, '');
 
   const clearDraft = () => {
     setSelectedPartnerId('');
@@ -1211,6 +1565,9 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
     setPaymentNote('');
     setPromisedDeliveryDate('');
     setPaymentHistory([]);
+    setIsEmergency(false);
+    setAlbumRequiredDate('');
+    setVideoDeliveryDate('');
   };
 
   useEffect(() => {
@@ -1257,6 +1614,9 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
       setPaymentNote(editing?.payment_note ?? '');
       setPromisedDeliveryDate(editing?.promised_delivery_date ?? '');
       setPaymentHistory(editing?.payment_history ?? []);
+      setIsEmergency(editing?.is_emergency ?? false);
+      setAlbumRequiredDate(editing?.album_required_date ?? '');
+      setVideoDeliveryDate(editing?.video_delivery_date ?? '');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing]);
@@ -1418,6 +1778,9 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
         access_pin: editing?.access_pin || defaultPinFromPhone(studioMobile),
         pin_changed: editing?.pin_changed ?? false,
         is_login_allowed: editing?.is_login_allowed ?? false,
+        is_emergency: isEmergency,
+        album_required_date: albumRequiredDate || null,
+        video_delivery_date: videoDeliveryDate || null,
       });
       let savedOrder: StudioLabOrder | null = null;
       const { data, error } = await supabase.from('studio_lab_orders').upsert(payload).select().single();
@@ -1484,6 +1847,18 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
               <Field label="Courier Name & Tracking ID"><input value={parcelTracking} onChange={(e) => setParcelTracking(e.target.value)} placeholder="e.g. DTDC: P123456789" className={inputClass} /></Field>
             </div>
           )}
+          {/* Emergency + Deadline Fields */}
+          <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50/50 p-3 dark:border-rose-500/20 dark:bg-rose-500/5">
+            <label className="flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-white">
+              <input type="checkbox" checked={isEmergency} onChange={(e) => setIsEmergency(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-rose-500 focus:ring-rose-400" />
+              <Zap className="h-4 w-4 text-rose-500" /> Emergency Order
+            </label>
+            <p className="mt-1 text-xs text-slate-400">Visual priority only — does not affect pricing, payments, or status.</p>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Album Required Date"><input type="date" value={albumRequiredDate} onChange={(e) => setAlbumRequiredDate(e.target.value)} className={inputClass} /></Field>
+              <Field label="Video Delivery Date"><input type="date" value={videoDeliveryDate} onChange={(e) => setVideoDeliveryDate(e.target.value)} className={inputClass} /></Field>
+            </div>
+          </div>
         </div>
 
         {/* Multi-Client Repeater */}
