@@ -554,11 +554,16 @@ export interface ClientSelectionSession {
   isDemo?: boolean;
   billId: string;
   clientName: string;
+  partnerName?: string;
+  labOrderNo?: string;
   phone: string;
   pinCode: string;
   clientType: SelectionClientType;
   packageSheets: number;
   extraSheetRate: number;
+  total_sheets?: number;
+  extra_sheets?: number;
+  extra_amount?: number;
   isLocked: boolean;
   pdfDownloadAllowed: boolean;
   shareableUrl: string;

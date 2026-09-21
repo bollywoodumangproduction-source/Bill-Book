@@ -29,6 +29,7 @@ import type {
   SheetProofItem,
   SelectionClientType,
   Booking,
+  Partner,
   StudioLabOrder,
 } from '@/lib/types';
 import { useToast } from '@/context/ToastContext';
@@ -59,32 +60,59 @@ function whatsappMessage(client: string, url: string, pin: string): string {
 }
 
 const CLIENT_TYPES: { value: SelectionClientType; label: string }[] = [
-  { value: 'B2C', label: 'B2C Wedding Party' },
-  { value: 'B2B', label: 'B2B Photographer' },
-  { value: 'Booking Party', label: 'Booking Party' },
-  { value: 'Lab Order', label: 'Lab Order' },
+  { value: 'B2C', label: 'Wedding Party' },
+  { value: 'B2B', label: 'Lab Order' },
 ];
+
+function sessionTypeLabel(clientType: SelectionClientType): string {
+  return clientType === 'B2B' || clientType === 'Lab Order' ? 'Lab Order' : 'Wedding Party';
+}
+
+function isLabSession(clientType: SelectionClientType): boolean {
+  return clientType === 'B2B' || clientType === 'Lab Order';
+}
+
+function bookingPackageSheets(booking: Booking): number {
+  return (booking.deliverables_data?.album_rows ?? []).reduce(
+    (total, album) => total + album.papers.reduce((sheets, paper) => sheets + Number(paper.sheets || 0), 0),
+    0,
+  );
+}
+
+function labOrderSheetCount(order: StudioLabOrder): number {
+  return (order.clients ?? []).reduce(
+    (total, client) => total + (client.album_rows ?? []).reduce(
+      (albumTotal, album) => albumTotal + (album.papers ?? []).reduce((sheets, paper) => sheets + Number(paper.sheets || 0), 0),
+      0,
+    ),
+    0,
+  );
+}
 
 export function PhotoSelection() {
   const { toast } = useToast();
   const [sessions, setSessions] = useState<ClientSelectionSession[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [labOrders, setLabOrders] = useState<StudioLabOrder[]>([]);
+  const [partners, setPartners] = useState<Partner[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState('');
+  const [previewPartner, setPreviewPartner] = useState<{ name: string; partner: Partner | null; orders: StudioLabOrder[] } | null>(null);
 
   const load = useCallback(async () => {
-    const [{ data: sessionData }, { data: bookingData }, { data: labData }] = await Promise.all([
+    const [{ data: sessionData }, { data: bookingData }, { data: labData }, { data: partnerData }] = await Promise.all([
       supabase.from('photo_selection_sessions').select('*').order('updated_at', { ascending: false }),
       supabase.from('bookings').select('*').order('created_at', { ascending: false }),
       supabase.from('studio_lab_orders').select('*').order('created_at', { ascending: false }),
+      supabase.from('partners').select('*').order('name'),
     ]);
     const next = (sessionData ?? []) as ClientSelectionSession[];
     setSessions(next);
     setBookings((bookingData ?? []) as Booking[]);
     setLabOrders((labData ?? []) as StudioLabOrder[]);
+    setPartners((partnerData ?? []) as Partner[]);
     setSelectedId((cur) => cur || next[0]?.id || '');
     setLoading(false);
   }, []);
@@ -93,7 +121,7 @@ export function PhotoSelection() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return sessions.filter((s) => !q || s.clientName.toLowerCase().includes(q) || s.billId.toLowerCase().includes(q));
+    return sessions.filter((s) => !q || s.clientName.toLowerCase().includes(q) || s.billId.toLowerCase().includes(q) || s.partnerName?.toLowerCase().includes(q) || s.labOrderNo?.toLowerCase().includes(q));
   }, [sessions, search]);
 
   const selected = sessions.find((s) => s.id === selectedId) ?? null;
@@ -108,6 +136,8 @@ export function PhotoSelection() {
     clientType: SelectionClientType;
     billId: string;
     clientName: string;
+    partnerName?: string;
+    labOrderNo?: string;
     phone: string;
     packageSheets: number;
     extraSheetRate: number;
@@ -118,6 +148,8 @@ export function PhotoSelection() {
       id,
       billId: data.billId,
       clientName: data.clientName,
+      ...(data.partnerName ? { partnerName: data.partnerName } : {}),
+      ...(data.labOrderNo ? { labOrderNo: data.labOrderNo } : {}),
       phone: data.phone,
       pinCode: genPin(),
       clientType: data.clientType,
@@ -179,17 +211,19 @@ export function PhotoSelection() {
           ) : (
             <div className="space-y-2">
               {filtered.map((s) => (
-                <button key={s.id} onClick={() => setSelectedId(s.id)} className={`w-full rounded-xl border p-3 text-left transition ${selectedId === s.id ? 'border-amber-400 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10' : 'border-slate-200 bg-white hover:border-amber-300 dark:border-white/10 dark:bg-slate-900/50'}`}>
+                <div key={s.id} role="button" tabIndex={0} onClick={() => setSelectedId(s.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedId(s.id); }} className={`w-full rounded-xl border p-3 text-left transition ${selectedId === s.id ? 'border-amber-400 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10' : 'border-slate-200 bg-white hover:border-amber-300 dark:border-white/10 dark:bg-slate-900/50'}`}>
                   <div className="flex items-start gap-2">
                     <Images className={`mt-0.5 h-4 w-4 shrink-0 ${selectedId === s.id ? 'text-amber-500' : 'text-slate-400'}`} />
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900 dark:text-white">{s.clientName}</span>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-6">
-                    <Badge color={s.clientType === 'B2C' ? 'amber' : s.clientType === 'B2B' ? 'sky' : 'slate'}>{s.clientType}</Badge>
+                    <Badge color={isLabSession(s.clientType) ? 'sky' : 'amber'}>{sessionTypeLabel(s.clientType)}</Badge>
+                    {isLabSession(s.clientType) && s.partnerName && <button type="button" onClick={(event) => { event.stopPropagation(); setPreviewPartner({ name: s.partnerName!, partner: partners.find((item) => item.name === s.partnerName || item.studio_name === s.partnerName) ?? null, orders: labOrders.filter((order) => order.partner_name === s.partnerName || order.studio_name === s.partnerName) }); }} className="text-left text-xs text-slate-500 underline decoration-dotted underline-offset-2 hover:text-amber-600 dark:text-slate-400 dark:hover:text-amber-400">Lab: {s.partnerName} | Order #{s.labOrderNo || s.billId}</button>}
+                    {s.clientType === 'B2C' && <span className="text-xs text-slate-500 dark:text-slate-400">Direct Client | Bill #{s.billId}</span>}
                     {s.isLocked && <Badge color="emerald">Locked</Badge>}
                     <Badge color="slate">PIN {s.pinCode}</Badge>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           )}
@@ -201,6 +235,7 @@ export function PhotoSelection() {
           ) : (
             <SessionDetail
               session={selected}
+              partners={partners}
               bookings={bookings}
               labOrders={labOrders}
               onUpdate={(patch) => updateSession(selected.id, patch)}
@@ -215,21 +250,25 @@ export function PhotoSelection() {
         <CreateSessionModal
           bookings={bookings}
           labOrders={labOrders}
+          partners={partners}
           onClose={() => setShowCreate(false)}
           onCreate={createSession}
         />
       )}
+      {previewPartner && <PartnerPreviewModal partner={previewPartner.partner} partnerName={previewPartner.name} orders={previewPartner.orders} onClose={() => setPreviewPartner(null)} />}
     </div>
   );
 }
 
 function SessionDetail({
   session,
+  partners,
   onUpdate,
   onDelete,
   onRefresh,
 }: {
   session: ClientSelectionSession;
+  partners: Partner[];
   bookings: Booking[];
   labOrders: StudioLabOrder[];
   onUpdate: (patch: Partial<ClientSelectionSession>) => void;
@@ -241,14 +280,16 @@ function SessionDetail({
   const [showProofing, setShowProofing] = useState(false);
   const [showWatermark, setShowWatermark] = useState(false);
   const [showCopy, setShowCopy] = useState(false);
+  const [showPartner, setShowPartner] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadFolder, setUploadFolder] = useState(session.folders[0] ?? 'Card 1');
 
   const selectedCount = session.photos.filter((p) => p.selected).length;
-  const totalSheets = session.proofSheets.length > 0 ? Math.max(...session.proofSheets.map((s) => s.sheetNumber)) : 0;
+  const uploadedTotalSheets = session.proofSheets.length > 0 ? Math.max(...session.proofSheets.map((s) => s.sheetNumber)) : 0;
+  const totalSheets = session.total_sheets && session.total_sheets > 0 ? session.total_sheets : uploadedTotalSheets;
   const extraSheets = Math.max(0, totalSheets - session.packageSheets);
-  const extraCost = extraSheets * session.extraSheetRate;
+  const extraCost = session.extra_amount && session.extra_amount > 0 ? session.extra_amount : extraSheets * (session.extraSheetRate || 50);
 
   const toggleLock = () => {
     onUpdate({ isLocked: !session.isLocked });
@@ -332,13 +373,18 @@ function SessionDetail({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 dark:text-white">{session.clientName}</h2>
-              <Badge color={session.clientType === 'B2C' ? 'amber' : session.clientType === 'B2B' ? 'sky' : 'slate'}>{session.clientType}</Badge>
+              <Badge color={isLabSession(session.clientType) ? 'sky' : 'amber'}>{sessionTypeLabel(session.clientType)}</Badge>
               {session.isLocked && <Badge color="emerald">Locked</Badge>}
               {session.submitted_at && <Badge color="sky">Submitted</Badge>}
             </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               Bill: {session.billId} | Phone: {session.phone} | PIN: <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{session.pinCode}</span>
             </p>
+            {session.partnerName && isLabSession(session.clientType) && (
+              <button type="button" onClick={() => setShowPartner(true)} className="mt-1 block text-left text-sm text-slate-600 underline decoration-dotted underline-offset-2 hover:text-amber-600 dark:text-slate-300 dark:hover:text-amber-400">
+                Client: {session.clientName} • Assigned Lab: {session.partnerName} • Lab Order: #{session.labOrderNo || session.billId} • Sheets: {totalSheets}
+              </button>
+            )}
             <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
               Package: {session.packageSheets} sheets | Extra rate: ₹{session.extraSheetRate}/sheet
             </p>
@@ -449,6 +495,9 @@ function SessionDetail({
           <div>
             <p className="text-sm font-semibold text-slate-900 dark:text-white">Proofing & Lab Billing</p>
             <p className="text-xs text-slate-500 dark:text-slate-400">{totalSheets} sheets | Extra: ₹{extraCost}</p>
+            {session.partnerName && <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Lab Partner: {session.partnerName}</p>}
+            <p className="text-xs text-slate-500 dark:text-slate-400">Allocated Sheets: {totalSheets} | Extra Rate: ₹{session.extraSheetRate}/sheet</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Client Reference: {session.clientName}</p>
           </div>
         </button>
 
@@ -494,6 +543,14 @@ function SessionDetail({
       {showCopy && (
         <FileCopierModal session={session} onClose={() => setShowCopy(false)} />
       )}
+      {showPartner && session.partnerName && (
+        <PartnerPreviewModal
+          partner={partners.find((item) => item.name === session.partnerName || item.studio_name === session.partnerName) ?? null}
+          partnerName={session.partnerName}
+          orders={labOrders.filter((order) => order.partner_name === session.partnerName || order.studio_name === session.partnerName)}
+          onClose={() => setShowPartner(false)}
+        />
+      )}
     </div>
   );
 }
@@ -516,31 +573,114 @@ function CounterCard({ label, value, icon: Icon, color }: { label: string; value
   );
 }
 
+type LabPartnerOption = {
+  id: string;
+  name: string;
+  studioName: string;
+  phone: string;
+  orders: StudioLabOrder[];
+};
+
+function PartnerPreviewModal({ partner, partnerName, orders, onClose }: { partner: Partner | null; partnerName: string; orders: StudioLabOrder[]; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/70 p-4">
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-slate-900">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Lab Partner</p>
+            <h3 className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">{partner?.name || partnerName}</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400">{partner?.studio_name || 'Studio not specified'}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
+          <p>Contact: {partner?.mobile || 'Not available'}</p>
+          <p>Active orders: {orders.length}</p>
+          {partner?.studio_address && <p>Address: {partner.studio_address}</p>}
+        </div>
+        <div className="mt-5 flex justify-end">
+          <button type="button" onClick={onClose} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CreateSessionModal({
   bookings,
   labOrders,
+  partners,
   onClose,
   onCreate,
 }: {
   bookings: Booking[];
   labOrders: StudioLabOrder[];
+  partners: Partner[];
   onClose: () => void;
-  onCreate: (data: { clientType: SelectionClientType; billId: string; clientName: string; phone: string; packageSheets: number; extraSheetRate: number }) => Promise<void>;
+  onCreate: (data: { clientType: SelectionClientType; billId: string; clientName: string; partnerName?: string; labOrderNo?: string; phone: string; packageSheets: number; extraSheetRate: number }) => Promise<void>;
 }) {
   const [clientType, setClientType] = useState<SelectionClientType>('B2C');
   const [linkMode, setLinkMode] = useState<'search' | 'manual'>('search');
   const [search, setSearch] = useState('');
   const [billId, setBillId] = useState('');
   const [clientName, setClientName] = useState('');
+  const [partnerName, setPartnerName] = useState('');
+  const [labOrderNo, setLabOrderNo] = useState('');
   const [phone, setPhone] = useState('');
   const [packageSheets, setPackageSheets] = useState('35');
   const [extraSheetRate, setExtraSheetRate] = useState('50');
+  const [labStep, setLabStep] = useState<'partners' | 'orders'>('partners');
+  const [selectedPartner, setSelectedPartner] = useState<LabPartnerOption | null>(null);
 
   const allClients = useMemo(() => {
-    const fromBookings = bookings.map((b) => ({ id: b.booking_no, name: b.client_name, phone: b.client_mobile, type: 'B2C' as SelectionClientType }));
-    const fromLabs = labOrders.map((l) => ({ id: l.order_no, name: l.partner_name, phone: l.studio_mobile, type: 'B2B' as SelectionClientType }));
-    return [...fromBookings, ...fromLabs];
-  }, [bookings, labOrders]);
+    if (clientType === 'B2C') {
+      return bookings.map((booking) => ({
+        id: booking.booking_no,
+        name: booking.client_name,
+        phone: booking.client_mobile,
+        type: 'B2C' as const,
+        packageSheets: bookingPackageSheets(booking),
+      }));
+    }
+    return labOrders.filter((order) => !order.archived_at && !order.deleted_at).map((l) => ({
+      id: l.order_no,
+      name: (l.clients ?? []).map((client) => client.client_name).filter(Boolean).join(' + ') || l.project_name || 'Lab Client',
+      phone: l.studio_mobile,
+      type: 'B2B' as const,
+      partnerName: l.partner_name || l.studio_name,
+      labOrderNo: l.order_no,
+      packageSheets: labOrderSheetCount(l),
+    }));
+  }, [bookings, clientType, labOrders]);
+
+  const labPartners = useMemo<LabPartnerOption[]>(() => {
+    const activePartners = partners.filter((partner) => partner.status === 'Active');
+    const source = [...activePartners.map((partner) => ({
+      id: partner.id,
+      name: partner.name,
+      mobile: partner.mobile,
+      studio_name: partner.studio_name,
+    })), ...labOrders.filter((order) => !order.archived_at && !order.deleted_at).map((order) => ({
+      id: order.partner_id || order.partner_name || order.studio_name,
+      name: order.partner_name || order.studio_name || 'Unassigned Partner',
+      mobile: order.studio_mobile || '',
+      studio_name: order.studio_name || '',
+    }))].filter((partner, index, list) => list.findIndex((item) => item.id === partner.id || (item.name && item.name === partner.name)) === index);
+    return source.map((partner) => {
+      const orders = labOrders.filter((order) => !order.archived_at && !order.deleted_at && (
+        (partner.id && order.partner_id === partner.id) ||
+        order.partner_name === partner.name ||
+        order.studio_name === partner.studio_name
+      ));
+      return {
+        id: partner.id,
+        name: partner.name,
+        studioName: partner.studio_name || orders[0]?.studio_name || '',
+        phone: partner.mobile || orders[0]?.studio_mobile || '',
+        orders,
+      };
+    });
+  }, [labOrders, partners]);
 
   const filtered = allClients.filter((c) => {
     const q = search.trim().toLowerCase();
@@ -552,6 +692,21 @@ function CreateSessionModal({
     setClientName(c.name);
     setPhone(c.phone);
     setClientType(c.type);
+    setPartnerName('partnerName' in c ? c.partnerName : '');
+    setLabOrderNo('labOrderNo' in c ? c.labOrderNo : '');
+    setPackageSheets(String(c.packageSheets));
+  };
+
+  const selectLabOrder = (order: StudioLabOrder, partner: LabPartnerOption) => {
+    const clientName = (order.clients ?? []).map((client) => client.client_name).filter(Boolean).join(' + ') || order.project_name || 'Lab Client';
+    setSelectedPartner(partner);
+    setBillId(order.order_no);
+    setLabOrderNo(order.order_no);
+    setClientName(clientName);
+    setPartnerName(partner.name);
+    setPhone(partner.phone || order.studio_mobile || '');
+    setPackageSheets(String(labOrderSheetCount(order)));
+    setLinkMode('manual');
   };
 
   const handleCreate = () => {
@@ -560,6 +715,8 @@ function CreateSessionModal({
       clientType,
       billId: billId || 'MANUAL',
       clientName: clientName.trim(),
+      ...(partnerName ? { partnerName: partnerName.trim() } : {}),
+      ...(labOrderNo ? { labOrderNo: labOrderNo.trim() } : {}),
       phone: phone.trim(),
       packageSheets: parseInt(packageSheets) || 0,
       extraSheetRate: parseInt(extraSheetRate) || 0,
@@ -579,7 +736,7 @@ function CreateSessionModal({
             <button onClick={() => setLinkMode('manual')} className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium ${linkMode === 'manual' ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400' : 'border-slate-200 text-slate-500 dark:border-white/10 dark:text-slate-400'}`}>Manual Entry</button>
           </div>
 
-          {linkMode === 'search' && (
+          {linkMode === 'search' && clientType === 'B2C' && (
             <div className="space-y-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -588,8 +745,9 @@ function CreateSessionModal({
               <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-slate-200 dark:border-white/10">
                 {filtered.slice(0, 10).map((c) => (
                   <button key={c.id} onClick={() => selectClient(c)} className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-slate-50 dark:hover:bg-white/5 ${billId === c.id ? 'bg-amber-50 dark:bg-amber-500/10' : ''}`}>
-                    <span className="font-medium text-slate-700 dark:text-slate-300">{c.name}</span>
-                    <span className="text-slate-400">{c.id}</span>
+                    <span className="min-w-0 truncate font-medium text-slate-700 dark:text-slate-300">
+                      {clientType === 'B2B' ? `${c.name} • Lab: ${'partnerName' in c ? c.partnerName : ''} • ${c.packageSheets} Sheets • #${c.id}` : `${c.name} • ${c.id}`}
+                    </span>
                   </button>
                 ))}
                 {filtered.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">No matches found</p>}
@@ -597,13 +755,62 @@ function CreateSessionModal({
             </div>
           )}
 
-          <Field label="Client Type">
-            <select value={clientType} onChange={(e) => setClientType(e.target.value as SelectionClientType)} className={selectClass}>
+          {linkMode === 'search' && clientType === 'B2B' && (
+            <div className="space-y-3">
+              {labStep === 'partners' ? (
+                <>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input value={search} onChange={(e) => setSearch(e.target.value)} className={`${inputClass} pl-9`} placeholder="Search lab partners..." />
+                  </div>
+                  <div className="max-h-64 space-y-2 overflow-y-auto">
+                    {labPartners.filter((partner) => !search.trim() || `${partner.name} ${partner.studioName}`.toLowerCase().includes(search.trim().toLowerCase())).map((partner) => (
+                      <button key={partner.id} type="button" onClick={() => { setSelectedPartner(partner); setLabStep('orders'); setSearch(''); }} className="w-full rounded-xl border border-slate-200 p-3 text-left transition hover:border-amber-300 hover:bg-amber-50 dark:border-white/10 dark:hover:border-amber-500/30 dark:hover:bg-amber-500/10">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{partner.name}</p>
+                            <p className="truncate text-xs text-slate-500 dark:text-slate-400">{partner.studioName || 'Studio not specified'}</p>
+                          </div>
+                          <Badge color="sky">{partner.orders.length} {partner.orders.length === 1 ? 'Order' : 'Orders'} in progress</Badge>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{partner.phone || 'Contact not available'}</p>
+                      </button>
+                    ))}
+                    {labPartners.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">No active lab partners found</p>}
+                  </div>
+                </>
+              ) : selectedPartner ? (
+                <>
+                  <button type="button" onClick={() => { setLabStep('partners'); setSelectedPartner(null); }} className="text-sm font-medium text-amber-600 hover:text-amber-500 dark:text-amber-400">← Back | Orders for {selectedPartner.name}</button>
+                  <div className="max-h-64 space-y-2 overflow-y-auto">
+                    {selectedPartner.orders.map((order) => (
+                      <button key={order.id} type="button" onClick={() => selectLabOrder(order, selectedPartner)} className="w-full rounded-xl border border-slate-200 p-3 text-left transition hover:border-amber-300 hover:bg-amber-50 dark:border-white/10 dark:hover:border-amber-500/30 dark:hover:bg-amber-500/10">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-white">{(order.clients ?? []).map((client) => client.client_name).filter(Boolean).join(' + ') || order.project_name || 'Lab Client'}</p>
+                          <Badge color="sky">{labOrderSheetCount(order)} Sheets</Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">#{order.order_no} · {order.order_status || 'Pending'}{order.promised_delivery_date ? ` · Delivery ${order.promised_delivery_date}` : ''}</p>
+                      </button>
+                    ))}
+                    {selectedPartner.orders.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">No active orders for this partner</p>}
+                  </div>
+                </>
+              ) : null}
+            </div>
+          )}
+
+          <Field label="Session Type">
+            <select value={clientType} onChange={(e) => { setClientType(e.target.value as SelectionClientType); setSearch(''); setBillId(''); setClientName(''); setPartnerName(''); setLabOrderNo(''); }} className={selectClass}>
               {CLIENT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </Field>
-          <Field label="Bill ID"><input value={billId} onChange={(e) => setBillId(e.target.value)} className={inputClass} placeholder="e.g. BUF-001" /></Field>
+          <Field label={clientType === 'B2B' ? 'Order No.' : 'Bill ID'}><input value={billId} onChange={(e) => setBillId(e.target.value)} className={inputClass} placeholder={clientType === 'B2B' ? 'e.g. BUF-LAB-001' : 'e.g. BUF-001'} /></Field>
           <Field label="Client Name"><input value={clientName} onChange={(e) => setClientName(e.target.value)} className={inputClass} placeholder="Client name" /></Field>
+          {clientType === 'B2B' && <>
+            {linkMode === 'manual' && <button type="button" onClick={() => { setLinkMode('search'); setLabStep(selectedPartner ? 'orders' : 'partners'); }} className="text-xs font-medium text-amber-600 hover:text-amber-500 dark:text-amber-400">Change Partner / Order</button>}
+            <Field label="Lab Partner"><input value={partnerName} onChange={(e) => setPartnerName(e.target.value)} className={inputClass} placeholder="Lab partner name" /></Field>
+            <Field label="Lab Order No."><input value={labOrderNo} onChange={(e) => setLabOrderNo(e.target.value)} className={inputClass} placeholder="e.g. BUF-LAB-001" /></Field>
+          </>}
           <Field label="Phone"><input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputClass} placeholder="Mobile number" /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Package Sheets"><input type="number" value={packageSheets} onChange={(e) => setPackageSheets(e.target.value)} className={inputClass} /></Field>
@@ -625,11 +832,15 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
   const coverInputRef = useRef<HTMLInputElement>(null);
   const innerInputRef = useRef<HTMLInputElement>(null);
   const [sheetRangeStart, setSheetRangeStart] = useState(session.proofSheets.length > 0 ? String(Math.min(...session.proofSheets.map((s) => s.sheetNumber))) : '0');
-  const [sheetRangeEnd, setSheetRangeEnd] = useState(session.proofSheets.length > 0 ? String(Math.max(...session.proofSheets.map((s) => s.sheetNumber))) : '50');
+  const [sheetRangeEnd, setSheetRangeEnd] = useState(session.total_sheets != null ? String(Number(sheetRangeStart) + session.total_sheets) : session.proofSheets.length > 0 ? String(Math.max(...session.proofSheets.map((s) => s.sheetNumber))) : '50');
 
-  const totalSheets = sheets.length > 0 ? Math.max(...sheets.map((s) => s.sheetNumber)) - Math.min(...sheets.map((s) => s.sheetNumber)) + 1 : 0;
+  const startPage = Number(sheetRangeStart);
+  const endPage = Number(sheetRangeEnd);
+  const rangeTotal = Number.isFinite(startPage) && Number.isFinite(endPage) && endPage >= startPage ? endPage - startPage : 0;
+  const uploadedTotal = sheets.length > 0 ? Math.max(...sheets.map((s) => s.sheetNumber)) - Math.min(...sheets.map((s) => s.sheetNumber)) + 1 : 0;
+  const totalSheets = rangeTotal || uploadedTotal;
   const extraSheets = Math.max(0, totalSheets - session.packageSheets);
-  const extraCost = extraSheets * session.extraSheetRate;
+  const extraCost = extraSheets * (session.extraSheetRate || 50);
 
   const handleCoverUpload = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -663,7 +874,7 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
   };
 
   const save = () => {
-    onUpdate({ proofSheets: sheets });
+    onUpdate({ proofSheets: sheets, total_sheets: totalSheets, extra_sheets: extraSheets, extra_amount: extraCost });
     toast('Proofing sheets saved', 'success');
     onClose();
   };
