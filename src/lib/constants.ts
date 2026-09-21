@@ -58,6 +58,10 @@ export const DELIVERY_MODES = ['By Hand', 'Parcel/Courier'] as const;
 
 export const LAB_PAYMENT_MODES = ['Cash', 'UPI / PhonePe / GPay', 'Bank Transfer', 'NetBanking', 'Other'] as const;
 
+export const STORAGE_DEVICES = ['PC-1', 'PC-2', 'LAPTOP', 'E-HDD'] as const;
+export const STORAGE_DRIVES = ['Drive-D', 'Drive-E', 'Drive-F', 'Drive-G', 'Drive-H', 'Drive-I', 'Drive-J'] as const;
+export const STORAGE_WORK_TYPES = ['Album', 'Video Mixing', 'Color Grading', 'Highlight', 'Raw Data'] as const;
+
 export const LEDGER_ENTRY_TYPES = ['LAB_WORK_DEBIT', 'SHOOT_DUTY_CREDIT', 'PAYMENT_SETTLED'] as const;
 
 export const LEDGER_ENTRY_LABELS: Record<string, string> = {

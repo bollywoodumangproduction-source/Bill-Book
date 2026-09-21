@@ -30,6 +30,8 @@ export interface StudioSettings {
 }
 
 export type PromoAdAudience = 'clients' | 'partners';
+export type PromoPlacement = 'b2c_landing' | 'b2c_dashboard' | 'b2b_landing' | 'b2b_dashboard';
+export type PromoTargetScope = 'all' | 'specific_client' | 'specific_partner';
 
 export interface PromoAd {
   id: string;
@@ -39,6 +41,18 @@ export interface PromoAd {
   image_url: string;
   action_link: string;
   audience: PromoAdAudience;
+  placement?: PromoPlacement;
+  target_scope?: PromoTargetScope;
+  client_id?: string | null;
+  partner_id?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  cta_text?: string;
+  video_url?: string;
+  video_thumbnail_url?: string;
+  slide_images?: string[];
+  slideshow_duration?: number;
+  background_image_url?: string;
   is_active: boolean;
   sort_order: number;
   created_at: string;
@@ -236,6 +250,14 @@ export interface LabClientRow {
 export type LabClientDeliveryStatus = 'In Design' | 'Ready' | 'Delivered';
 export type LabClientDispatchMode = 'By Hand' | 'Courier' | 'Drive';
 
+export interface StorageLocation {
+  id: string;
+  device: string;
+  drive: string;
+  work: string;
+  client_name: string;
+}
+
 export interface StudioLabOrder {
   id: string;
   is_demo?: boolean;
@@ -277,6 +299,8 @@ export interface StudioLabOrder {
   is_emergency?: boolean;
   album_required_date?: string;
   video_delivery_date?: string;
+  date_pending?: boolean;
+  storage_locations?: StorageLocation[];
 }
 
 export type LedgerEntryType = 'LAB_WORK_DEBIT' | 'SHOOT_DUTY_CREDIT' | 'PAYMENT_SETTLED';

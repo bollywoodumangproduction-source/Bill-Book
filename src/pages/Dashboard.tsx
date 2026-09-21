@@ -198,8 +198,8 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         </Card>
       </div>
 
-      <PortalModal open={showClientPortal} onClose={() => setShowClientPortal(false)} portalType="client" />
-      <PortalModal open={showPartnerPortal} onClose={() => setShowPartnerPortal(false)} portalType="partner" />
+      <PortalModal open={showClientPortal} onClose={() => setShowClientPortal(false)} portalType="client" adminPreview />
+      <PortalModal open={showPartnerPortal} onClose={() => setShowPartnerPortal(false)} portalType="partner" adminPreview />
     </div>
   );
 }

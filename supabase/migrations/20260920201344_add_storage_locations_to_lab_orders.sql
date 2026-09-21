@@ -1,0 +1,1 @@
+ALTER TABLE studio_lab_orders ADD COLUMN IF NOT EXISTS storage_locations jsonb NOT NULL DEFAULT '[]'::jsonb;

@@ -41,6 +41,7 @@ import { PinInput } from '@/components/ui/PinInput';
 import { Badge } from '@/components/ui/Badge';
 import { NotificationBell } from '@/components/NotificationBell';
 import { ProjectTimeline } from '@/components/ProjectTimeline';
+import { getVisiblePromoAds } from '@/lib/promo';
 
 const DEFAULT_DELIVERABLES = {
   raw_video: false,
@@ -153,27 +154,31 @@ export function ClientDashboard() {
   const callNumber = (settings?.studio_call_number || settings?.phone || '').replace(/\D/g, '');
   const instaUrl = settings?.studio_instagram_url || (settings?.films_insta ? `https://instagram.com/${settings.films_insta.replace('@', '')}` : '');
   const hasCreativePortals = teaserProject || invitationProject || musicProject || photoSession;
+  const heroImage = settings?.films_logo_url || settings?.production_logo_url || settings?.stamp_image_url || '';
+  const dashboardPromos = getVisiblePromoAds(promoAds, 'b2c_dashboard', 'clients', booking.id).slice(0, 3);
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-      {/* Top bar */}
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/80">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.16),_transparent_22%),linear-gradient(160deg,#020617_0%,#111827_35%,#0f172a_100%)] text-slate-100">
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/70 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-3">
             {settings?.films_logo_url ? (
-              <img src={settings.films_logo_url} alt="logo" className="h-8 w-8 rounded-lg object-cover" />
+              <img src={settings.films_logo_url} alt="logo" className="h-9 w-9 rounded-xl object-cover ring-1 ring-white/10" />
             ) : (
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-orange-500">
-                <Sparkles className="h-4 w-4 text-slate-900" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-slate-900">
+                <Sparkles className="h-4 w-4" />
               </div>
             )}
-            <span className="text-sm font-bold text-slate-900 dark:text-white">{settings?.films_title ?? 'Bollywood Umang Films'}</span>
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-amber-300/80">Client portal</p>
+              <span className="text-sm font-bold text-white">{settings?.films_title ?? 'Bollywood Umang Films'}</span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <NotificationBell bookingId={booking.id} />
             <button
               onClick={handleLogout}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 transition-colors hover:bg-white/10"
             >
               <LogOut className="h-4 w-4" />
               <span className="hidden sm:inline">Logout</span>
@@ -182,36 +187,45 @@ export function ClientDashboard() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
-        {/* Welcome header */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">Welcome back</p>
-              <h1 className="mt-0.5 text-xl font-bold text-slate-900 dark:text-white">{booking.client_name}</h1>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Booking {booking.booking_no}</p>
+      <div className="mx-auto max-w-5xl space-y-5 px-4 py-6">
+        <div className="relative overflow-hidden rounded-[30px] border border-white/10 bg-slate-900/70 shadow-[0_24px_80px_rgba(2,6,23,0.6)] backdrop-blur-xl">
+          {heroImage ? (
+            <img src={heroImage} alt="studio banner" className="absolute inset-0 h-full w-full object-cover opacity-25" />
+          ) : (
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.32),_transparent_35%),linear-gradient(135deg,#111827_0%,#1f2937_40%,#0f172a_100%)]" />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-900/80 to-slate-900/60" />
+          <div className="relative p-5 sm:p-7">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.22em] text-amber-300/80">Welcome back</p>
+                <h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">{booking.client_name}</h1>
+                <p className="mt-1 text-sm text-slate-200/80">Booking {booking.booking_no}</p>
+              </div>
+              <div className="flex items-center gap-2 self-start">
+                <Badge color={booking.booking_status === 'CONFIRMED' ? 'amber' : booking.booking_status === 'COMPLETED' ? 'emerald' : 'sky'}>
+                  {booking.booking_status}
+                </Badge>
+              </div>
             </div>
-            <Badge color={booking.booking_status === 'CONFIRMED' ? 'amber' : booking.booking_status === 'COMPLETED' ? 'emerald' : 'sky'}>
-              {booking.booking_status}
-            </Badge>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-600 dark:text-slate-300">
-            <span className="flex items-center gap-1.5"><Phone className="h-4 w-4 text-slate-400" /> +91 {formatPhone(booking.client_mobile)}</span>
-            <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4 text-slate-400" /> {booking.venue || '—'}</span>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              onClick={() => setShowPinModal(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
-            >
-              <KeyRound className="h-3.5 w-3.5" /> Change PIN
-            </button>
-            <Link
-              to={`/view/${booking.id}`}
-              className="flex items-center gap-1.5 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-100 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-400 dark:hover:bg-sky-500/20"
-            >
-              <ReceiptText className="h-3.5 w-3.5" /> View Bill / Receipt
-            </Link>
+            <div className="mt-5 flex flex-wrap gap-4 text-sm text-slate-200/90">
+              <span className="flex items-center gap-1.5"><Phone className="h-4 w-4 text-amber-300" /> +91 {formatPhone(booking.client_mobile)}</span>
+              <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4 text-amber-300" /> {booking.venue || '—'}</span>
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <button
+                onClick={() => setShowPinModal(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-amber-300/40 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-200 transition-colors hover:bg-amber-500/20"
+              >
+                <KeyRound className="h-3.5 w-3.5" /> Change PIN
+              </button>
+              <Link
+                to={`/view/${booking.id}`}
+                className="flex items-center gap-1.5 rounded-lg border border-sky-300/40 bg-sky-500/10 px-3 py-2 text-xs font-medium text-sky-200 transition-colors hover:bg-sky-500/20"
+              >
+                <ReceiptText className="h-3.5 w-3.5" /> View Bill / Receipt
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -402,13 +416,13 @@ export function ClientDashboard() {
         )}
 
         {/* Promo & Marketing — strictly separated from booked client timeline */}
-        {booking.booking_status === 'TENTATIVE' && promoAds.length > 0 && (
+        {dashboardPromos.length > 0 && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5 dark:border-amber-500/20 dark:bg-amber-500/5">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
               <Megaphone className="h-4 w-4 text-amber-500" /> Offers &amp; Add-Ons
             </h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {promoAds.map((ad) => (
+              {dashboardPromos.map((ad) => (
                 <div key={ad.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900">
                   {ad.image_url && (
                     <img src={ad.image_url} alt={ad.title} className="h-32 w-full object-cover" />
@@ -416,14 +430,14 @@ export function ClientDashboard() {
                   <div className="p-3">
                     <p className="text-sm font-semibold text-slate-900 dark:text-white">{ad.title}</p>
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{ad.description}</p>
-                    {ad.action_link && (
+                    {(ad.action_link || ad.video_url) && (
                       <a
-                        href={ad.action_link}
+                        href={ad.video_url || ad.action_link}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-500 dark:text-amber-400"
                       >
-                        Learn more <ExternalLink className="h-3 w-3" />
+                        {ad.cta_text || 'Learn more'} <ExternalLink className="h-3 w-3" />
                       </a>
                     )}
                   </div>

@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { LogIn, Sparkles, ArrowLeft, Lock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { LogIn, Sparkles, Lock } from 'lucide-react';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { supabase } from '@/lib/supabase';
 import type { Booking, StudioLabOrder } from '@/lib/types';
 import { PhoneInput } from '@/components/ui/PhoneInput';
-import { PinInput } from '@/components/ui/PinInput';
 import { formatPhone } from '@/lib/format';
 
 const CLIENT_SESSION_KEY = 'buf_client_session';
@@ -63,32 +62,27 @@ export function ClientLogin() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [mobile, setMobile] = useState('');
-  const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
-    if (!mobile || !pin) { toast('Enter both mobile number and PIN', 'error'); return; }
-    if (mobile.length !== 10) { toast('Mobile number must be 10 digits', 'error'); return; }
-    if (pin.length !== 4) { toast('PIN must be 4 digits', 'error'); return; }
+    if (!mobile.trim()) { toast('Enter your mobile number or booking reference', 'error'); return; }
     setLoading(true);
+    const normalizedInput = mobile.trim().toLowerCase();
     const cleanMobile = formatPhone(mobile);
 
     // 1. Check bookings table (end-client bookings)
     const { data: bookingData } = await supabase.from('bookings').select('*');
     const bookingMatch = ((bookingData ?? []) as Booking[]).find(
-      (b) => formatPhone(b.client_mobile) === cleanMobile,
+      (b) =>
+        formatPhone(b.client_mobile) === cleanMobile ||
+        (b.booking_no ?? '').toLowerCase() === normalizedInput ||
+        (b.id ?? '').toLowerCase() === normalizedInput,
     );
 
     if (bookingMatch) {
       if (!bookingMatch.is_login_allowed) {
         setLoading(false);
         toast('Login access is currently disabled for your account. Please contact studio admin.', 'error');
-        return;
-      }
-      const storedPin = (bookingMatch.access_pin ?? '').replace(/\D/g, '');
-      if (!storedPin || pin !== storedPin) {
-        setLoading(false);
-        toast('Incorrect PIN. Please try again or contact the studio.', 'error');
         return;
       }
       setClientSession(bookingMatch);
@@ -100,22 +94,20 @@ export function ClientLogin() {
     // 2. Check studio_lab_orders table (lab partner orders)
     const { data: labData } = await supabase.from('studio_lab_orders').select('*');
     const labMatch = ((labData ?? []) as StudioLabOrder[]).find(
-      (o) => formatPhone(o.studio_mobile) === cleanMobile,
+      (o) =>
+        formatPhone(o.studio_mobile) === cleanMobile ||
+        (o.order_no ?? '').toLowerCase() === normalizedInput ||
+        (o.id ?? '').toLowerCase() === normalizedInput,
     );
 
     setLoading(false);
 
     if (!labMatch) {
-      toast('No account found with that mobile number', 'error');
+      toast('No account found with that mobile number or booking reference', 'error');
       return;
     }
     if (!labMatch.is_login_allowed) {
       toast('Login access is currently disabled for your account. Please contact studio admin.', 'error');
-      return;
-    }
-    const storedLabPin = (labMatch.access_pin ?? '').replace(/\D/g, '');
-    if (!storedLabPin || pin !== storedLabPin) {
-      toast('Incorrect PIN. Please try again or contact the studio.', 'error');
       return;
     }
     setLabClientSession({ ...labMatch, __lab_session: true });
@@ -125,10 +117,6 @@ export function ClientLogin() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-amber-50 px-4 dark:from-slate-950 dark:to-slate-900">
       <div className="w-full max-w-md">
-        <Link to="/" className="mb-6 flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
-          <ArrowLeft className="h-4 w-4" /> Back to home
-        </Link>
-
         <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl dark:border-white/10 dark:bg-slate-900">
           <div className="mb-6 flex flex-col items-center text-center">
             {settings?.films_logo_url ? (
@@ -146,11 +134,6 @@ export function ClientLogin() {
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Mobile Number</label>
               <PhoneInput value={mobile} onChange={setMobile} />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">4-Digit Access PIN</label>
-              <PinInput value={pin} onChange={setPin} placeholder="0000" onKeyDown={(e) => { if (e.key === 'Enter') handleLogin(); }} />
-              <p className="mt-1 text-xs text-slate-400">Default PIN is the last 4 digits of your mobile number.</p>
             </div>
             <button
               onClick={handleLogin}

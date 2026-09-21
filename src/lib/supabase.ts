@@ -257,12 +257,16 @@ class MockSupabaseClient {
     return new MockQueryBuilder(table, this.db);
   }
 
-  channel(_name: string): { on: () => { subscribe: () => () => void } } {
-    return {
-      on: () => ({
-        subscribe: () => () => {},
-      }),
+  channel(_name: string): any {
+    const channelInstance: any = {
+      on: (_event: string, _filter: any, _callback?: any) => channelInstance,
+      subscribe: () => () => {},
     };
+    return channelInstance;
+  }
+
+  removeChannel(_channel: any): boolean {
+    return true;
   }
 
   get _db(): MockDB {

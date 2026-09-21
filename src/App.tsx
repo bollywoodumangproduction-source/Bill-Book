@@ -18,7 +18,9 @@ import { DairyBook } from '@/pages/DairyBook';
 import { PublicInvoice } from '@/pages/PublicInvoice';
 import { ClientLogin } from '@/pages/ClientLogin';
 import { ClientDashboard } from '@/pages/ClientDashboard';
-import { PartnerDashboard } from '@/pages/PartnerDashboard';
+import { ClientLandingPage, PartnerLandingPage } from '@/pages/LandingPages';
+import { PartnerLogin } from '@/pages/PartnerLogin';
+import { PartnerDashboard, getPartnerSession } from '@/pages/PartnerDashboard';
 import { AdminLogin, getAdminSession } from '@/pages/AdminLogin';
 import { getClientSession } from '@/pages/ClientLogin';
 import { MusicSelection, PublicMusicSelection } from '@/pages/MusicSelection';
@@ -76,6 +78,14 @@ function ClientGuard() {
   return <ClientDashboard />;
 }
 
+function PartnerGuard() {
+  const location = useLocation();
+  if (!getPartnerSession()) {
+    return <Navigate to="/partner/login" replace state={{ from: location }} />;
+  }
+  return <PartnerDashboard />;
+}
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -88,10 +98,13 @@ export default function App() {
                   <Route path="/" element={<AdminGuard />} />
                   <Route path="/admin" element={<AdminGuard />} />
                   <Route path="/admin/login" element={<AdminLogin />} />
+                  <Route path="/client" element={<ClientLandingPage />} />
                   <Route path="/client/login" element={<ClientLogin />} />
                   <Route path="/client-login" element={<Navigate to="/client/login" replace />} />
                   <Route path="/client/dashboard" element={<ClientGuard />} />
-                  <Route path="/partner/dashboard" element={<PartnerDashboard />} />
+                  <Route path="/partner" element={<PartnerLandingPage />} />
+                  <Route path="/partner/login" element={<PartnerLogin />} />
+                  <Route path="/partner/dashboard" element={<PartnerGuard />} />
                   <Route path="/music-selection" element={<PublicMusicSelection />} />
                   <Route path="/teaser-preview" element={<PublicTeaserPreview />} />
                   <Route path="/invitation-hub" element={<PublicInvitationHub />} />

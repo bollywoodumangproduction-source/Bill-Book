@@ -1,8 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, MoveVertical as MoreVertical, FolderOpen, ChevronRight, ArrowLeft, TriangleAlert as AlertTriangle, Zap, CalendarClock, PackageCheck, Images } from 'lucide-react';
+import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, FolderOpen, ChevronRight, ArrowLeft, TriangleAlert as AlertTriangle, Zap, CalendarClock, PackageCheck, Images, HardDrive } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabClientDeliveryStatus, LabClientDispatchMode } from '@/lib/types';
+import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabClientDeliveryStatus, LabClientDispatchMode, StorageLocation } from '@/lib/types';
 import { formatINR, formatDate, todayISO, defaultPinFromPhone } from '@/lib/format';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -17,6 +17,9 @@ import {
   LAB_ORDER_STATUSES,
   DELIVERY_MODES,
   LAB_PAYMENT_MODES,
+  STORAGE_DEVICES,
+  STORAGE_DRIVES,
+  STORAGE_WORK_TYPES,
 } from '@/lib/constants';
 import { Badge } from '@/components/ui/Badge';
 import { copyToClipboard } from '@/lib/clipboard';
@@ -98,6 +101,13 @@ const EMPTY_VIDEO_ROW: VideoRow = { video_type: '', quality: '', qty: 0, rate: 0
 const EMPTY_ALBUM_ROW: AlbumRow = { id: uid(), album_type: '', size: '', packaging: '', packaging_rate: 0, packaging_total: 0, mini_album: false, mini_qty: 0, mini_rate: 0, mini_total: 0, papers: [{ id: uid(), paper_type: '', sheets: 0, rate: 0, total: 0 }], total: 0 };
 const EMPTY_PAPER_ROW: PaperRow = { id: uid(), paper_type: '', sheets: 0, rate: 0, total: 0 };
 
+const EMPTY_STORAGE_LOCATION: StorageLocation = { id: '', device: '', drive: '', work: '', client_name: '' };
+
+function buildStoragePath(loc: StorageLocation, studioOrProject: string): string {
+  const parts = [loc.device, loc.drive, loc.work, studioOrProject, loc.client_name].filter(Boolean);
+  return parts.join(' / ');
+}
+
 function emptyClient(): LabClientRow {
   return { id: uid(), client_name: '', event_address: '', video_rows: [], album_rows: [], video_total: 0, album_total: 0, delivery_status: 'In Design', dispatch_mode: 'By Hand' };
 }
@@ -148,8 +158,42 @@ function normalizeLabOrder(raw: Partial<StudioLabOrder>): StudioLabOrder {
     is_emergency: raw.is_emergency ?? false,
     album_required_date: raw.album_required_date ?? '',
     video_delivery_date: raw.video_delivery_date ?? '',
+    date_pending: raw.date_pending ?? false,
+    storage_locations: Array.isArray(raw.storage_locations) ? raw.storage_locations : [],
     created_at: raw.created_at ?? '',
   } as StudioLabOrder;
+}
+
+function getEarliestDeadline(o: StudioLabOrder): string | null {
+  if (o.date_pending) return null;
+  const dates: string[] = [];
+  if (o.album_required_date) dates.push(o.album_required_date);
+  if (o.video_delivery_date) dates.push(o.video_delivery_date);
+  if (dates.length === 0) return null;
+  return dates.sort()[0];
+}
+
+function isDeadlineUrgent(o: StudioLabOrder, deadlineAlerts: Array<{ type: 'album' | 'video'; severity: 'overdue' | 'today' | 'soon'; order: StudioLabOrder }>): boolean {
+  return deadlineAlerts.some(a => a.order.id === o.id && (a.severity === 'overdue' || a.severity === 'today'));
+}
+
+const DELIVERED_STATUSES = ['Delivered'];
+
+function sortOrdersByPriority(orders: StudioLabOrder[], deadlineAlerts: Array<{ type: 'album' | 'video'; severity: 'overdue' | 'today' | 'soon'; order: StudioLabOrder }>): StudioLabOrder[] {
+  return [...orders].sort((a, b) => {
+    const aDelivered = DELIVERED_STATUSES.includes(a.order_status);
+    const bDelivered = DELIVERED_STATUSES.includes(b.order_status);
+    if (aDelivered !== bDelivered) return aDelivered ? 1 : -1;
+    if (a.is_emergency !== b.is_emergency) return a.is_emergency ? -1 : 1;
+    const aPending = !!a.date_pending;
+    const bPending = !!b.date_pending;
+    const aDeadline = getEarliestDeadline(a);
+    const bDeadline = getEarliestDeadline(b);
+    if (!aPending && !bPending && aDeadline && bDeadline) return aDeadline.localeCompare(bDeadline);
+    if (!aPending && aDeadline && bPending) return -1;
+    if (aPending && !bPending && bDeadline) return 1;
+    return 0;
+  });
 }
 
 export function LabOrders() {
@@ -173,8 +217,8 @@ export function LabOrders() {
   const [view, setView] = useState<'active' | 'archived' | 'recycle'>('active');
   const [showPin, setShowPin] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<'soft' | 'permanent'>('soft');
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [displayMode, setDisplayMode] = useState<'cards' | 'folders'>('cards');
+  const [presetPartnerId, setPresetPartnerId] = useState<string | undefined>(undefined);
   const [openPartner, setOpenPartner] = useState<string | null>(null);
   const [openClientFile, setOpenClientFile] = useState<string | null>(null);
   const [folderView, setFolderView] = useState<'partners' | 'delivered'>('partners');
@@ -262,7 +306,14 @@ export function LabOrders() {
         map.set(name, existing);
       }
     }
-    return Array.from(map.values()).sort((a, b) => a.clientName.localeCompare(b.clientName));
+    return Array.from(map.values()).sort((a, b) => {
+      const aDeadline = a.orders.map((o) => getEarliestDeadline(o)).filter(Boolean).sort()[0] ?? null;
+      const bDeadline = b.orders.map((o) => getEarliestDeadline(o)).filter(Boolean).sort()[0] ?? null;
+      if (aDeadline && bDeadline) return aDeadline.localeCompare(bDeadline);
+      if (aDeadline && !bDeadline) return -1;
+      if (!aDeadline && bDeadline) return 1;
+      return a.clientName.localeCompare(b.clientName);
+    });
   }, [openPartner, partnerFolders]);
 
   const deliveredClientFiles = useMemo(() => {
@@ -421,6 +472,11 @@ export function LabOrders() {
         <div className="mb-3 flex flex-wrap gap-1.5">
           <Badge color={STATUS_COLORS[o.order_status] ?? 'slate'}>{o.order_status}</Badge>
           <Badge color="slate">{o.delivery_mode}</Badge>
+          {o.promised_delivery_date && (
+            <span className="inline-flex items-center gap-0.5 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-700 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-400">
+              <CalendarClock className="h-2.5 w-2.5" /> Promised: {formatDate(o.promised_delivery_date)}
+            </span>
+          )}
           {(() => {
             const allClients = o.clients ?? [];
             const deliveredCount = allClients.filter((c) => c.delivery_status === 'Delivered').length;
@@ -439,16 +495,37 @@ export function LabOrders() {
         {o.partner_name && (
           <p className="mb-1 text-xs text-amber-600 dark:text-amber-400">Partner: {o.partner_name}</p>
         )}
-        {(o.album_required_date || o.video_delivery_date) && (
+        {(o.is_emergency || o.date_pending || o.album_required_date || o.video_delivery_date) && (
           <div className="mb-1 flex flex-wrap gap-2 text-[11px]">
-            {o.album_required_date && <span className={`flex items-center gap-0.5 ${deadlineAlerts.some(a => a.order.id === o.id && a.type === 'album' && (a.severity === 'overdue' || a.severity === 'today')) ? 'text-rose-500 dark:text-rose-400 font-medium' : 'text-slate-500 dark:text-slate-400'}`}><CalendarClock className="h-3 w-3" /> Album: {formatDate(o.album_required_date)}</span>}
-            {o.video_delivery_date && <span className={`flex items-center gap-0.5 ${deadlineAlerts.some(a => a.order.id === o.id && a.type === 'video' && (a.severity === 'overdue' || a.severity === 'today')) ? 'text-rose-500 dark:text-rose-400 font-medium' : 'text-slate-500 dark:text-slate-400'}`}><CalendarClock className="h-3 w-3" /> Video: {formatDate(o.video_delivery_date)}</span>}
+            {o.is_emergency && <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white"><Zap className="h-2.5 w-2.5" />EMERGENCY</span>}
+            {o.date_pending ? (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"><CalendarClock className="h-2.5 w-2.5" />Date Pending</span>
+            ) : (() => {
+              const earliest = getEarliestDeadline(o);
+              if (!earliest) return null;
+              const isUrgent = isDeadlineUrgent(o, deadlineAlerts);
+              return (
+                <span className={`flex items-center gap-0.5 ${isUrgent ? 'text-rose-500 dark:text-rose-400 font-medium' : 'text-slate-500 dark:text-slate-400'}`}><CalendarClock className="h-3 w-3" /> Due: {formatDate(earliest)}</span>
+              );
+            })()}
           </div>
         )}
         {o.parcel_tracking_details && (
           <p className="mb-2 flex items-center gap-1 text-xs text-sky-500 dark:text-sky-400">
             <Truck className="h-3 w-3" /> {o.parcel_tracking_details}
           </p>
+        )}
+        {o.storage_locations && o.storage_locations.length > 0 && (
+          <div className="mb-2 space-y-0.5">
+            {o.storage_locations.map((loc) => {
+              const studioOrProject = o.studio_name || o.project_name || '';
+              return (
+                <p key={loc.id} className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  <HardDrive className="h-3 w-3 shrink-0" /> {buildStoragePath(loc, studioOrProject)}
+                </p>
+              );
+            })}
+          </div>
         )}
         {o.order_no && photoSessions[o.order_no] && (
           <a
@@ -506,16 +583,27 @@ export function LabOrders() {
           >
             <Plus className="h-3.5 w-3.5" /> + Pay
           </button>
-          <LabOrderActionMenu
-            open={activeMenuId === o.id}
-            onToggle={() => setActiveMenuId((current) => current === o.id ? null : o.id)}
-            onClose={() => setActiveMenuId(null)}
-            onViewBill={() => { setViewBillOrder(o); setActiveMenuId(null); }}
-            onViewSlip={() => { setViewSlipOrder(o); setActiveMenuId(null); }}
-            onWhatsApp={() => { sendLabWhatsApp(o, settings); setActiveMenuId(null); }}
-            onCopySummary={() => { void copyOrderSummary(o); setActiveMenuId(null); }}
-            onPhotoSelection={() => { handlePhotoSelectionAction(o); setActiveMenuId(null); }}
-          />
+          <button
+            onClick={() => { setViewBillOrder(o); }}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:bg-slate-900/80 dark:text-slate-300 dark:hover:bg-white/5"
+            title="View Bill"
+          >
+            <Eye className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => { setViewSlipOrder(o); }}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:bg-slate-900/80 dark:text-slate-300 dark:hover:bg-white/5"
+            title="View Slip"
+          >
+            <FileText className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => { sendLabWhatsApp(o, settings); }}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:bg-slate-900/80 dark:text-slate-300 dark:hover:bg-white/5"
+            title="WhatsApp"
+          >
+            <MessageCircle className="h-4 w-4" />
+          </button>
         </div>
       </div>
     );
@@ -528,12 +616,14 @@ export function LabOrders() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Lab Order Form</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">Photolab & Media Production Order Sheet</p>
         </div>
-        <button
-          onClick={() => { setEditing(null); setShowForm(true); }}
-          className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"
-        >
-          <Plus className="h-4 w-4" /> New Order
-        </button>
+        {displayMode === 'folders' && !openPartner && folderView === 'partners' && (
+          <button
+            onClick={() => { setEditing(null); setPresetPartnerId(undefined); setShowForm(true); }}
+            className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"
+          >
+            <Plus className="h-4 w-4" /> Add Partner
+          </button>
+        )}
       </div>
 
       {/* View toggle: Cards vs Folders */}
@@ -547,37 +637,6 @@ export function LabOrders() {
           </button>
         </div>
       </div>
-
-      {/* Deadline Alerts */}
-      {deadlineAlerts.length > 0 && (
-        <div className="space-y-2">
-          {deadlineAlerts.slice(0, 6).map((alert, i) => {
-            const isOverdue = alert.severity === 'overdue';
-            const isToday = alert.severity === 'today';
-            const isEmergency = alert.order.is_emergency;
-            const bgClass = isOverdue ? 'border-rose-300 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10' : isToday ? 'border-amber-300 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10' : 'border-sky-200 bg-sky-50 dark:border-sky-500/20 dark:bg-sky-500/5';
-            const iconClass = isOverdue ? 'text-rose-500' : isToday ? 'text-amber-500' : 'text-sky-500';
-            const label = isOverdue ? 'OVERDUE' : isToday ? 'DUE TODAY' : 'DUE SOON';
-            return (
-              <div key={i} className={`flex items-center gap-3 rounded-xl border p-3 ${bgClass} ${isEmergency ? 'ring-1 ring-rose-300 dark:ring-rose-500/30' : ''}`}>
-                <div className="flex items-center gap-2">
-                  {isEmergency && <Zap className="h-4 w-4 text-rose-500" />}
-                  {alert.type === 'album' ? <Book className={`h-4 w-4 ${iconClass}`} /> : <Video className={`h-4 w-4 ${iconClass}`} />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-slate-900 dark:text-white">
-                    {alert.type === 'album' ? 'Album' : 'Video'} {label} — {alert.order.project_name} ({alert.order.order_no})
-                  </p>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {alert.order.studio_name} · Due: {formatDate(alert.date)}
-                  </p>
-                </div>
-                <Badge color={isOverdue ? 'rose' : isToday ? 'amber' : 'sky'}>{label}</Badge>
-              </div>
-            );
-          })}
-        </div>
-      )}
 
       {displayMode === 'cards' ? (
         <>
@@ -604,7 +663,7 @@ export function LabOrders() {
             <EmptyState icon={Clapperboard} title="No lab orders found" subtitle="Create a new lab order to get started" />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {filtered.map((o) => renderOrderCard(o))}
+              {sortOrdersByPriority(filtered, deadlineAlerts).map((o) => renderOrderCard(o))}
             </div>
           )}
         </>
@@ -618,9 +677,23 @@ export function LabOrders() {
             <button onClick={() => { setOpenPartner(null); setOpenClientFile(null); }} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
               <ArrowLeft className="h-3.5 w-3.5" /> Back to Partner Folders
             </button>
-            <div className="flex items-center gap-2">
-              <FolderOpen className="h-5 w-5 text-amber-500" />
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">{openPartner}</h2>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <FolderOpen className="h-5 w-5 text-amber-500" />
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">{openPartner}</h2>
+              </div>
+              <button
+                onClick={() => {
+                  const partnerOrder = partnerFolders.find((f) => f.name === openPartner)?.orders[0];
+                  const partnerId = partnerOrder?.partner_id || '';
+                  setEditing(null);
+                  setPresetPartnerId(partnerId || undefined);
+                  setShowForm(true);
+                }}
+                className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"
+              >
+                <Plus className="h-4 w-4" /> New Order
+              </button>
             </div>
             {openClientFile ? (
               /* Inside a Client File — show order cards */
@@ -633,7 +706,7 @@ export function LabOrders() {
                   <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{openClientFile}</h3>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {(partnerClientFiles.find((f) => f.clientName === openClientFile)?.orders ?? []).map((o) => renderOrderCard(o))}
+                  {sortOrdersByPriority(partnerClientFiles.find((f) => f.clientName === openClientFile)?.orders ?? [], deadlineAlerts).map((o) => renderOrderCard(o))}
                 </div>
               </div>
             ) : (
@@ -644,6 +717,9 @@ export function LabOrders() {
                   const readyCount = cf.orders.filter((o) => o.order_status === 'Ready' || o.order_status === 'Printed/Ready').length;
                   const netDue = cf.orders.reduce((s, o) => s + toNum(o.net_final_due), 0);
                   const hasEmergency = cf.orders.some((o) => o.is_emergency);
+                  const hasDatePending = cf.orders.some((o) => o.date_pending);
+                  const earliestDeadline = cf.orders.map((o) => getEarliestDeadline(o)).filter(Boolean).sort()[0] ?? null;
+                  const isUrgent = cf.orders.some((o) => isDeadlineUrgent(o, deadlineAlerts));
                   return (
                     <button key={cf.clientName} onClick={() => setOpenClientFile(cf.clientName)} className={`rounded-xl border p-4 text-left transition hover:border-amber-300 dark:hover:border-amber-500/30 ${hasEmergency ? 'border-rose-200 dark:border-rose-500/30' : 'border-slate-200 dark:border-white/10'}`}>
                       <div className="mb-2 flex items-start justify-between gap-2">
@@ -659,6 +735,8 @@ export function LabOrders() {
                       <div className="flex flex-wrap gap-1.5">
                         {processingCount > 0 && <Badge color="amber">{processingCount} Processing</Badge>}
                         {readyCount > 0 && <Badge color="sky">{readyCount} Ready</Badge>}
+                        {hasDatePending && <Badge color="amber">Date Pending</Badge>}
+                        {earliestDeadline && <span className={`inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-xs font-medium ${isUrgent ? 'border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/15 dark:text-rose-400' : 'border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-500/20 dark:bg-slate-500/15 dark:text-slate-400'}`}><CalendarClock className="h-3 w-3" /> Due: {formatDate(earliestDeadline)}</span>}
                         {netDue > 0 && <Badge color="rose">Due: {formatINR(netDue)}</Badge>}
                       </div>
                     </button>
@@ -728,6 +806,9 @@ export function LabOrders() {
                 const clientCount = new Set(pf.orders.flatMap((o) => (o.clients ?? []).map((c) => c.client_name).filter(Boolean))).size;
                 const netDue = pf.orders.reduce((s, o) => s + toNum(o.net_final_due), 0);
                 const hasEmergency = pf.orders.some((o) => o.is_emergency);
+                const hasDatePending = pf.orders.some((o) => o.date_pending);
+                const earliestDeadline = pf.orders.map((o) => getEarliestDeadline(o)).filter(Boolean).sort()[0] ?? null;
+                const isUrgent = pf.orders.some((o) => isDeadlineUrgent(o, deadlineAlerts));
                 return (
                   <button key={pf.name} onClick={() => setOpenPartner(pf.name)} className={`rounded-xl border p-4 text-left transition hover:border-amber-300 dark:hover:border-amber-500/30 ${hasEmergency ? 'border-rose-200 dark:border-rose-500/30' : 'border-slate-200 dark:border-white/10'}`}>
                     <div className="mb-2 flex items-start justify-between gap-2">
@@ -745,8 +826,27 @@ export function LabOrders() {
                       <Badge color="sky">{clientCount} Clients</Badge>
                       {processingCount > 0 && <Badge color="amber">{processingCount} Processing</Badge>}
                       {readyCount > 0 && <Badge color="sky">{readyCount} Ready</Badge>}
+                      {hasDatePending && <Badge color="amber">Date Pending</Badge>}
+                      {earliestDeadline && <span className={`inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-xs font-medium ${isUrgent ? 'border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/15 dark:text-rose-400' : 'border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-500/20 dark:bg-slate-500/15 dark:text-slate-400'}`}><CalendarClock className="h-3 w-3" /> Due: {formatDate(earliestDeadline)}</span>}
                       {netDue > 0 && <Badge color="rose">Due: {formatINR(netDue)}</Badge>}
                     </div>
+                    {(() => {
+                      const allStorage = pf.orders.flatMap((o) => o.storage_locations ?? []);
+                      if (allStorage.length === 0) return null;
+                      return (
+                        <div className="mt-2 space-y-0.5">
+                          {allStorage.map((loc) => {
+                            const o = pf.orders.find((o) => (o.storage_locations ?? []).some((l) => l.id === loc.id));
+                            const studioOrProject = o?.studio_name || o?.project_name || '';
+                            return (
+                              <p key={loc.id} className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                                <HardDrive className="h-2.5 w-2.5 shrink-0" /> {buildStoragePath(loc, studioOrProject)}
+                              </p>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </button>
                 );
               })}
@@ -775,7 +875,7 @@ export function LabOrders() {
       )}
 
       <ErrorBoundary>
-        <LabOrderForm open={showForm} onClose={() => setShowForm(false)} editing={editing} existing={orders} onSaved={(saved) => { setShowForm(false); load(); setSuccessOrder(saved); toast('Saved Successfully!', 'success'); }} />
+        <LabOrderForm open={showForm} onClose={() => setShowForm(false)} editing={editing} existing={orders} presetPartnerId={presetPartnerId} onSaved={(saved) => { setShowForm(false); load(); setSuccessOrder(saved); toast('Saved Successfully!', 'success'); }} />
       </ErrorBoundary>
       <ErrorBoundary>
         <ViewBillModal order={viewBillOrder} onClose={() => setViewBillOrder(null)} settings={settings} onCopySummary={copyOrderSummary} />
@@ -856,67 +956,6 @@ function getStoredLabTerms(): string {
   } catch {
     return DEFAULT_PRODUCTION_TERMS;
   }
-}
-
-function LabOrderActionMenu({
-  open,
-  onToggle,
-  onClose,
-  onViewBill,
-  onViewSlip,
-  onWhatsApp,
-  onCopySummary,
-  onPhotoSelection,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  onClose: () => void;
-  onViewBill: () => void;
-  onViewSlip: () => void;
-  onWhatsApp: () => void;
-  onCopySummary: () => void;
-  onPhotoSelection: () => void;
-}) {
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target;
-      if (menuRef.current && target instanceof Node && !menuRef.current.contains(target)) {
-        onClose();
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [open, onClose]);
-
-  const runAction = (action: () => void) => {
-    action();
-    onClose();
-  };
-
-  return (
-    <div ref={menuRef} className="relative shrink-0">
-      <button
-        type="button"
-        aria-label="More lab order actions"
-        onClick={onToggle}
-        className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:bg-slate-900/80 dark:text-slate-300 dark:hover:bg-white/5"
-      >
-        <MoreVertical className="h-4 w-4" />
-      </button>
-      {open && (
-        <div className="absolute right-0 z-30 mt-2 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-white/10 dark:bg-slate-900">
-          <button type="button" onClick={() => runAction(onViewBill)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"><Eye className="h-4 w-4" /> View Bill</button>
-          <button type="button" onClick={() => runAction(onViewSlip)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"><FileText className="h-4 w-4" /> View Slip</button>
-          <button type="button" onClick={() => runAction(onWhatsApp)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"><MessageCircle className="h-4 w-4" /> WhatsApp</button>
-          <button type="button" onClick={() => runAction(onCopySummary)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"><Copy className="h-4 w-4" /> Copy Summary</button>
-          <button type="button" onClick={() => runAction(onPhotoSelection)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"><Images className="h-4 w-4" /> Photo Selection</button>
-        </div>
-      )}
-    </div>
-  );
 }
 
 function LabDigitalStamp({ order }: { order: StudioLabOrder }) {
@@ -1520,7 +1559,7 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
   </Modal>;
 }
 
-function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boolean; onClose: () => void; editing: StudioLabOrder | null; existing: StudioLabOrder[]; onSaved: (saved: StudioLabOrder) => void }) {
+function LabOrderForm({ open, onClose, editing, existing, onSaved, presetPartnerId }: { open: boolean; onClose: () => void; editing: StudioLabOrder | null; existing: StudioLabOrder[]; onSaved: (saved: StudioLabOrder) => void; presetPartnerId?: string }) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [partners, setPartners] = useState<Partner[]>([]);
@@ -1546,6 +1585,8 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
   const [isEmergency, setIsEmergency] = useDraftState<boolean>(`${draftKey}-isEmergency`, false);
   const [albumRequiredDate, setAlbumRequiredDate] = useDraftState<string>(`${draftKey}-albumRequiredDate`, '');
   const [videoDeliveryDate, setVideoDeliveryDate] = useDraftState<string>(`${draftKey}-videoDeliveryDate`, '');
+  const [datePending, setDatePending] = useDraftState<boolean>(`${draftKey}-datePending`, false);
+  const [storageLocations, setStorageLocations] = useDraftState<StorageLocation[]>(`${draftKey}-storageLocations`, []);
 
   const clearDraft = () => {
     setSelectedPartnerId('');
@@ -1568,6 +1609,8 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
     setIsEmergency(false);
     setAlbumRequiredDate('');
     setVideoDeliveryDate('');
+    setDatePending(false);
+    setStorageLocations([]);
   };
 
   useEffect(() => {
@@ -1617,9 +1660,17 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
       setIsEmergency(editing?.is_emergency ?? false);
       setAlbumRequiredDate(editing?.album_required_date ?? '');
       setVideoDeliveryDate(editing?.video_delivery_date ?? '');
+      setDatePending(editing?.date_pending ?? false);
+      setStorageLocations(editing?.storage_locations ?? []);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing]);
+
+  useEffect(() => {
+    if (!open || editing || !presetPartnerId || partners.length === 0) return;
+    handlePartnerSelect(presetPartnerId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editing, presetPartnerId, partners]);
 
   useEffect(() => {
     if (paymentHistory.length > 0) setAdvancePaid(String(paymentHistory.reduce((sum, payment) => sum + toNum(payment.amount), 0)));
@@ -1781,6 +1832,8 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
         is_emergency: isEmergency,
         album_required_date: albumRequiredDate || null,
         video_delivery_date: videoDeliveryDate || null,
+        date_pending: datePending,
+        storage_locations: storageLocations,
       });
       let savedOrder: StudioLabOrder | null = null;
       const { data, error } = await supabase.from('studio_lab_orders').upsert(payload).select().single();
@@ -1855,9 +1908,14 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
             </label>
             <p className="mt-1 text-xs text-slate-400">Visual priority only — does not affect pricing, payments, or status.</p>
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Album Required Date"><input type="date" value={albumRequiredDate} onChange={(e) => setAlbumRequiredDate(e.target.value)} className={inputClass} /></Field>
-              <Field label="Video Delivery Date"><input type="date" value={videoDeliveryDate} onChange={(e) => setVideoDeliveryDate(e.target.value)} className={inputClass} /></Field>
+              <Field label="Album Required Date"><input type="date" value={albumRequiredDate} onChange={(e) => setAlbumRequiredDate(e.target.value)} disabled={datePending} className={`${inputClass} ${datePending ? 'opacity-50 cursor-not-allowed' : ''}`} /></Field>
+              <Field label="Video Delivery Date"><input type="date" value={videoDeliveryDate} onChange={(e) => setVideoDeliveryDate(e.target.value)} disabled={datePending} className={`${inputClass} ${datePending ? 'opacity-50 cursor-not-allowed' : ''}`} /></Field>
             </div>
+            <label className="mt-3 flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-white">
+              <input type="checkbox" checked={datePending} onChange={(e) => setDatePending(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400" />
+              <CalendarClock className="h-4 w-4 text-amber-500" /> Date Pending (Client to Confirm Later)
+            </label>
+            <p className="mt-1 text-xs text-slate-400">When enabled, delivery date inputs are disabled but saved values are preserved.</p>
           </div>
         </div>
 
@@ -1894,14 +1952,6 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
                     <option value="Ready">Ready</option>
                     <option value="Delivered">Delivered</option>
                   </select>
-                </Field>
-                <Field label="Delivered On">
-                  <input
-                    type="date"
-                    value={client.delivered_at ?? ''}
-                    onChange={(e) => updateClient(ci, { delivered_at: e.target.value })}
-                    className={`${inputClass} text-xs`}
-                  />
                 </Field>
                 <Field label="Dispatch Mode">
                   <select
@@ -2037,7 +2087,6 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
         <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
           <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">Master Billing &amp; Payment</h3>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <Field label="Promised Delivery Date"><input type="date" value={promisedDeliveryDate} onChange={(e) => setPromisedDeliveryDate(e.target.value)} className={inputClass} /></Field>
             <Field label="Total Album Bill (₹)"><input type="number" value={totalAlbumBill || ''} readOnly className={`${inputClass} font-semibold`} /></Field>
             <Field label="Total Video Bill (₹)"><input type="number" value={totalVideoBill || ''} readOnly className={`${inputClass} font-semibold`} /></Field>
             <Field label="Current Order Total (₹)"><input type="number" value={currentOrderTotal || ''} readOnly className={`${inputClass} font-semibold`} /></Field>
@@ -2045,11 +2094,72 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
             <Field label="Master Total (₹)"><input type="number" value={masterTotal || ''} readOnly className={`${inputClass} font-semibold`} /></Field>
             <Field label="Advance Paid (₹)"><input type="number" value={advancePaid} onChange={(e) => setAdvancePaid(e.target.value)} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={inputClass} placeholder="0" /></Field>
           </div>
-          <div className="mt-3">
+          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Net Final Due (₹)">
               <input type="number" value={netFinalDue || ''} readOnly className={`${inputClass} font-bold ${netFinalDue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
             </Field>
+            <Field label="Promised Delivery Date">
+              <input type="date" value={promisedDeliveryDate} onChange={(e) => setPromisedDeliveryDate(e.target.value)} className={inputClass} />
+            </Field>
           </div>
+        </div>
+
+        {/* Storage Locations */}
+        <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-white"><HardDrive className="h-4 w-4 text-slate-500" /> Storage Location</h3>
+            <button onClick={() => setStorageLocations((prev) => [...prev, { ...EMPTY_STORAGE_LOCATION, id: uid() }])} className="flex items-center gap-1 rounded-lg bg-slate-500/10 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-500/20 dark:text-slate-400">
+              <Plus className="h-3.5 w-3.5" /> Add Location
+            </button>
+          </div>
+          {(() => {
+            const studioOrProject = studioName || projectName || '';
+            const clientNames = clients.map((c) => c.client_name.trim()).filter(Boolean);
+            return storageLocations.length === 0 ? (
+              <p className="py-2 text-center text-xs text-slate-400">No storage locations added — click + Add Location</p>
+            ) : (
+              <div className="space-y-2">
+                {storageLocations.map((loc, si) => (
+                  <div key={loc.id} className="rounded-lg border border-slate-200 p-2.5 dark:border-white/10">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+                      <Field label="PC / Device">
+                        <select value={loc.device} onChange={(e) => setStorageLocations((prev) => prev.map((l, idx) => idx === si ? { ...l, device: e.target.value } : l))} className={`${selectClass} text-xs`}>
+                          <option value="">— Device —</option>
+                          {STORAGE_DEVICES.map((d) => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Drive">
+                        <select value={loc.drive} onChange={(e) => setStorageLocations((prev) => prev.map((l, idx) => idx === si ? { ...l, drive: e.target.value } : l))} className={`${selectClass} text-xs`}>
+                          <option value="">— Drive —</option>
+                          {STORAGE_DRIVES.map((d) => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Work">
+                        <select value={loc.work} onChange={(e) => setStorageLocations((prev) => prev.map((l, idx) => idx === si ? { ...l, work: e.target.value } : l))} className={`${selectClass} text-xs`}>
+                          <option value="">— Work —</option>
+                          {STORAGE_WORK_TYPES.map((w) => <option key={w} value={w}>{w}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Client">
+                        <select value={loc.client_name} onChange={(e) => setStorageLocations((prev) => prev.map((l, idx) => idx === si ? { ...l, client_name: e.target.value } : l))} className={`${selectClass} text-xs`}>
+                          <option value="">— Client —</option>
+                          {clientNames.map((cn) => <option key={cn} value={cn}>{cn}</option>)}
+                        </select>
+                      </Field>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <p className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        <HardDrive className="h-3 w-3 shrink-0" /> {buildStoragePath(loc, studioOrProject) || '—'}
+                      </p>
+                      <button onClick={() => setStorageLocations((prev) => prev.filter((_, idx) => idx !== si))} className="flex items-center gap-1 text-xs text-rose-500 hover:text-rose-600">
+                        <Trash2 className="h-3.5 w-3.5" /> Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Payment Section */}

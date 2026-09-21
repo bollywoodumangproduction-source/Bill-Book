@@ -68,14 +68,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('studio_settings_cache', JSON.stringify(merged));
     setSettings(merged);
     settingsRef.current = merged;
-
-    const { error } = await supabase
-      .from('studio_settings')
-     .upsert({ ...(merged as any), id: 1 }, { onConflict: 'id' });
-
-    if (error) {
-      console.error('Error saving settings to Supabase:', error);
-    }
+    await supabase.from('studio_settings').update(patch).eq('id', 1);
   }, []);
 
   useEffect(() => {
