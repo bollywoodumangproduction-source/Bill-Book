@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { ClientSelectionSession, PhotoItem } from '@/lib/types';
+import { withPhotoSessionCounts } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 
@@ -46,7 +47,7 @@ export function PublicPhotoSelection() {
   const load = useCallback(async () => {
     if (!sessionId) return;
     const { data } = await supabase.from('photo_selection_sessions').select('*').eq('id', sessionId).single();
-    setSession((data as ClientSelectionSession) ?? null);
+    setSession(data ? withPhotoSessionCounts(data as ClientSelectionSession) : null);
     setLoading(false);
   }, [sessionId]);
 

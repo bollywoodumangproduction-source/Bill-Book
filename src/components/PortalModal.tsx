@@ -24,6 +24,7 @@ import { supabase } from '@/lib/supabase';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import type { Booking, Partner, PromoAd, PromoAdAudience, ClientSelectionSession } from '@/lib/types';
+import { withPhotoSessionCounts } from '@/lib/types';
 import { formatINR, formatDate, formatPhone } from '@/lib/format';
 import { inputClass } from '@/components/ui/Field';
 import { PhoneInput } from '@/components/ui/PhoneInput';
@@ -32,6 +33,10 @@ import { Modal } from '@/components/ui/Modal';
 import { PartnerDashboardContent } from '@/pages/PartnerDashboard';
 
 type PortalType = 'client' | 'partner';
+
+function portalInnerSheetCount(session: ClientSelectionSession): number {
+  return (session.proofSheets ?? []).filter((sheet) => Number(sheet.sheetNumber) > 0).length;
+}
 
 interface PortalModalProps {
   open: boolean;
@@ -98,9 +103,30 @@ export function PortalModal({ open, onClose, portalType, adminPreview = false }:
       .select('*')
       .eq('bill_id', bookingRecord.booking_no)
       .maybeSingle();
-
-    setClientPhotoSession((data as ClientSelectionSession | null) ?? null);
+    if (data) {
+      setClientPhotoSession(withPhotoSessionCounts(data as ClientSelectionSession));
+      return;
+    }
+    const { data: phoneData } = await supabase.from('photo_selection_sessions').select('*').eq('phone', bookingRecord.client_mobile).maybeSingle();
+    setClientPhotoSession(phoneData ? withPhotoSessionCounts(phoneData as ClientSelectionSession) : null);
   }, []);
+
+  useEffect(() => {
+    if (!open || !clientBooking?.booking_no || portalType !== 'client') return;
+    const channel = supabase
+      .channel(`portal-photo-session-${clientBooking.booking_no}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'photo_selection_sessions', filter: `bill_id=eq.${clientBooking.booking_no}` }, (payload) => {
+        if (payload.eventType === 'DELETE') setClientPhotoSession(null);
+        else {
+          setClientPhotoSession(withPhotoSessionCounts(payload.new as ClientSelectionSession));
+          void supabase.from('bookings').select('*').eq('id', clientBooking.id).maybeSingle().then(({ data }) => {
+            if (data) setClientBooking(data as Booking);
+          });
+        }
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [open, clientBooking?.booking_no, portalType]);
 
   const resetState = () => {
     setMobile(''); setError(''); setLoading(false);
@@ -397,11 +423,16 @@ function ClientDetailView({ booking, settings, ads, photoSession }: { booking: B
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">Photo Selection</p>
-              <p className="mt-1 text-sm font-medium text-slate-900 dark:text-white">{photoSession.photos.filter((p) => p.selected).length} of {photoSession.photos.length} selected</p>
+              <p className="mt-1 text-sm font-medium text-slate-900 dark:text-white">{photoSession.isLocked ? 'Completed' : 'Pending'} · {photoSession.selectedCount ?? 0} of {photoSession.totalPhotos ?? 0} selected</p>
             </div>
             <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${photoSession.isLocked ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-700 dark:text-amber-400'}`}>
-              {photoSession.isLocked ? 'Locked' : 'Active'}
+              {photoSession.isLocked ? 'Completed' : 'Pending'}
             </span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <span>Access Code: <strong className="font-mono">{photoSession.pinCode}</strong></span>
+            <span>Inner Sheets: {portalInnerSheetCount(photoSession)}</span>
+            {portalInnerSheetCount(photoSession) > Number(photoSession.packageSheets ?? 0) && <span className="font-medium text-amber-700 dark:text-amber-300">Extra Sheets: {portalInnerSheetCount(photoSession) - Number(photoSession.packageSheets ?? 0)} @ {formatINR(photoSession.extraSheetRate)}</span>}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <a

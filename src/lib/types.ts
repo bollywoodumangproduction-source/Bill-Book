@@ -569,8 +569,20 @@ export interface ClientSelectionSession {
   shareableUrl: string;
   folders: string[];
   photos: PhotoItem[];
+  selectedCount?: number;
+  totalPhotos?: number;
   proofSheets: SheetProofItem[];
   submitted_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export function withPhotoSessionCounts(session: ClientSelectionSession): ClientSelectionSession {
+  const photos = Array.isArray(session.photos) ? session.photos : [];
+  return {
+    ...session,
+    photos,
+    totalPhotos: photos.length,
+    selectedCount: photos.filter((photo) => photo.selected).length,
+  };
 }

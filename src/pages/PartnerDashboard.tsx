@@ -22,10 +22,12 @@ import {
   Send,
   Zap,
   CalendarClock,
+  Copy,
 } from 'lucide-react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import type { EventFunction, Partner, PromoAd, StudioLabOrder, ClientSelectionSession } from '@/lib/types';
+import { withPhotoSessionCounts } from '@/lib/types';
 import { formatDate, formatINR, formatPhone } from '@/lib/format';
 import { inputClass } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
@@ -36,6 +38,10 @@ import { getVisiblePromoAds } from '@/lib/promo';
 
 const PARTNER_SESSION_KEY = 'buf_partner_session';
 const LEGACY_PARTNER_SESSION_KEY = 'bup_partner_session';
+
+function sessionInnerSheetCount(session: ClientSelectionSession): number {
+  return (session.proofSheets ?? []).filter((sheet) => Number(sheet.sheetNumber) > 0).length;
+}
 
 export function setPartnerSession(partner: Partner) {
   localStorage.setItem(PARTNER_SESSION_KEY, JSON.stringify(partner));
@@ -186,6 +192,8 @@ export function PartnerDashboardContent({
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [promoAds, setPromoAds] = useState<PromoAd[]>([]);
+  const [photoSessionRevision, setPhotoSessionRevision] = useState(0);
+  const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -222,12 +230,18 @@ export function PartnerDashboardContent({
       .on('postgres_changes', { event: '*', schema: 'public', table: 'direct_transactions', filter: `partner_id=eq.${partner.id}` }, () => { void load(); })
       .subscribe();
 
+    const photoSessionsChannel = supabase
+      .channel(`partner-photo-sessions-${partner.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'photo_selection_sessions' }, () => { setPhotoSessionRevision((revision) => revision + 1); })
+      .subscribe();
+
     return () => {
       cancelled = true;
       supabase.removeChannel(labOrdersChannel);
       supabase.removeChannel(assignmentsChannel);
       supabase.removeChannel(ledgerChannel);
       supabase.removeChannel(transactionsChannel);
+      supabase.removeChannel(photoSessionsChannel);
     };
   }, [partner]);
 
@@ -239,7 +253,7 @@ export function PartnerDashboardContent({
         labOrders.map(async (o) => {
           if (!o.order_no) return [o.id, null] as const;
           const { data } = await supabase.from('photo_selection_sessions').select('*').eq('bill_id', o.order_no).maybeSingle();
-          return [o.id, (data as ClientSelectionSession | null) ?? null] as const;
+          return [o.id, data ? withPhotoSessionCounts(data as ClientSelectionSession) : null] as const;
         }),
       );
       if (!cancelled) {
@@ -250,7 +264,7 @@ export function PartnerDashboardContent({
     };
     void loadSessions();
     return () => { cancelled = true; };
-  }, [labOrders]);
+  }, [labOrders, photoSessionRevision]);
 
   useEffect(() => {
     let cancelled = false;
@@ -280,6 +294,31 @@ export function PartnerDashboardContent({
   const copySessionPin = async (session: ClientSelectionSession) => {
     const ok = await copyToClipboard(session.pinCode);
     toast(ok ? `PIN copied: ${session.pinCode}` : 'Could not copy PIN', ok ? 'success' : 'error');
+  };
+
+  const copySelectedPhotos = async (session: ClientSelectionSession) => {
+    const selectedPhotos = session.photos.filter((photo) => photo.selected);
+    const directoryPicker = (window as Window & typeof globalThis & { showDirectoryPicker?: () => Promise<any> }).showDirectoryPicker;
+    if (selectedPhotos.length === 0) { toast('No photos selected by client', 'error'); return; }
+    if (!directoryPicker) { toast('File System Access API is not supported in this browser', 'error'); return; }
+    try {
+      setCopyingSessionId(session.id);
+      const rootHandle = await directoryPicker();
+      const selectedDir = await rootHandle.getDirectoryHandle('Selected_Originals', { create: true });
+      for (const photo of selectedPhotos) {
+        const folderHandle = await selectedDir.getDirectoryHandle(photo.folder, { create: true });
+        const fileHandle = await folderHandle.getFileHandle(photo.fileName, { create: true });
+        const writable = await fileHandle.createWritable();
+        const response = await fetch(photo.previewUrl);
+        await writable.write(await response.blob());
+        await writable.close();
+      }
+      toast(`${selectedPhotos.length} selected photos copied successfully`, 'success');
+    } catch (error: any) {
+      if (error?.name !== 'AbortError') toast(`Copy failed: ${error?.message || 'Unknown error'}`, 'error');
+    } finally {
+      setCopyingSessionId(null);
+    }
   };
 
   if (loadingData) {
@@ -533,7 +572,10 @@ export function PartnerDashboardContent({
                     {session ? (
                       <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
                         <div className="flex flex-wrap items-center gap-2 text-xs text-amber-400">
-                          <span className="flex items-center gap-1"><Images className="h-3.5 w-3.5" /> Photo Selection: {session.photos.filter((p) => p.selected).length}/{session.photos.length}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${session.isLocked ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>{session.isLocked ? 'Completed' : 'Pending'} · {session.selectedCount ?? 0} Selected</span>
+                          <span className="flex items-center gap-1"><Images className="h-3.5 w-3.5" /> Photo Selection: {session.selectedCount ?? 0}/{session.totalPhotos ?? 0}</span>
+                          <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-300">Inner Sheets: {sessionInnerSheetCount(session)}</span>
+                          {sessionInnerSheetCount(session) > Number(session.packageSheets ?? 0) && <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] text-rose-300">Lab Extra: {formatINR(Math.max(0, sessionInnerSheetCount(session) - Number(session.packageSheets ?? 0)) * Number(session.extraSheetRate ?? 0))}</span>}
                           <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-300">Sheets: {session.packageSheets || 0}</span>
                           <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-300">Preview: {(session.proofSheets ?? []).length}</span>
                           {session.isLocked && <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">Locked</span>}
@@ -546,6 +588,7 @@ export function PartnerDashboardContent({
                         )}
                         <div className="flex flex-wrap items-center gap-2">
                           <Link to={`/select/${session.id}`} className="text-xs font-medium text-amber-400 hover:text-amber-300">Open Gallery</Link>
+                          <button onClick={() => void copySelectedPhotos(session)} disabled={copyingSessionId === session.id} className="flex items-center gap-1 text-xs font-medium text-emerald-400 hover:text-emerald-300 disabled:opacity-50"><Copy className="h-3 w-3" /> {copyingSessionId === session.id ? 'Copying...' : 'Get Selected Photos'}</button>
                           <button onClick={() => copySessionLink(session)} className="flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-200"><Send className="h-3 w-3" /> Copy Link</button>
                           {!adminPreview && <button onClick={() => copySessionPin(session)} className="flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-200"><KeyRound className="h-3 w-3" /> Copy PIN</button>}
                         </div>

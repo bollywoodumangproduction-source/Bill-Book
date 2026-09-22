@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import {
   Images,
   Plus,
@@ -32,6 +32,7 @@ import type {
   Partner,
   StudioLabOrder,
 } from '@/lib/types';
+import { withPhotoSessionCounts } from '@/lib/types';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
 import { inputClass, selectClass, textareaClass, Field } from '@/components/ui/Field';
@@ -41,6 +42,15 @@ import { copyToClipboard } from '@/lib/clipboard';
 
 function now(): string {
   return new Date().toISOString();
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read image file'));
+    reader.readAsDataURL(file);
+  });
 }
 
 function newId(): string {
@@ -89,6 +99,83 @@ function labOrderSheetCount(order: StudioLabOrder): number {
   );
 }
 
+function numericField(value: unknown): number | null {
+  const number = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(number) ? number : null;
+}
+
+function syncedLabOrderValues(order: StudioLabOrder): { packageSheets: number | null; extraSheetRate: number | null } {
+  const rawOrder = order as StudioLabOrder & Record<string, unknown>;
+  const clients = Array.isArray(rawOrder.clients) ? rawOrder.clients as unknown as Array<Record<string, unknown>> : [];
+  const albumItems = clients.flatMap((client) => {
+    const items = Array.isArray(client.album_items) ? client.album_items : client.album_rows;
+    return Array.isArray(items) ? items as Array<Record<string, unknown>> : [];
+  });
+  const packageSheets = albumItems.reduce((total, album) => {
+    const papers = Array.isArray(album.papers) ? album.papers as Array<Record<string, unknown>> : [];
+    return total + papers.reduce((paperTotal, paper) => paperTotal + (numericField(paper.sheets) ?? 0), 0);
+  }, 0);
+  const rateSources = [
+    rawOrder.rate_per_sheet,
+    ...clients.map((client) => client.rate_per_sheet),
+    ...albumItems.map((album) => album.rate_per_sheet),
+    ...albumItems.flatMap((album) => Array.isArray(album.papers) ? (album.papers as Array<Record<string, unknown>>).flatMap((paper) => [paper.rate_per_sheet, paper.rate]) : []),
+  ];
+  const extraSheetRate = rateSources.map(numericField).find((value): value is number => value !== null);
+  return { packageSheets: packageSheets > 0 ? packageSheets : null, extraSheetRate: extraSheetRate ?? null };
+}
+
+type BillingSession = ClientSelectionSession & { lab_order_id?: string };
+
+async function syncPhotoSelectionBilling(session: BillingSession, extraSheets: number, extraAmount: number): Promise<void> {
+  const reference = session.lab_order_id || session.labOrderNo || session.billId;
+  if (!reference) return;
+
+  if (isLabSession(session.clientType)) {
+    const orderQuery = supabase.from('studio_lab_orders').select('*');
+    const { data: order } = await (reference.includes('-') && reference.length > 20
+      ? orderQuery.eq('id', reference).maybeSingle()
+      : orderQuery.eq('order_no', reference).maybeSingle());
+    if (!order) return;
+    const currentOrderTotal = Number(order.current_order_total ?? 0);
+    const previousExtraAmount = Number(session.extra_amount ?? 0);
+    const basePayable = Math.max(0, currentOrderTotal - previousExtraAmount);
+    const previousBackDue = Number(order.previous_back_due ?? order.back_due ?? 0);
+    const advancePaid = Number(order.advance_paid ?? 0);
+    const nextCurrentTotal = basePayable + extraAmount;
+    const nextMasterTotal = nextCurrentTotal + previousBackDue;
+    await supabase.from('studio_lab_orders').update({
+      current_order_total: nextCurrentTotal,
+      master_total: nextMasterTotal,
+      net_final_due: nextMasterTotal - advancePaid,
+    }).eq('id', order.id);
+    return;
+  }
+
+  const bookingQuery = supabase.from('bookings').select('*');
+  const { data: bookingByNumber } = await bookingQuery.eq('booking_no', reference).maybeSingle();
+  const { data: booking } = bookingByNumber
+    ? { data: bookingByNumber }
+    : await supabase.from('bookings').select('*').eq('id', reference).maybeSingle();
+  if (!booking) return;
+
+  const deliverables = (booking.deliverables_data ?? {}) as Record<string, unknown>;
+  const customItems = Array.isArray(deliverables.custom_items) ? deliverables.custom_items as Array<Record<string, unknown>> : [];
+  const baseCustomItems = customItems.filter((item) => !String(item.name ?? '').startsWith('Extra Sheets ('));
+  const previousExtraAmount = customItems
+    .filter((item) => String(item.name ?? '').startsWith('Extra Sheets ('))
+    .reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
+  const nextCustomItems = extraSheets > 0
+    ? [...baseCustomItems, { id: `photo-selection-extra-${session.id}`, name: `Extra Sheets (${extraSheets} sheets)`, qty: extraSheets, rate: session.extraSheetRate, amount: extraAmount }]
+    : baseCustomItems;
+  const baseTotal = Number(booking.total_amount ?? 0) - previousExtraAmount;
+  const nextTotal = baseTotal + extraAmount;
+  await supabase.from('bookings').update({
+    total_amount: nextTotal,
+    deliverables_data: { ...deliverables, custom_items: nextCustomItems },
+  }).eq('id', booking.id);
+}
+
 export function PhotoSelection() {
   const { toast } = useToast();
   const [sessions, setSessions] = useState<ClientSelectionSession[]>([]);
@@ -108,7 +195,7 @@ export function PhotoSelection() {
       supabase.from('studio_lab_orders').select('*').order('created_at', { ascending: false }),
       supabase.from('partners').select('*').order('name'),
     ]);
-    const next = (sessionData ?? []) as ClientSelectionSession[];
+    const next = (sessionData ?? []).map((session) => withPhotoSessionCounts(session as ClientSelectionSession));
     setSessions(next);
     setBookings((bookingData ?? []) as Booking[]);
     setLabOrders((labData ?? []) as StudioLabOrder[]);
@@ -263,6 +350,7 @@ export function PhotoSelection() {
 function SessionDetail({
   session,
   partners,
+  labOrders,
   onUpdate,
   onDelete,
   onRefresh,
@@ -271,7 +359,7 @@ function SessionDetail({
   partners: Partner[];
   bookings: Booking[];
   labOrders: StudioLabOrder[];
-  onUpdate: (patch: Partial<ClientSelectionSession>) => void;
+  onUpdate: (patch: Partial<ClientSelectionSession>) => Promise<void>;
   onDelete: () => void;
   onRefresh: () => Promise<void>;
 }) {
@@ -285,11 +373,38 @@ function SessionDetail({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadFolder, setUploadFolder] = useState(session.folders[0] ?? 'Card 1');
 
+  useEffect(() => {
+    if (!isLabSession(session.clientType)) return;
+    const reference = (session as BillingSession).lab_order_id || session.labOrderNo || session.billId;
+    if (!reference) return;
+    let active = true;
+    const syncLabOrder = async () => {
+      const query = supabase.from('studio_lab_orders').select('*');
+      const { data } = await (reference.includes('-') && reference.length > 20
+        ? query.eq('id', reference).maybeSingle()
+        : query.eq('order_no', reference).maybeSingle());
+      if (!active || !data) return;
+      const values = syncedLabOrderValues(data as StudioLabOrder);
+      const patch: Partial<ClientSelectionSession> = {};
+      if (values.packageSheets !== null) patch.packageSheets = values.packageSheets;
+      if (values.extraSheetRate !== null) patch.extraSheetRate = values.extraSheetRate;
+      if (Object.keys(patch).length > 0 && (patch.packageSheets !== session.packageSheets || patch.extraSheetRate !== session.extraSheetRate)) onUpdate(patch);
+    };
+    void syncLabOrder();
+    return () => { active = false; };
+  }, [session.id, session.clientType, session.labOrderNo, session.billId, session.packageSheets, session.extraSheetRate, onUpdate, session]);
+
   const selectedCount = session.photos.filter((p) => p.selected).length;
-  const uploadedTotalSheets = session.proofSheets.length > 0 ? Math.max(...session.proofSheets.map((s) => s.sheetNumber)) : 0;
+  const uploadedTotalSheets = session.proofSheets.filter((s) => s.sheetNumber !== 0).length;
   const totalSheets = session.total_sheets && session.total_sheets > 0 ? session.total_sheets : uploadedTotalSheets;
   const extraSheets = Math.max(0, totalSheets - session.packageSheets);
-  const extraCost = session.extra_amount && session.extra_amount > 0 ? session.extra_amount : extraSheets * (session.extraSheetRate || 50);
+  const extraCost = session.extra_amount && session.extra_amount > 0 ? session.extra_amount : extraSheets * session.extraSheetRate;
+
+  const saveProofing = async (patch: Partial<ClientSelectionSession>) => {
+    await onUpdate(patch);
+    if (patch.total_sheets == null || patch.extra_sheets == null || patch.extra_amount == null) return;
+    await syncPhotoSelectionBilling(session as BillingSession, patch.extra_sheets, patch.extra_amount);
+  };
 
   const toggleLock = () => {
     onUpdate({ isLocked: !session.isLocked });
@@ -335,17 +450,13 @@ function SessionDetail({
 
   const handlePhotoUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const newPhotos: PhotoItem[] = [];
-    for (const file of Array.from(files)) {
-      const url = URL.createObjectURL(file);
-      newPhotos.push({
+    const newPhotos = await Promise.all(Array.from(files).map(async (file): Promise<PhotoItem> => ({
         id: newId(),
         folder: uploadFolder,
         fileName: file.name,
-        previewUrl: url,
+        previewUrl: await readFileAsDataUrl(file),
         selected: false,
-      });
-    }
+      })));
     await onUpdate({ photos: [...session.photos, ...newPhotos] });
     toast(`${newPhotos.length} photo${newPhotos.length > 1 ? 's' : ''} added to ${uploadFolder}`, 'success');
   };
@@ -535,7 +646,7 @@ function SessionDetail({
       </div>
 
       {showProofing && (
-        <ProofingModal session={session} onUpdate={onUpdate} onClose={() => setShowProofing(false)} />
+        <ProofingModal session={session} onUpdate={saveProofing} onClose={() => setShowProofing(false)} />
       )}
       {showWatermark && (
         <WatermarkModal settings={settings} onClose={() => setShowWatermark(false)} />
@@ -746,7 +857,7 @@ function CreateSessionModal({
                 {filtered.slice(0, 10).map((c) => (
                   <button key={c.id} onClick={() => selectClient(c)} className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-slate-50 dark:hover:bg-white/5 ${billId === c.id ? 'bg-amber-50 dark:bg-amber-500/10' : ''}`}>
                     <span className="min-w-0 truncate font-medium text-slate-700 dark:text-slate-300">
-                      {clientType === 'B2B' ? `${c.name} • Lab: ${'partnerName' in c ? c.partnerName : ''} • ${c.packageSheets} Sheets • #${c.id}` : `${c.name} • ${c.id}`}
+                      {clientType !== 'B2C' ? `${c.name} • Lab: ${'partnerName' in c ? c.partnerName : ''} • ${c.packageSheets} Sheets • #${c.id}` : `${c.name} • ${c.id}`}
                     </span>
                   </button>
                 ))}
@@ -826,9 +937,10 @@ function CreateSessionModal({
   );
 }
 
-function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectionSession; onUpdate: (patch: Partial<ClientSelectionSession>) => void; onClose: () => void }) {
+function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectionSession; onUpdate: (patch: Partial<ClientSelectionSession>) => Promise<void>; onClose: () => void }) {
   const { toast } = useToast();
-  const [sheets, setSheets] = useState<SheetProofItem[]>(session.proofSheets);
+  type UploadedSheet = SheetProofItem & { fileName?: string };
+  const [sheets, setSheets] = useState<UploadedSheet[]>(session.proofSheets);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const innerInputRef = useRef<HTMLInputElement>(null);
   const [sheetRangeStart, setSheetRangeStart] = useState(session.proofSheets.length > 0 ? String(Math.min(...session.proofSheets.map((s) => s.sheetNumber))) : '0');
@@ -837,31 +949,39 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
   const startPage = Number(sheetRangeStart);
   const endPage = Number(sheetRangeEnd);
   const rangeTotal = Number.isFinite(startPage) && Number.isFinite(endPage) && endPage >= startPage ? endPage - startPage : 0;
-  const uploadedTotal = sheets.length > 0 ? Math.max(...sheets.map((s) => s.sheetNumber)) - Math.min(...sheets.map((s) => s.sheetNumber)) + 1 : 0;
-  const totalSheets = rangeTotal || uploadedTotal;
+  const uploadedTotal = sheets.filter((sheet) => sheet.sheetNumber !== 0).length;
+  const totalSheets = uploadedTotal > 0 ? uploadedTotal : rangeTotal;
   const extraSheets = Math.max(0, totalSheets - session.packageSheets);
-  const extraCost = extraSheets * (session.extraSheetRate || 50);
+  const extraCost = extraSheets * session.extraSheetRate;
 
-  const handleCoverUpload = (files: FileList | null) => {
+  const handleCoverUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const file = files[0];
-    const url = URL.createObjectURL(file);
+    const previewUrl = await readFileAsDataUrl(file);
     setSheets((prev) => {
       const withoutCover = prev.filter((s) => s.sheetNumber !== 0);
-      return [{ sheetNumber: 0, previewUrl: url }, ...withoutCover];
+      return [{ sheetNumber: 0, previewUrl }, ...withoutCover];
     });
   };
 
-  const handleInnerUpload = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const newSheets: SheetProofItem[] = [];
-    const startNum = parseInt(sheetRangeStart) || 1;
-    Array.from(files).forEach((file, i) => {
-      newSheets.push({ sheetNumber: startNum + i, previewUrl: URL.createObjectURL(file) });
-    });
+  const handleInnerUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = event.currentTarget.files ? Array.from(event.currentTarget.files) : [];
+    if (!files || files.length === 0) { event.currentTarget.value = ''; return; }
+    event.currentTarget.value = '';
+    const dataUrls = await Promise.all(files.map(async (file) => ({ name: file.name, previewUrl: await readFileAsDataUrl(file) })));
     setSheets((prev) => {
-      const withoutInner = prev.filter((s) => s.sheetNumber === 0);
-      return [...withoutInner, ...newSheets].sort((a, b) => a.sheetNumber - b.sheetNumber);
+      const existingNames = new Set(prev.map((sheet) => sheet.fileName).filter(Boolean));
+      const freshFiles = dataUrls.filter((file) => !existingNames.has(file.name));
+      const firstSheetNumber = Math.max(0, ...prev.map((sheet) => sheet.sheetNumber)) + 1;
+      const newSheets = freshFiles.map((file, index) => ({
+        sheetNumber: firstSheetNumber + index,
+        fileName: file.name,
+        previewUrl: file.previewUrl,
+      }));
+      const updatedFiles = [...prev, ...newSheets];
+      updatedFiles.sort((a, b) => (a.fileName || `Sheet ${a.sheetNumber}`).localeCompare(b.fileName || `Sheet ${b.sheetNumber}`, undefined, { numeric: true, sensitivity: 'base' }));
+      setSheetRangeEnd(String((parseInt(sheetRangeStart) || 0) + updatedFiles.filter((sheet) => sheet.sheetNumber !== 0).length));
+      return updatedFiles;
     });
   };
 
@@ -870,11 +990,16 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
   };
 
   const removeSheet = (sheetNumber: number) => {
-    setSheets((prev) => prev.filter((s) => s.sheetNumber !== sheetNumber));
+    setSheets((prev) => {
+      const updated = prev.filter((sheet) => sheet.sheetNumber !== sheetNumber);
+      const innerCount = updated.filter((sheet) => sheet.sheetNumber !== 0).length;
+      setSheetRangeEnd(String((parseInt(sheetRangeStart) || 0) + innerCount));
+      return updated;
+    });
   };
 
-  const save = () => {
-    onUpdate({ proofSheets: sheets, total_sheets: totalSheets, extra_sheets: extraSheets, extra_amount: extraCost });
+  const save = async () => {
+    await onUpdate({ proofSheets: sheets, total_sheets: totalSheets, extra_sheets: extraSheets, extra_amount: extraCost });
     toast('Proofing sheets saved', 'success');
     onClose();
   };
@@ -923,7 +1048,7 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
               <span className="text-xs text-slate-400">to</span>
               <input type="number" value={sheetRangeEnd} onChange={(e) => setSheetRangeEnd(e.target.value)} className={`${inputClass} w-16`} placeholder="50" />
             </div>
-            <input ref={innerInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleInnerUpload(e.target.files)} />
+            <input ref={innerInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleInnerUpload} />
             <button onClick={() => innerInputRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 py-3 text-xs text-slate-500 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5">
               <Upload className="h-4 w-4" /> Upload Inner Spreads
             </button>
@@ -932,7 +1057,7 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
 
         {sheets.length > 0 && (
           <div className="space-y-2">
-            {sheets.sort((a, b) => a.sheetNumber - b.sheetNumber).map((sheet) => (
+            {[...sheets].sort((a, b) => (a.fileName || `Sheet ${a.sheetNumber}`).localeCompare(b.fileName || `Sheet ${b.sheetNumber}`, undefined, { numeric: true, sensitivity: 'base' })).map((sheet) => (
               <div key={sheet.sheetNumber} className="flex gap-3 rounded-lg border border-slate-200 p-3 dark:border-white/10">
                 <img src={sheet.previewUrl} alt={`Sheet ${sheet.sheetNumber}`} className="h-16 w-16 rounded-lg object-cover" />
                 <div className="flex-1">

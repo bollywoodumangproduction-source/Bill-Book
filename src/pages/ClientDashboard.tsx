@@ -27,9 +27,11 @@ import {
   ReceiptText,
   QrCode,
   HelpCircle,
+  Copy,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { Booking, PromoAd, StudioLabOrder, LabClientRow, TeaserProject, InvitationProject, MusicProject, ClientSelectionSession, BookingPaymentInstallment } from '@/lib/types';
+import { withPhotoSessionCounts } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { formatINR, formatDate, formatPhone } from '@/lib/format';
@@ -40,6 +42,15 @@ import { Field } from '@/components/ui/Field';
 import { PinInput } from '@/components/ui/PinInput';
 import { Badge } from '@/components/ui/Badge';
 import { NotificationBell } from '@/components/NotificationBell';
+
+function innerSheetCount(session: ClientSelectionSession): number {
+  return (session.proofSheets ?? []).filter((sheet) => Number(sheet.sheetNumber) > 0).length;
+}
+
+function selectionExtra(session: ClientSelectionSession): { sheets: number; amount: number } {
+  const sheets = Math.max(0, innerSheetCount(session) - Number(session.packageSheets ?? 0));
+  return { sheets, amount: sheets * Number(session.extraSheetRate ?? 0) };
+}
 import { ProjectTimeline } from '@/components/ProjectTimeline';
 import { getVisiblePromoAds } from '@/lib/promo';
 
@@ -116,7 +127,12 @@ export function ClientDashboard() {
       setTeaserProject((teaserRes.data as TeaserProject | null) ?? null);
       setInvitationProject((inviteRes.data as InvitationProject | null) ?? null);
       setMusicProject((musicRes.data as MusicProject | null) ?? null);
-      setPhotoSession((photoRes.data as ClientSelectionSession | null) ?? null);
+      let photoData = photoRes.data;
+      if (!photoData && b.client_mobile) {
+        const { data: phonePhoto } = await supabase.from('photo_selection_sessions').select('*').eq('phone', b.client_mobile).maybeSingle();
+        photoData = phonePhoto;
+      }
+      setPhotoSession(photoData ? withPhotoSessionCounts(photoData as ClientSelectionSession) : null);
     } else {
       clearClientSession();
       navigate('/client/login');
@@ -125,6 +141,25 @@ export function ClientDashboard() {
   }, [navigate]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!booking?.booking_no || labOrder) return;
+    const channel = supabase
+      .channel(`client-photo-session-${booking.booking_no}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'photo_selection_sessions', filter: `bill_id=eq.${booking.booking_no}` }, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          setPhotoSession(null);
+          return;
+        }
+        const next = payload.new as ClientSelectionSession;
+        setPhotoSession(withPhotoSessionCounts(next));
+        void supabase.from('bookings').select('*').eq('id', booking.id).maybeSingle().then(({ data }) => {
+          if (data) setBooking(data as Booking);
+        });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [booking?.booking_no, labOrder]);
 
   const handleLogout = () => {
     clearClientSession();
@@ -401,12 +436,24 @@ export function ClientDashboard() {
               <CreativePortalCard
                 icon={Images}
                 title="Photo Selection"
-                description={photoSession ? `${photoSession.photos.filter(p => p.selected).length} of ${photoSession.photos.length} selected${photoSession.isLocked ? ' · Submitted' : ''}` : 'Select your favorite photos'}
+                description={photoSession ? `${photoSession.isLocked ? 'Completed' : 'Pending'} · ${photoSession.selectedCount ?? 0} of ${photoSession.totalPhotos ?? 0} selected` : 'Select your favorite photos'}
                 href={photoSession ? `/select/${photoSession.id}` : null}
                 badgeColor={photoSession?.isLocked ? 'emerald' : photoSession ? 'amber' : undefined}
-                badgeText={photoSession?.isLocked ? 'Locked' : photoSession ? 'Active' : undefined}
+                badgeText={photoSession?.isLocked ? 'Completed' : photoSession ? 'Pending' : undefined}
               />
             </div>
+            {photoSession && (() => {
+              const extra = selectionExtra(photoSession);
+              return (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-500/20 dark:bg-amber-500/10">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-slate-700 dark:text-slate-200">
+                    <span>Access Code: <strong className="font-mono text-amber-700 dark:text-amber-300">{photoSession.pinCode}</strong></span>
+                    <span>{innerSheetCount(photoSession)} inner sheets · Package {photoSession.packageSheets}</span>
+                  </div>
+                  {extra.sheets > 0 && <p className="mt-1 font-medium text-amber-700 dark:text-amber-300">Extra Sheets ({extra.sheets} sheets @ {formatINR(photoSession.extraSheetRate)}): {formatINR(extra.amount)}</p>}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -545,10 +592,26 @@ function LabOrderDashboard({
     const loadPhotoSession = async () => {
       if (!order.order_no) return;
       const { data } = await supabase.from('photo_selection_sessions').select('*').eq('bill_id', order.order_no).maybeSingle();
-      if (!cancelled) setLabPhotoSession((data as ClientSelectionSession | null) ?? null);
+      if (!cancelled) setLabPhotoSession(data ? withPhotoSessionCounts(data as ClientSelectionSession) : null);
     };
     void loadPhotoSession();
     return () => { cancelled = true; };
+  }, [order.order_no]);
+
+  useEffect(() => {
+    if (!order.order_no) return;
+    const channel = supabase
+      .channel(`lab-photo-session-${order.order_no}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'photo_selection_sessions', filter: `bill_id=eq.${order.order_no}` }, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          setLabPhotoSession(null);
+          return;
+        }
+        const next = payload.new as ClientSelectionSession;
+        setLabPhotoSession(withPhotoSessionCounts(next));
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
   }, [order.order_no]);
 
   return (
