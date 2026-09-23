@@ -6,7 +6,7 @@ import { useToast } from '@/context/ToastContext';
 import { supabase } from '@/lib/supabase';
 import type { Partner } from '@/lib/types';
 import { inputClass } from '@/components/ui/Field';
-import { setPartnerSession } from '@/pages/PartnerDashboard';
+import { cleanPartnerPhone, setPartnerSession } from '@/pages/PartnerDashboard';
 
 export function PartnerLogin() {
   const { settings } = useSettings();
@@ -24,22 +24,34 @@ export function PartnerLogin() {
 
     setLoading(true);
     setError('');
-    const { data: partnerData } = await supabase.from('partners').select('*').eq('mobile', mobile.trim()).maybeSingle();
+    const registeredPartners = (settings as any)?.partners || [];
+    const clean = (num: string) => (num || '').replace(/\D/g, '').slice(-10);
+    const enteredPhoneClean = clean(mobile);
+    let matchedPartner = registeredPartners.find((candidate: any) =>
+      clean(candidate.phone || candidate.mobile) === enteredPhoneClean,
+    ) as Partner | undefined;
 
-    if (!partnerData) {
+    if (!matchedPartner) {
+      const { data: partnerData } = await supabase.from('partners').select('*');
+      matchedPartner = ((partnerData ?? []) as Partner[]).find((candidate) => enteredPhoneClean === cleanPartnerPhone(candidate.mobile));
+    }
+
+    if (!matchedPartner) {
       setError('No staff profile found for this mobile number.');
       setLoading(false);
       return;
     }
 
-    const partner = partnerData as Partner;
-    if (!partner.is_login_allowed) {
+    const partner = matchedPartner;
+    if (partner.status && partner.status !== 'Active') {
       setError('Login access is currently disabled for this partner. Please contact studio admin.');
       setLoading(false);
       return;
     }
 
     setPartnerSession(partner);
+    localStorage.setItem('partnerAuth', JSON.stringify(matchedPartner));
+    localStorage.setItem('partnerPhone', (matchedPartner as Partner & { phone?: string }).phone || matchedPartner.mobile);
     setLoading(false);
     navigate('/partner/dashboard');
   };
@@ -60,7 +72,7 @@ export function PartnerLogin() {
             <p className="text-sm text-slate-400">Sign in to view crew assignments, lab orders, and partner operations</p>
           </div>
 
-          <div className="space-y-4">
+          <form onSubmit={(event) => { event.preventDefault(); event.stopPropagation(); void signIn(); }} className="space-y-4">
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-300">Registered Mobile Number</label>
               <input
@@ -73,14 +85,14 @@ export function PartnerLogin() {
             </div>
             {error && <p className="text-xs text-rose-400">{error}</p>}
             <button
-              onClick={() => void signIn()}
+              type="submit"
               disabled={loading || !mobile.trim()}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-cyan-500 to-sky-500 px-4 py-3 text-sm font-medium text-white transition-colors hover:from-cyan-400 hover:to-sky-400 disabled:opacity-50"
             >
               {loading ? <Sparkles className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
-          </div>
+          </form>
 
           <div className="mt-5 flex items-center justify-center gap-1.5 text-xs text-slate-500">
             <Lock className="h-3 w-3" />

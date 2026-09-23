@@ -30,7 +30,7 @@ import { inputClass } from '@/components/ui/Field';
 import { PhoneInput } from '@/components/ui/PhoneInput';
 import { PinInput } from '@/components/ui/PinInput';
 import { Modal } from '@/components/ui/Modal';
-import { PartnerDashboardContent } from '@/pages/PartnerDashboard';
+import { cleanPartnerPhone, PartnerDashboardContent, setPartnerSession } from '@/pages/PartnerDashboard';
 
 type PortalType = 'client' | 'partner';
 
@@ -162,18 +162,20 @@ export function PortalModal({ open, onClose, portalType, adminPreview = false }:
       return;
     }
 
-    const { data } = await supabase.from('partners').select('*').eq('mobile', mobile.trim()).maybeSingle();
-    if (!data) {
+    const { data: partnerData } = await supabase.from('partners').select('*');
+    const matchedPartner = ((partnerData ?? []) as Partner[]).find((candidate) => cleanPartnerPhone(mobile) === cleanPartnerPhone(candidate.mobile));
+    if (!matchedPartner) {
       setError('No staff profile found for this mobile number');
       setLoading(false);
       return;
     }
-    const p = data as Partner;
-    if (!p.is_login_allowed) {
+    const p = matchedPartner;
+    if (p.status && p.status !== 'Active') {
       setError('Login access is currently disabled. Please contact studio admin.');
       setLoading(false);
       return;
     }
+    setPartnerSession(p);
     setPartner(p);
     setLoading(false);
   };
@@ -360,17 +362,17 @@ function LoginView({ portalType, settings, mobile, loading, error, onMobileChang
         </p>
       </div>
 
-      <div className="space-y-4">
+      <form onSubmit={(event) => { event.preventDefault(); onLogin(); }} className="space-y-4">
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">{isClient ? 'Mobile Number / Booking ID' : 'Mobile Number'}</label>
           <PhoneInput value={mobile} onChange={onMobileChange} />
         </div>
         {error && <p className="text-xs text-rose-500">{error}</p>}
-        <button onClick={onLogin} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-3 text-sm font-semibold text-slate-900 transition-colors hover:from-amber-400 hover:to-orange-400 disabled:opacity-50">
+        <button type="submit" disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-3 text-sm font-semibold text-slate-900 transition-colors hover:from-amber-400 hover:to-orange-400 disabled:opacity-50">
           {loading ? <Sparkles className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
           {loading ? 'Signing in...' : 'Sign In'}
         </button>
-      </div>
+      </form>
 
       <div className="flex items-center justify-center gap-1.5 text-xs text-slate-400">
         <Lock className="h-3 w-3" /><span>Access is available for verified records only</span>

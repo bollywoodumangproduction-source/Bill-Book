@@ -40,16 +40,15 @@ export function Modal({ open, onClose, title, children, size = 'md', dismissible
   }[size];
 
   return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/75 p-4 no-print">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm no-print"
+      onClick={(e) => { if (e.target === e.currentTarget && dismissibleRef.current) onCloseRef.current(); }}
+    >
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm dark:bg-black/60"
-        onClick={(e) => { if (dismissibleRef.current) onCloseRef.current(); else e.stopPropagation(); }}
-      />
-      <div
-        className={`relative w-full ${sizeClass} ${size === 'xl' ? 'min-h-[500px] max-h-[90vh] md:min-w-[760px]' : 'max-h-[90vh]'} overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl animate-[slideUp_0.2s_ease-out] dark:border-white/10 dark:bg-slate-900`}
+        className={`relative w-full ${sizeClass} ${size === 'xl' ? 'min-h-[500px] max-h-[90vh] md:min-w-[760px]' : 'max-h-[90vh]'} overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl dark:border-slate-800 dark:bg-slate-900`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur px-5 py-4 dark:border-white/10 dark:bg-slate-900/95">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-900 px-5 py-4">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h2>
           <button
             onClick={onClose}

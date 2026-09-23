@@ -5,7 +5,6 @@ import {
   Clock,
   MapPin,
   Sparkles,
-  User,
   LogOut,
   KeyRound,
   Eye,
@@ -23,8 +22,12 @@ import {
   Zap,
   CalendarClock,
   Copy,
+  ChevronDown,
+  Download,
+  ExternalLink,
+  Search,
 } from 'lucide-react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import type { EventFunction, Partner, PromoAd, StudioLabOrder, ClientSelectionSession } from '@/lib/types';
 import { withPhotoSessionCounts } from '@/lib/types';
@@ -35,9 +38,14 @@ import { Field } from '@/components/ui/Field';
 import { useToast } from '@/context/ToastContext';
 import { copyToClipboard } from '@/lib/clipboard';
 import { getVisiblePromoAds } from '@/lib/promo';
+import { useSettings } from '@/context/SettingsContext';
 
 const PARTNER_SESSION_KEY = 'buf_partner_session';
 const LEGACY_PARTNER_SESSION_KEY = 'bup_partner_session';
+
+export function cleanPartnerPhone(num: string): string {
+  return (num || '').replace(/\D/g, '').slice(-10);
+}
 
 function sessionInnerSheetCount(session: ClientSelectionSession): number {
   return (session.proofSheets ?? []).filter((sheet) => Number(sheet.sheetNumber) > 0).length;
@@ -120,20 +128,46 @@ async function fetchPartnerData(p: Partner) {
 }
 
 export function PartnerDashboard() {
+  const { settings } = useSettings();
   const navigate = useNavigate();
   const [mobile, setMobile] = useState('');
   const [partner, setPartner] = useState<Partner | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
 
   const loadFromSession = useCallback(async () => {
-    const session = getPartnerSession();
-    if (!session?.id) return;
-    const { data: partnerData } = await supabase.from('partners').select('*').eq('id', session.id).maybeSingle();
-    if (!partnerData) { clearPartnerSession(); return; }
-    const p = partnerData as Partner;
-    setPartner(p);
-  }, []);
+    const storedAuth = localStorage.getItem('partnerAuth');
+    const storedPhone = localStorage.getItem('partnerPhone');
+    let localPartner: Partner | null = null;
+
+    if (storedAuth) {
+      try {
+        const parsed = JSON.parse(storedAuth);
+        if (parsed && typeof parsed === 'object') localPartner = parsed as Partner;
+      } catch {
+        localStorage.removeItem('partnerAuth');
+      }
+    }
+
+    const registeredPartners = (settings as any)?.partners || [];
+    if (!localPartner && storedPhone) {
+      const phone = cleanPartnerPhone(storedPhone);
+      localPartner = (registeredPartners.find((candidate: any) =>
+        cleanPartnerPhone(candidate.phone || candidate.mobile) === phone,
+      ) as Partner | undefined) ?? null;
+    }
+
+    if (!localPartner) {
+      localPartner = getPartnerSession();
+    }
+
+    if (localPartner) {
+      setPartner(localPartner);
+      localStorage.setItem('partnerAuth', JSON.stringify(localPartner));
+      localStorage.setItem('partnerPhone', localPartner.mobile || '');
+    }
+
+    setLoading(false);
+  }, [settings]);
 
   useEffect(() => { loadFromSession(); }, [loadFromSession]);
 
@@ -141,13 +175,14 @@ export function PartnerDashboard() {
     if (!mobile.trim()) { setError('Enter your registered mobile number'); return; }
     setLoading(true);
     setError('');
-    const { data: partnerData } = await supabase.from('partners').select('*').eq('mobile', mobile.trim()).maybeSingle();
-    if (!partnerData) {
+    const { data: partnerData } = await supabase.from('partners').select('*');
+    const matchedPartner = ((partnerData ?? []) as Partner[]).find((candidate) => cleanPartnerPhone(mobile) === cleanPartnerPhone(candidate.mobile));
+    if (!matchedPartner) {
       setError('No staff profile found for this mobile number.');
       setLoading(false);
       return;
     }
-    const p = partnerData as Partner;
+    const p = matchedPartner;
     setPartnerSession(p);
     setPartner(p);
     setLoading(false);
@@ -159,8 +194,19 @@ export function PartnerDashboard() {
     navigate('/partner/dashboard', { replace: true });
   };
 
+  if (loading) {
+    return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-sm text-slate-400">Loading partner portal...</div>;
+  }
+
   if (!partner) {
-    return <Navigate to="/partner/login" replace />;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-center text-slate-300">
+        <div>
+          <p className="mb-3">No partner session found.</p>
+          <Link to="/partner/login" className="text-cyan-400 hover:text-cyan-300">Return to partner login</Link>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -184,6 +230,7 @@ export function PartnerDashboardContent({
   adminPreview?: boolean;
 }) {
   const { toast } = useToast();
+  const { settings } = useSettings();
   const [bookings, setBookings] = useState<CrewBooking[]>([]);
   const [labOrders, setLabOrders] = useState<StudioLabOrder[]>([]);
   const [balance, setBalance] = useState({ credit: 0, debit: 0, balance: 0 });
@@ -194,6 +241,12 @@ export function PartnerDashboardContent({
   const [promoAds, setPromoAds] = useState<PromoAd[]>([]);
   const [photoSessionRevision, setPhotoSessionRevision] = useState(0);
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'orders' | 'ledger' | 'duties' | 'offers'>('orders');
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderFilter, setOrderFilter] = useState('All');
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+  const [revealedAlbumPins, setRevealedAlbumPins] = useState<Set<string>>(new Set());
+  const [copiedAlbumId, setCopiedAlbumId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -329,104 +382,101 @@ export function PartnerDashboardContent({
     );
   }
 
-  const heroBrand = partner.studio_name || partner.name || 'Partner';
   const dashboardPromos = getVisiblePromoAds(promoAds, 'b2b_dashboard', 'partners', partner.id).slice(0, 3);
+  const settingsData = settings as (typeof settings & { studioLogo?: string; logo?: string; studioName?: string }) | null;
+  const partnerPhone = (partner as Partner & { phone?: string }).phone || partner.mobile;
+  const filteredLabOrders = [...labOrders]
+    .filter((order) => {
+      const query = orderSearch.trim().toLowerCase();
+      const matchesSearch = !query || [order.order_no, order.project_name, order.partner_name, ...(order.clients ?? []).map((client) => client.client_name)]
+        .some((value) => String(value || '').toLowerCase().includes(query));
+      const status = order.order_status || 'Processing';
+      const matchesFilter = orderFilter === 'All'
+        || (orderFilter === 'Processing' && status !== 'Ready' && status !== 'Printed/Ready' && status !== 'Delivered')
+        || (orderFilter === 'Ready' && (status === 'Ready' || status === 'Printed/Ready'))
+        || status === orderFilter;
+      return matchesSearch && matchesFilter;
+    })
+    .sort((a, b) => {
+      const aDelivered = a.order_status === 'Delivered';
+      const bDelivered = b.order_status === 'Delivered';
+      if (aDelivered !== bDelivered) return aDelivered ? 1 : -1;
+      if (a.is_emergency !== b.is_emergency) return a.is_emergency ? -1 : 1;
+      const aDeadline = a.date_pending ? null : [a.album_required_date, a.video_delivery_date].filter(Boolean).sort()[0] ?? null;
+      const bDeadline = b.date_pending ? null : [b.album_required_date, b.video_delivery_date].filter(Boolean).sort()[0] ?? null;
+      if (aDeadline && bDeadline) return aDeadline.localeCompare(bDeadline);
+      if (aDeadline && !bDeadline) return -1;
+      if (!aDeadline && bDeadline) return 1;
+      return 0;
+    });
 
   return (
-    <div className={adminPreview ? 'min-h-screen bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.18),_transparent_24%),linear-gradient(160deg,#020617_0%,#0f172a_38%,#020617_100%)] px-4 py-6 text-white' : 'min-h-screen bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.18),_transparent_24%),linear-gradient(160deg,#020617_0%,#0f172a_38%,#020617_100%)] px-4 py-6 text-white'}>
+    <div className="min-h-screen w-full bg-slate-950 px-4 pb-6 pt-20 text-white">
       <div className="mx-auto max-w-5xl space-y-5">
-        <header className="relative overflow-hidden rounded-[28px] border border-cyan-500/20 bg-slate-900/70 shadow-[0_20px_60px_rgba(15,23,42,0.7)] backdrop-blur-xl">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(34,211,238,0.2),_transparent_30%),linear-gradient(120deg,rgba(15,23,42,0.8),rgba(15,23,42,0.9))]" />
-          <div className="relative flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 to-sky-600 text-lg font-bold text-white shadow-lg shadow-cyan-500/30">
-                {heroBrand.slice(0, 2).toUpperCase()}
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.22em] text-cyan-300/80">{adminPreview ? 'Admin Preview' : 'Crew Portal'}</p>
-                <h1 className="text-xl font-bold text-white sm:text-2xl">Welcome, {partner.name}</h1>
-              </div>
+        <header className="fixed left-0 right-0 top-0 z-50 flex h-14 w-full items-center justify-between gap-4 border-b border-slate-800/80 bg-slate-950/95 px-4 backdrop-blur-md lg:px-8">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <img
+              src={settingsData?.studioLogo || settingsData?.logo || settings?.production_logo_url || settings?.films_logo_url || '/logo.png'}
+              alt="Studio logo"
+              className="h-11 w-11 rounded-lg border border-slate-700/70 bg-slate-900 p-1 object-contain"
+            />
+            <div className="flex min-w-0 flex-col">
+              <span className="mb-0.5 text-[10px] font-bold uppercase leading-none tracking-widest text-cyan-400">Partner Portal</span>
+              <span className="whitespace-nowrap text-sm font-extrabold uppercase leading-tight tracking-wide text-white">Bollywood Umang</span>
+              <span className="mt-0.5 text-[11px] font-medium uppercase leading-none tracking-wider text-slate-300">Production</span>
             </div>
+          </div>
+
+          <div className="flex flex-col items-center justify-center text-center leading-none">
+            <span className="block whitespace-nowrap text-sm font-extrabold uppercase tracking-wide text-amber-400 text-center md:text-base">{partner.name || 'SHARMA STUDIO'}</span>
+            <span className="mt-1 block whitespace-nowrap font-mono text-[11px] font-medium tracking-wider text-emerald-400 text-center">{partnerPhone ? `+91 ${partnerPhone.replace(/\D/g, '').slice(-10)}` : ''}</span>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <button onClick={() => setShowPasswordModal(true)} className="flex items-center gap-1.5 rounded border border-slate-700/50 px-2.5 py-1 text-xs font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white">
+              <KeyRound className="h-3.5 w-3.5" /> <span className="hidden md:inline">Change Password</span>
+            </button>
             {onLogout && (
-              <button onClick={onLogout} className="flex items-center gap-1.5 rounded-lg border border-cyan-400/20 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-200 transition-colors hover:bg-cyan-500/20">
-                <LogOut className="h-3.5 w-3.5" /> Sign out
+              <button onClick={onLogout} className="flex items-center gap-1.5 rounded border border-red-500/20 px-2.5 py-1 text-xs font-medium text-red-400 transition hover:bg-red-500/10 hover:text-red-300">
+                <LogOut className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Sign Out</span>
               </button>
             )}
           </div>
         </header>
 
-        <div className="rounded-xl border border-white/10 bg-slate-900/80 p-4 shadow-xl shadow-slate-950/40">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.2em] text-cyan-300/80">Partner profile</p>
-              <p className="mt-1 text-xs text-slate-400">+91 {formatPhone(partner.mobile)} · {partner.category}</p>
-            </div>
-            <button
-              onClick={() => setShowPasswordModal(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-400 transition-colors hover:bg-amber-500/20"
-            >
-              <KeyRound className="h-3.5 w-3.5" /> Change Password
-            </button>
-          </div>
-        </div>
-
-        {dashboardPromos.length > 0 && (
-          <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white"><Sparkles className="h-4 w-4 text-cyan-400" /> Partner Offers</h2>
-            <div className="space-y-3">
-              {dashboardPromos.map((ad) => (
-                <div key={ad.id} className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
-                  <p className="text-sm font-semibold text-white">{ad.title}</p>
-                  <p className="mt-1 text-xs text-slate-300">{ad.description}</p>
-                  {(ad.action_link || ad.video_url) && (
-                    <a href={ad.video_url || ad.action_link} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-cyan-300">
-                      {ad.cta_text || 'Learn more'} <ExternalLink className="h-3 w-3" />
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Ledger Balance */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-center">
+        <div className="my-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3.5 text-center">
             <TrendingUp className="mx-auto mb-1 h-4 w-4 text-emerald-400" />
             <p className="text-xs text-slate-400">Credit</p>
             <p className="mt-0.5 text-sm font-bold text-emerald-400">{formatINR(balance.credit)}</p>
           </div>
-          <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-4 text-center">
+          <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-3.5 text-center">
             <TrendingDown className="mx-auto mb-1 h-4 w-4 text-rose-400" />
             <p className="text-xs text-slate-400">Debit</p>
             <p className="mt-0.5 text-sm font-bold text-rose-400">{formatINR(balance.debit)}</p>
           </div>
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-center">
+          <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 text-center">
             <Wallet className="mx-auto mb-1 h-4 w-4 text-slate-400" />
             <p className="text-xs text-slate-400">Balance</p>
             <p className={`mt-0.5 text-sm font-bold ${balance.balance > 0 ? 'text-emerald-400' : balance.balance < 0 ? 'text-rose-400' : 'text-slate-400'}`}>{formatINR(balance.balance)}</p>
           </div>
         </div>
 
-        <div className="rounded-xl border border-white/10 bg-slate-900 p-5">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold"><User className="h-4 w-4 text-amber-400" /> Partner Profile</h2>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-              <p className="text-xs text-slate-400">Partner</p>
-              <p className="mt-1 font-medium text-white">{partner.name}</p>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-              <p className="text-xs text-slate-400">Phone</p>
-              <p className="mt-1 font-medium text-white">{formatPhone(partner.mobile)}</p>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-              <p className="text-xs text-slate-400">Studio / Category</p>
-              <p className="mt-1 font-medium text-white">{partner.studio_name || partner.category || 'Independent Partner'}</p>
-            </div>
-          </div>
+        <div className="flex gap-1 overflow-x-auto border-b border-white/10 pb-1">
+          {([
+            ['orders', '📦 Lab Orders'],
+            ['ledger', '📑 Ledger & History'],
+            ['duties', '🎬 Assigned Duties'],
+            ['offers', '🎉 Studio Offers'],
+          ] as const).map(([tab, label]) => (
+            <button key={tab} onClick={() => setActiveTab(tab)} className={`whitespace-nowrap rounded-t-lg px-3 py-2 text-xs font-semibold transition ${activeTab === tab ? 'border-b-2 border-cyan-400 bg-cyan-500/10 text-cyan-300' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+              {label}
+            </button>
+          ))}
         </div>
 
-        {musicProjects.length > 0 && (
+        {activeTab === 'offers' && musicProjects.length > 0 && (
           <div className="rounded-xl border border-white/10 bg-slate-900 p-5">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Music2 className="h-4 w-4 text-amber-400" /> Music Selection</h2>
             <div className="space-y-3">
@@ -454,24 +504,26 @@ export function PartnerDashboardContent({
           </div>
         )}
 
+        {activeTab === 'offers' && dashboardPromos.length > 0 && (
+          <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white"><Sparkles className="h-4 w-4 text-cyan-400" /> Studio Offers</h2>
+            <div className="space-y-3">{dashboardPromos.map((ad) => <div key={ad.id} className="rounded-lg border border-white/10 bg-slate-950/40 p-3"><p className="text-sm font-semibold text-white">{ad.title}</p><p className="mt-1 text-xs text-slate-300">{ad.description}</p>{(ad.action_link || ad.video_url) && <a href={ad.video_url || ad.action_link} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-cyan-300">{ad.cta_text || 'Learn more'} <ExternalLink className="h-3 w-3" /></a>}</div>)}</div>
+          </div>
+        )}
+
         {/* Lab Orders */}
-        {labOrders.length > 0 ? (
+        {activeTab === 'orders' && <>
+        <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-slate-900 p-3 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1"><Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" /><input value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder="Search project, order ID (e.g. BUP-001), client..." className="w-full rounded-md border border-white/10 bg-slate-950 px-8 py-2 text-xs text-white outline-none placeholder:text-slate-500 focus:border-cyan-500/50" /></div>
+          <div className="flex gap-1 overflow-x-auto">{['All', 'Processing', 'Ready', 'Delivered'].map((filter) => <button key={filter} onClick={() => setOrderFilter(filter)} className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium ${orderFilter === filter ? 'bg-cyan-500 text-slate-950' : 'bg-white/5 text-slate-400 hover:text-white'}`}>{filter}</button>)}</div>
+        </div>
+        {filteredLabOrders.length > 0 ? (
           <div className="rounded-xl border border-white/10 bg-slate-900 p-5">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Package className="h-4 w-4 text-amber-400" /> Lab Orders</h2>
             <div className="space-y-3">
-              {[...labOrders].sort((a, b) => {
-                const aDelivered = a.order_status === 'Delivered';
-                const bDelivered = b.order_status === 'Delivered';
-                if (aDelivered !== bDelivered) return aDelivered ? 1 : -1;
-                if (a.is_emergency !== b.is_emergency) return a.is_emergency ? -1 : 1;
-                const aDeadline = a.date_pending ? null : [a.album_required_date, a.video_delivery_date].filter(Boolean).sort()[0] ?? null;
-                const bDeadline = b.date_pending ? null : [b.album_required_date, b.video_delivery_date].filter(Boolean).sort()[0] ?? null;
-                if (aDeadline && bDeadline) return aDeadline.localeCompare(bDeadline);
-                if (aDeadline && !bDeadline) return -1;
-                if (!aDeadline && bDeadline) return 1;
-                return 0;
-              }).map((order) => {
+              {filteredLabOrders.map((order) => {
                 const session = orderSessions[order.id];
+                const isExpanded = expandedOrders.has(order.id);
                 const hasPaymentInfo = Boolean(order.payment_mode || order.payment_date || order.payment_note || Number(order.advance_paid ?? 0) || Number(order.net_final_due ?? 0));
                 const financials = [
                   { label: 'Current Bill', value: formatINR(Number(order.current_order_total ?? 0)) },
@@ -482,7 +534,7 @@ export function PartnerDashboardContent({
                 ];
                 return (
                   <div key={order.id} className="rounded-lg border border-white/10 bg-white/5 p-4">
-                    <div className="flex items-center justify-between gap-3">
+                    <button onClick={() => setExpandedOrders((current) => { const next = new Set(current); if (next.has(order.id)) next.delete(order.id); else next.add(order.id); return next; })} className="flex w-full items-center justify-between gap-3 text-left">
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
                           {order.is_emergency && <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white"><Zap className="h-2.5 w-2.5" />EMERGENCY</span>}
@@ -490,8 +542,14 @@ export function PartnerDashboardContent({
                         </div>
                         <p className="mt-0.5 text-xs text-slate-400">{order.order_no} · {order.studio_name || partner.studio_name || 'Studio'} · {order.work_type}</p>
                       </div>
-                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${order.order_status === 'Delivered' ? 'bg-emerald-500/10 text-emerald-400' : order.order_status === 'Ready' || order.order_status === 'Printed/Ready' ? 'bg-sky-500/10 text-sky-400' : 'bg-amber-500/10 text-amber-400'}`}>{order.order_status}</span>
+                      <span className="flex shrink-0 items-center gap-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${order.order_status === 'Delivered' ? 'bg-emerald-500/10 text-emerald-400' : order.order_status === 'Ready' || order.order_status === 'Printed/Ready' ? 'bg-sky-500/10 text-sky-400' : 'bg-amber-500/10 text-amber-400'}`}>{order.order_status}</span><ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} /></span>
+                    </button>
+
+                    <div className="mt-2 grid grid-cols-4 gap-1.5 text-center text-[10px]">
+                      {[['Total', order.master_total], ['Advance', order.advance_paid], ['Back Due', order.previous_back_due], ['Net Due', order.net_final_due]].map(([label, value]) => <div key={String(label)} className="rounded bg-slate-950/50 p-1.5"><p className="text-slate-500">{label}</p><p className="font-medium text-slate-200">{formatINR(Number(value ?? 0))}</p></div>)}
                     </div>
+
+                    {isExpanded && <>
 
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {order.is_emergency && <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white"><Zap className="h-2.5 w-2.5" />EMERGENCY</span>}
@@ -592,10 +650,25 @@ export function PartnerDashboardContent({
                           <button onClick={() => copySessionLink(session)} className="flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-200"><Send className="h-3 w-3" /> Copy Link</button>
                           {!adminPreview && <button onClick={() => copySessionPin(session)} className="flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-200"><KeyRound className="h-3 w-3" /> Copy PIN</button>}
                         </div>
+                        <div className="rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 text-xs font-semibold text-slate-200"><span>📖 Digital Album Suite</span><span className={`rounded-full px-2 py-0.5 text-[10px] ${session.isLocked ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>{session.isLocked ? 'Ready' : 'In Design'}</span></div>
+                            {session.shareableUrl && <a href={session.shareableUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded bg-cyan-500 px-2 py-1 text-[10px] font-semibold text-slate-950"><ExternalLink className="h-3 w-3" /> View Album</a>}
+                          </div>
+                          {session.shareableUrl ? <>
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <span className="rounded-full bg-slate-950/60 px-2 py-1 font-mono text-[10px] text-cyan-300">PIN: {revealedAlbumPins.has(session.id) ? session.pinCode : '****'}</span>
+                              <button onClick={() => setRevealedAlbumPins((current) => { const next = new Set(current); if (next.has(session.id)) next.delete(session.id); else next.add(session.id); return next; })} className="text-[10px] text-slate-400 hover:text-white">{revealedAlbumPins.has(session.id) ? 'Hide PIN' : 'Show PIN'}</button>
+                              <button onClick={async () => { const ok = await copyToClipboard(`Link: ${session.shareableUrl} | PIN: ${session.pinCode}`); setCopiedAlbumId(session.id); window.setTimeout(() => setCopiedAlbumId(null), 1600); toast(ok ? 'Copied!' : 'Could not copy link', ok ? 'success' : 'error'); }} className="rounded border border-white/10 px-2 py-1 text-[10px] text-slate-300">{copiedAlbumId === session.id ? 'Copied!' : 'Copy Link + PIN'}</button>
+                              {session.pdfDownloadAllowed && <a href={(session as ClientSelectionSession & { albumPdfUrl?: string }).albumPdfUrl || session.shareableUrl} download className="inline-flex items-center gap-1 rounded border border-white/10 px-2 py-1 text-[10px] text-slate-300"><Download className="h-3 w-3" /> Download PDF</a>}
+                            </div>
+                          </> : <p className="mt-2 text-[11px] text-slate-400">Album design/selection in progress</p>}
+                        </div>
                       </div>
                     ) : (
                       <div className="mt-3 border-t border-white/10 pt-3 text-xs text-slate-400">Photo selection is waiting for the studio to share a gallery.</div>
                     )}
+                        </>}
                   </div>
                 );
               })}
@@ -607,12 +680,21 @@ export function PartnerDashboardContent({
             <p className="py-4 text-center text-sm text-slate-400">No lab orders available yet. Waiting for Studio.</p>
           </div>
         )}
+        </>}
 
         {/* Assigned Duties */}
-        <div className="rounded-xl border border-white/10 bg-slate-900 p-5">
+        {activeTab === 'duties' && <div className="rounded-xl border border-white/10 bg-slate-900 p-5">
           <h2 className="mb-3 text-sm font-semibold">Assigned Duties</h2>
           {bookings.length === 0 ? <p className="text-sm text-slate-400">No assigned duties yet.</p> : <div className="space-y-3">{bookings.map((booking) => { const events = booking.events ?? []; return <div key={booking.id} className="rounded-lg border border-white/10 bg-white/5 p-4"><p className="font-medium">{booking.client_name}</p><div className="mt-2 space-y-1 text-xs text-slate-300"><p className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5 text-amber-400" /> {formatDate(booking.shoot_date)} · {booking.event_function}</p><p className="flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 text-amber-400" /> {booking.venue || 'Venue to be confirmed'}</p></div><div className="mt-3 border-t border-white/10 pt-3 text-xs text-slate-400">{booking.assignments.map((assignment, index) => <p key={index} className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-amber-400" /> {assignment.function_name} · {assignment.role} · Report {assignment.reporting_time || 'time pending'}</p>)}{events.length > 0 && events.map((event, index) => <p key={`event-${index}`}>{event.name} · {event.date ? formatDate(event.date) : 'Date pending'} · {event.start_time ?? event.time ?? 'Time pending'}</p>)}</div></div>; })}</div>}
-        </div>
+        </div>}
+        {activeTab === 'ledger' && <div className="rounded-xl border border-white/10 bg-slate-900 p-5">
+          <h2 className="mb-3 text-sm font-semibold">Ledger &amp; History</h2>
+          <div className="space-y-2">{[
+            ['Shoot duty credits', balance.credit, 'text-emerald-400'],
+            ['Lab work and settlements', balance.debit, 'text-rose-400'],
+            ['Current balance', balance.balance, balance.balance >= 0 ? 'text-emerald-400' : 'text-rose-400'],
+          ].map(([label, amount, color]) => <div key={String(label)} className="flex items-center justify-between border-b border-white/10 py-2 text-xs"><span className="text-slate-400">{label}</span><span className={`font-semibold ${color}`}>{formatINR(Number(amount))}</span></div>)}</div>
+        </div>}
         <p className="flex items-center gap-1.5 text-xs text-slate-500"><Camera className="h-3.5 w-3.5" /> Operational schedule only. Client package amounts are private.</p>
       </div>
 
