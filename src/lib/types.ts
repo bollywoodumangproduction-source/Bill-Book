@@ -286,6 +286,8 @@ export interface StudioLabOrder {
   payment_history?: LabPaymentInstallment[];
   promised_delivery_date?: string;
   order_status: string;
+  album_status?: string;
+  video_status?: string;
   delivery_mode: string;
   parcel_tracking_details: string;
   video_rows: VideoRow[];

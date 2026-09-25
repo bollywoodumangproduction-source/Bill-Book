@@ -12,6 +12,7 @@ interface QueryState {
 
 class MockQueryBuilder {
   private state: QueryState;
+  private pendingMutation: { type: 'update'; payload: Row } | { type: 'delete' } | null = null;
 
   constructor(table: string, db: MockDB) {
     this.state = { table, filters: [], order: null, limitN: null, selectColumns: '*' };
@@ -105,8 +106,40 @@ class MockQueryBuilder {
     return rows.map((r) => this.resolveRelation(r, this.state.selectColumns));
   }
 
+  private executePendingMutation(): { data: Row | null; error: any } | { data: null; error: any } | null {
+    if (!this.pendingMutation) return null;
+    const mutation = this.pendingMutation;
+    this.pendingMutation = null;
+    try {
+      const db = this.db();
+      const tableRows = (db as any)[this.state.table] as Row[];
+      if (mutation.type === 'update') {
+        let updated: Row | null = null;
+        for (const row of tableRows) {
+          if (this.applyFilters([row]).length > 0) {
+            Object.assign(row, mutation.payload, { updated_at: isoNow() });
+            updated = row;
+          }
+        }
+        saveDB(db);
+        return { data: updated, error: null };
+      }
+      const remaining = tableRows.filter((row) => this.applyFilters([row]).length === 0);
+      (db as any)[this.state.table] = remaining;
+      saveDB(db);
+      return { data: null, error: null };
+    } catch (error) {
+      return { data: null, error };
+    }
+  }
+
   async then(resolve: (val: any) => void, reject?: (err: any) => void): Promise<void> {
     try {
+      const mutationResult = this.executePendingMutation();
+      if (mutationResult) {
+        resolve(mutationResult);
+        return;
+      }
       let rows = this.rows();
       rows = this.applyFilters(rows);
       rows = this.applyOrder(rows);
@@ -119,6 +152,12 @@ class MockQueryBuilder {
   }
 
   async single(): Promise<{ data: Row | null; error: any }> {
+    const mutationResult = this.executePendingMutation();
+    if (mutationResult) {
+      if (mutationResult.error) return mutationResult;
+      const mutatedRow = mutationResult.data;
+      return { data: mutatedRow, error: null };
+    }
     let rows = this.rows();
     rows = this.applyFilters(rows);
     rows = this.applyLimit(rows);
@@ -128,6 +167,11 @@ class MockQueryBuilder {
   }
 
   async maybeSingle(): Promise<{ data: Row | null; error: any }> {
+    const mutationResult = this.executePendingMutation();
+    if (mutationResult) {
+      if (mutationResult.error) return mutationResult;
+      return { data: mutationResult.data, error: null };
+    }
     let rows = this.rows();
     rows = this.applyFilters(rows);
     rows = this.applyLimit(rows);
@@ -222,27 +266,14 @@ class MockQueryBuilder {
     };
   }
 
-  async update(patch: Row): Promise<{ data: Row | null; error: any }> {
-    const db = this.db();
-    const tableRows = (db as any)[this.state.table] as Row[];
-    let updated: Row | null = null;
-    for (const row of tableRows) {
-      if (this.applyFilters([row]).length > 0) {
-        Object.assign(row, patch, { updated_at: isoNow() });
-        updated = row;
-      }
-    }
-    saveDB(db);
-    return { data: updated, error: null };
+  update(patch: Row): this {
+    this.pendingMutation = { type: 'update', payload: patch };
+    return this;
   }
 
-  async delete(): Promise<{ data: null; error: any }> {
-    const db = this.db();
-    const tableRows = (db as any)[this.state.table] as Row[];
-    const remaining = tableRows.filter((row) => this.applyFilters([row]).length === 0);
-    (db as any)[this.state.table] = remaining;
-    saveDB(db);
-    return { data: null, error: null };
+  delete(): this {
+    this.pendingMutation = { type: 'delete' };
+    return this;
   }
 }
 

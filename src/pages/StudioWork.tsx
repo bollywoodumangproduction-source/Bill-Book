@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, FolderOpen, ChevronRight, ArrowLeft, TriangleAlert as AlertTriangle, Zap, CalendarClock, PackageCheck, Images, HardDrive } from 'lucide-react';
+import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, TriangleAlert as AlertTriangle, Zap, CalendarClock, Images, HardDrive } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabClientDeliveryStatus, LabClientDispatchMode, StorageLocation } from '@/lib/types';
 import { formatINR, formatDate, todayISO, defaultPinFromPhone } from '@/lib/format';
@@ -49,6 +49,11 @@ const DEFAULT_PRODUCTION_TERMS = `1. रॉ डाटा बैकअप व स
 5. डिलीवरी व पूर्ण भुगतान (Final Delivery & Due Settlement): तैयार मास्टर वीडियो / पेन ड्राइव / एल्बम प्राप्त करने से पूर्व शेष बकाया राशि (Net Final Due) का पूर्ण भुगतान करना अनिवार्य है।`;
 
 const toNum = (v: string | number | undefined) => { const n = Number(v); return isNaN(n) ? 0 : n; };
+
+function getDatabaseErrorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && 'message' in error) return String((error as { message: unknown }).message);
+  return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+}
 
 function sanitizePayload<T>(payload: T): T {
   return JSON.parse(JSON.stringify(payload)) as T;
@@ -112,6 +117,14 @@ function emptyClient(): LabClientRow {
   return { id: uid(), client_name: '', event_address: '', video_rows: [], album_rows: [], video_total: 0, album_total: 0, delivery_status: 'In Design', dispatch_mode: 'By Hand' };
 }
 
+function hasAlbumWork(order: Partial<StudioLabOrder>): boolean {
+  return toNum(order.total_album_bill) > 0 || (Array.isArray(order.album_rows) && order.album_rows.length > 0);
+}
+
+function hasVideoWork(order: Partial<StudioLabOrder>): boolean {
+  return toNum(order.total_video_bill) > 0 || (Array.isArray(order.video_rows) && order.video_rows.length > 0);
+}
+
 function normalizeLabOrder(raw: Partial<StudioLabOrder>): StudioLabOrder {
   const clients = (Array.isArray(raw.clients) ? raw.clients : []).map((client) => ({
     ...emptyClient(),
@@ -148,6 +161,8 @@ function normalizeLabOrder(raw: Partial<StudioLabOrder>): StudioLabOrder {
     payment_date: raw.payment_date ?? '',
     payment_note: raw.payment_note ?? '',
     order_status: raw.order_status ?? 'Pending',
+    album_status: raw.album_status || (hasAlbumWork(raw) && raw.order_status !== 'Pending' ? raw.order_status : 'Pending'),
+    video_status: raw.video_status || (hasVideoWork(raw) && raw.order_status !== 'Pending' ? raw.order_status : 'Pending'),
     delivery_mode: raw.delivery_mode ?? 'By Hand',
     parcel_tracking_details: raw.parcel_tracking_details ?? '',
     video_rows: Array.isArray(raw.video_rows) ? raw.video_rows : [],
@@ -203,6 +218,9 @@ export function LabOrders() {
   const [orders, setOrders] = useState<StudioLabOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState<'station' | 'partners'>('station');
+  const [selectedPartner, setSelectedPartner] = useState<string | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<StudioLabOrder | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<StudioLabOrder | null>(null);
@@ -217,21 +235,21 @@ export function LabOrders() {
   const [view, setView] = useState<'active' | 'archived' | 'recycle'>('active');
   const [showPin, setShowPin] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<'soft' | 'permanent'>('soft');
-  const [displayMode, setDisplayMode] = useState<'cards' | 'folders'>('cards');
-  const [presetPartnerId, setPresetPartnerId] = useState<string | undefined>(undefined);
-  const [openPartner, setOpenPartner] = useState<string | null>(null);
-  const [openClientFile, setOpenClientFile] = useState<string | null>(null);
-  const [folderView, setFolderView] = useState<'partners' | 'delivered'>('partners');
   const [photoSessions, setPhotoSessions] = useState<Record<string, ClientSelectionSession | null>>({});
 
   const loadPhotoSessions = useCallback(async () => {
-    const { data } = await supabase.from('photo_selection_sessions').select('*');
-    const map: Record<string, ClientSelectionSession | null> = {};
-    for (const row of (data ?? []) as ClientSelectionSession[]) {
-      if (row.billId) { (map as any)[row.billId] = row; }
+    try {
+      const { data, error } = await supabase.from('photo_selection_sessions').select('*');
+      if (error) throw error;
+      const map: Record<string, ClientSelectionSession | null> = {};
+      for (const row of (data ?? []) as ClientSelectionSession[]) {
+        if (row.billId) { (map as any)[row.billId] = row; }
+      }
+      setPhotoSessions(map);
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
     }
-    setPhotoSessions(map);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { void loadPhotoSessions(); }, [loadPhotoSessions, refreshToken]);
 
@@ -248,20 +266,26 @@ export function LabOrders() {
   };
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from('studio_lab_orders').select('*').order('created_at');
-    const allNormalized = (data ?? []).map((order: Partial<StudioLabOrder>, index: number) => {
-      const base = normalizeLabOrder(order);
-      const candidateId = String(base.id || base.order_no || (order as any)?.bup_no || '').trim();
-      return { ...base, id: candidateId || `BUP-${index + 1}` } as StudioLabOrder;
-    });
-    // If real (non-demo) orders exist, hide demo orders to prevent duplicate/phantom cards
-    const hasRealOrders = allNormalized.some((o: StudioLabOrder) => !o.isDemo && !o.is_demo && !String(o.order_no ?? '').startsWith('DEMO-') && !String(o.id ?? '').startsWith('demo-'));
-    const visibleOrders = hasRealOrders
-      ? allNormalized.filter((o: StudioLabOrder) => !o.isDemo && !o.is_demo && !String(o.order_no ?? '').startsWith('DEMO-') && !String(o.id ?? '').startsWith('demo-'))
-      : allNormalized;
-    setOrders(visibleOrders);
-    setLoading(false);
-  }, []);
+    try {
+      const { data, error } = await supabase.from('studio_lab_orders').select('*').order('created_at');
+      if (error) throw error;
+      const allNormalized = (data ?? []).map((order: Partial<StudioLabOrder>, index: number) => {
+        const base = normalizeLabOrder(order);
+        const candidateId = String(base.id || base.order_no || (order as any)?.bup_no || '').trim();
+        return { ...base, id: candidateId || `BUP-${index + 1}` } as StudioLabOrder;
+      });
+      // If real (non-demo) orders exist, hide demo orders to prevent duplicate/phantom cards
+      const hasRealOrders = allNormalized.some((o: StudioLabOrder) => !o.isDemo && !o.is_demo && !String(o.order_no ?? '').startsWith('DEMO-') && !String(o.id ?? '').startsWith('demo-'));
+      const visibleOrders = hasRealOrders
+        ? allNormalized.filter((o: StudioLabOrder) => !o.isDemo && !o.is_demo && !String(o.order_no ?? '').startsWith('DEMO-') && !String(o.id ?? '').startsWith('demo-'))
+        : allNormalized;
+      setOrders(visibleOrders);
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
 
   useEffect(() => { load(); }, [load, refreshToken]);
 
@@ -273,62 +297,19 @@ export function LabOrders() {
     return lifecycleMatch && matchSearch && matchStatus;
   });
 
-  // Partner Folders grouping
-  const partnerFolders = useMemo(() => {
-    const activeOrders = orders.filter((o) => !o.archived_at && !o.deleted_at);
-    const map = new Map<string, { name: string; mobile: string; orders: StudioLabOrder[] }>();
-    for (const o of activeOrders) {
-      if (o.order_status === 'Delivered') continue;
-      const key = (o.studio_name || o.partner_name || 'Unassigned Partner').trim() || 'Unassigned Partner';
-      const existing = map.get(key) ?? { name: key, mobile: o.studio_mobile || '', orders: [] };
-      if (!existing.mobile && o.studio_mobile) existing.mobile = o.studio_mobile;
-      existing.orders.push(o);
-      map.set(key, existing);
+  const ordersByPartner = useMemo(() => {
+    const groups = new Map<string, { name: string; orders: StudioLabOrder[] }>();
+    for (const order of orders) {
+      const key = String(order.partner_id ?? order.partner_name ?? order.studio_name ?? 'unassigned').trim() || 'unassigned';
+      const name = (order.partner_name || order.studio_name || 'Unassigned Partner').trim();
+      const group = groups.get(key) ?? { name, orders: [] };
+      group.orders.push(order);
+      groups.set(key, group);
     }
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(groups.entries()).sort(([, a], [, b]) => a.name.localeCompare(b.name));
   }, [orders]);
 
-  const deliveredOrders = useMemo(() => {
-    return orders.filter((o) => !o.archived_at && !o.deleted_at && o.order_status === 'Delivered');
-  }, [orders]);
-
-  // Client Files within a partner folder
-  const partnerClientFiles = useMemo(() => {
-    if (!openPartner) return [];
-    const partnerOrders = partnerFolders.find((f) => f.name === openPartner)?.orders ?? [];
-    const map = new Map<string, { clientName: string; orders: StudioLabOrder[] }>();
-    for (const o of partnerOrders) {
-      const names = (o.clients ?? []).map((c) => (c.client_name || '').trim()).filter(Boolean);
-      if (names.length === 0) names.push('Unassigned Client');
-      for (const name of names) {
-        const existing = map.get(name) ?? { clientName: name, orders: [] };
-        if (!existing.orders.some((ord) => ord.id === o.id)) existing.orders.push(o);
-        map.set(name, existing);
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => {
-      const aDeadline = a.orders.map((o) => getEarliestDeadline(o)).filter(Boolean).sort()[0] ?? null;
-      const bDeadline = b.orders.map((o) => getEarliestDeadline(o)).filter(Boolean).sort()[0] ?? null;
-      if (aDeadline && bDeadline) return aDeadline.localeCompare(bDeadline);
-      if (aDeadline && !bDeadline) return -1;
-      if (!aDeadline && bDeadline) return 1;
-      return a.clientName.localeCompare(b.clientName);
-    });
-  }, [openPartner, partnerFolders]);
-
-  const deliveredClientFiles = useMemo(() => {
-    const map = new Map<string, { clientName: string; orders: StudioLabOrder[] }>();
-    for (const o of deliveredOrders) {
-      const names = (o.clients ?? []).map((c) => (c.client_name || '').trim()).filter(Boolean);
-      if (names.length === 0) names.push('Unassigned Client');
-      for (const name of names) {
-        const existing = map.get(name) ?? { clientName: name, orders: [] };
-        if (!existing.orders.some((ord) => ord.id === o.id)) existing.orders.push(o);
-        map.set(name, existing);
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => a.clientName.localeCompare(b.clientName));
-  }, [deliveredOrders]);
+  const selectedPartnerGroup = selectedPartner ? ordersByPartner.find(([key]) => key === selectedPartner)?.[1] : null;
 
   // Deadline alerts
   const deadlineAlerts = useMemo(() => {
@@ -362,21 +343,29 @@ export function LabOrders() {
     return alerts;
   }, [orders]);
 
+  const liveStationItems = sortOrdersByPriority(filtered, deadlineAlerts).flatMap((order) => [
+    ...(hasAlbumWork(order) && order.album_status !== 'Pending' ? [{ order, workType: 'album' as const }] : []),
+    ...(hasVideoWork(order) && order.video_status !== 'Pending' ? [{ order, workType: 'video' as const }] : []),
+  ]);
+
   const handleArchiveOrder = async (orderIdOrNo: string) => {
     const targetKey = String(orderIdOrNo ?? '').trim();
     if (!targetKey) return;
     const targetOrder = orders.find((item) => getOrderKey(item) === targetKey) ?? null;
     if (!targetOrder) return;
-
-    const isDemo = !targetOrder.id || String(targetOrder.id).startsWith('DEMO-') || String(targetOrder.id).startsWith('demo-');
-    if (!isDemo && targetOrder.id) {
-      await supabase.from('studio_lab_orders').update({ archived_at: new Date().toISOString(), deleted_at: null }).eq('id', targetOrder.id);
-    } else if (targetOrder.order_no) {
-      await supabase.from('studio_lab_orders').update({ archived_at: new Date().toISOString(), deleted_at: null }).eq('order_no', targetOrder.order_no);
+    try {
+      const archivedAt = new Date().toISOString();
+      const isDemo = !targetOrder.id || String(targetOrder.id).startsWith('DEMO-') || String(targetOrder.id).startsWith('demo-');
+      const { error } = !isDemo && targetOrder.id
+        ? await supabase.from('studio_lab_orders').update({ archived_at: archivedAt, deleted_at: null }).eq('id', targetOrder.id)
+        : await supabase.from('studio_lab_orders').update({ archived_at: archivedAt, deleted_at: null }).eq('order_no', targetOrder.order_no);
+      if (error) throw error;
+      setOrders((prev) => prev.map((item) => (getOrderKey(item) === targetKey ? { ...item, archived_at: archivedAt, deleted_at: null } : item)));
+      toast('Order archived', 'success');
+      setDeleteId(null); setShowPin(false);
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
     }
-    setOrders((prev) => prev.map((item) => (getOrderKey(item) === targetKey ? { ...item, archived_at: new Date().toISOString(), deleted_at: null } : item)));
-    toast('Order archived', 'success');
-    setDeleteId(null); setShowPin(false);
   };
 
   const handleDeleteOrder = async (orderIdOrNo: string) => {
@@ -385,15 +374,19 @@ export function LabOrders() {
     const targetOrder = orders.find((item) => getOrderKey(item) === targetKey) ?? null;
     if (!targetOrder) return;
 
-    const isDemo = !targetOrder.id || String(targetOrder.id).startsWith('DEMO-') || String(targetOrder.id).startsWith('demo-');
-    if (!isDemo && targetOrder.id) {
-      await supabase.from('studio_lab_orders').update({ deleted_at: new Date().toISOString(), archived_at: null }).eq('id', targetOrder.id);
-    } else if (targetOrder.order_no) {
-      await supabase.from('studio_lab_orders').update({ deleted_at: new Date().toISOString(), archived_at: null }).eq('order_no', targetOrder.order_no);
+    try {
+      const deletedAt = new Date().toISOString();
+      const isDemo = !targetOrder.id || String(targetOrder.id).startsWith('DEMO-') || String(targetOrder.id).startsWith('demo-');
+      const { error } = !isDemo && targetOrder.id
+        ? await supabase.from('studio_lab_orders').update({ deleted_at: deletedAt, archived_at: null }).eq('id', targetOrder.id)
+        : await supabase.from('studio_lab_orders').update({ deleted_at: deletedAt, archived_at: null }).eq('order_no', targetOrder.order_no);
+      if (error) throw error;
+      setOrders((prev) => prev.map((item) => (getOrderKey(item) === targetKey ? { ...item, deleted_at: deletedAt, archived_at: null } : item)));
+      toast('Order moved to Recycle Bin', 'success');
+      setDeleteId(null); setShowPin(false);
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
     }
-    setOrders((prev) => prev.map((item) => (getOrderKey(item) === targetKey ? { ...item, deleted_at: new Date().toISOString(), archived_at: null } : item)));
-    toast('Order moved to Recycle Bin', 'success');
-    setDeleteId(null); setShowPin(false);
   };
 
   const handleRestoreOrder = async (orderIdOrNo: string) => {
@@ -402,14 +395,17 @@ export function LabOrders() {
     const targetOrder = orders.find((item) => getOrderKey(item) === targetKey) ?? null;
     if (!targetOrder) return;
 
-    const isDemo = !targetOrder.id || String(targetOrder.id).startsWith('DEMO-') || String(targetOrder.id).startsWith('demo-');
-    if (!isDemo && targetOrder.id) {
-      await supabase.from('studio_lab_orders').update({ archived_at: null, deleted_at: null }).eq('id', targetOrder.id);
-    } else if (targetOrder.order_no) {
-      await supabase.from('studio_lab_orders').update({ archived_at: null, deleted_at: null }).eq('order_no', targetOrder.order_no);
+    try {
+      const isDemo = !targetOrder.id || String(targetOrder.id).startsWith('DEMO-') || String(targetOrder.id).startsWith('demo-');
+      const { error } = !isDemo && targetOrder.id
+        ? await supabase.from('studio_lab_orders').update({ archived_at: null, deleted_at: null }).eq('id', targetOrder.id)
+        : await supabase.from('studio_lab_orders').update({ archived_at: null, deleted_at: null }).eq('order_no', targetOrder.order_no);
+      if (error) throw error;
+      setOrders((prev) => prev.map((item) => (getOrderKey(item) === targetKey ? { ...item, archived_at: null, deleted_at: null } : item)));
+      toast('Order restored to Active', 'success');
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
     }
-    setOrders((prev) => prev.map((item) => (getOrderKey(item) === targetKey ? { ...item, archived_at: null, deleted_at: null } : item)));
-    toast('Order restored to Active', 'success');
   };
 
   const handleDelete = async () => {
@@ -425,15 +421,18 @@ export function LabOrders() {
     const targetOrder = orders.find((item) => getOrderKey(item) === targetKey) ?? null;
     if (!targetOrder) return;
 
-    const isDemo = !targetOrder.id || String(targetOrder.id).startsWith('DEMO-') || String(targetOrder.id).startsWith('demo-');
-    if (!isDemo && targetOrder.id) {
-      await supabase.from('studio_lab_orders').delete().eq('id', targetOrder.id);
-    } else if (targetOrder.order_no) {
-      await supabase.from('studio_lab_orders').delete().eq('order_no', targetOrder.order_no);
+    try {
+      const isDemo = !targetOrder.id || String(targetOrder.id).startsWith('DEMO-') || String(targetOrder.id).startsWith('demo-');
+      const { error } = !isDemo && targetOrder.id
+        ? await supabase.from('studio_lab_orders').delete().eq('id', targetOrder.id)
+        : await supabase.from('studio_lab_orders').delete().eq('order_no', targetOrder.order_no);
+      if (error) throw error;
+      setOrders((prev) => prev.filter((item) => getOrderKey(item) !== targetKey));
+      toast('Order permanently deleted', 'success');
+      setDeleteId(null); setShowPin(false);
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
     }
-    setOrders((prev) => prev.filter((item) => getOrderKey(item) !== targetKey));
-    toast('Order permanently deleted', 'success');
-    setDeleteId(null); setShowPin(false);
   };
 
   const copyOrderSummary = async (o: StudioLabOrder) => {
@@ -442,12 +441,32 @@ export function LabOrders() {
     toast(ok ? 'Bill summary copied to clipboard' : 'Failed to copy bill summary', ok ? 'success' : 'error');
   };
 
-  const renderOrderCard = (o: StudioLabOrder) => {
+  const handleWorkStationToggle = async (workType: 'album' | 'video') => {
+    if (!selectedOrder) return;
+    try {
+      const statusField = workType === 'album' ? 'album_status' : 'video_status';
+      const currentStatus = selectedOrder[statusField] ?? 'Pending';
+      const nextStatus = currentStatus !== 'Pending' ? 'Pending' : 'Processing';
+      const isDemo = !selectedOrder.id || String(selectedOrder.id).startsWith('DEMO-') || String(selectedOrder.id).startsWith('demo-');
+      const result = isDemo
+        ? await supabase.from('studio_lab_orders').update({ [statusField]: nextStatus }).eq('order_no', selectedOrder.order_no)
+        : await supabase.from('studio_lab_orders').update({ [statusField]: nextStatus }).eq('id', selectedOrder.id);
+      if (result.error) throw result.error;
+      const updatedOrder = { ...selectedOrder, [statusField]: nextStatus };
+      setSelectedOrder(updatedOrder);
+      setOrders((prev) => prev.map((order) => (getOrderKey(order) === getOrderKey(selectedOrder) ? { ...order, [statusField]: nextStatus } : order)));
+      toast(`${workType === 'album' ? 'Album' : 'Video'} ${nextStatus === 'Processing' ? 'sent to Live Station' : 'moved back to Pending'}`, 'success');
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
+    }
+  };
+
+  const renderOrderCard = (o: StudioLabOrder, stationWork?: 'album' | 'video') => {
     const clientCount = (o.clients ?? []).length;
     const totalVideo = toNum(o.total_video_bill);
     const totalAlbum = toNum(o.total_album_bill);
     return (
-      <div key={o.id} className={`rounded-xl border bg-white p-4 dark:bg-slate-900/50 ${o.is_emergency ? 'border-rose-300 dark:border-rose-500/40 ring-1 ring-rose-200 dark:ring-rose-500/20' : 'border-slate-200 dark:border-white/10'}`}>
+      <div key={`${o.id}-${stationWork ?? 'order'}`} className={`rounded-xl border bg-white p-4 dark:bg-slate-900/50 ${o.is_emergency ? 'border-rose-300 dark:border-rose-500/40 ring-1 ring-rose-200 dark:ring-rose-500/20' : 'border-slate-200 dark:border-white/10'}`}>
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
@@ -457,19 +476,20 @@ export function LabOrders() {
             <p className="text-xs text-slate-500 dark:text-slate-400">{o.order_no}</p>
           </div>
           {view === 'recycle' && <span className="text-[11px] text-amber-600 dark:text-amber-400">Expires in {recycleDaysRemaining(o.deleted_at)} days</span>}
-          <div className="flex gap-1">
-            <button onClick={() => { setEditing(o); setShowForm(true); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-amber-500 dark:hover:bg-white/10 dark:hover:text-amber-400">
-              <Edit3 className="h-3.5 w-3.5" />
+          <div className="flex gap-1.5">
+            <button onClick={() => { setEditing(o); setShowForm(true); }} className="rounded-md p-2 text-slate-400 transition-colors hover:bg-zinc-700 hover:text-amber-400" title="Edit order">
+              <Edit3 className="h-4 w-4" />
             </button>
-            <button onClick={() => handleArchiveOrder(getOrderKey(o))} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-amber-500 dark:hover:bg-white/10 dark:hover:text-amber-400" title="Archive order">
-              <Archive className="h-3.5 w-3.5" />
+            <button onClick={() => handleArchiveOrder(getOrderKey(o))} className="rounded-md p-2 text-slate-400 transition-colors hover:bg-zinc-700 hover:text-amber-400" title="Archive order">
+              <Archive className="h-4 w-4" />
             </button>
-            <button onClick={() => { const key = getOrderKey(o); if (!key) return; setDeleteId(key); setPendingDelete('soft'); setShowPin(true); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-rose-500 dark:hover:bg-white/10 dark:hover:text-rose-400" title="Delete order">
-              <Trash2 className="h-3.5 w-3.5" />
+            <button onClick={() => { const key = getOrderKey(o); if (!key) return; setDeleteId(key); setPendingDelete('soft'); setShowPin(true); }} className="rounded-md p-2 text-slate-400 transition-colors hover:bg-zinc-700 hover:text-rose-400" title="Delete order">
+              <Trash2 className="h-4 w-4" />
             </button>
           </div>
         </div>
         <div className="mb-3 flex flex-wrap gap-1.5">
+          {stationWork && <Badge color="amber">{stationWork === 'album' ? 'Album' : 'Video'} Live</Badge>}
           <Badge color={STATUS_COLORS[o.order_status] ?? 'slate'}>{o.order_status}</Badge>
           <Badge color="slate">{o.delivery_mode}</Badge>
           {o.promised_delivery_date && (
@@ -537,11 +557,11 @@ export function LabOrders() {
             <Images className="h-3 w-3" /> Photo Selection: {photoSessions[o.order_no]!.photos.filter((p) => p.selected).length}/{photoSessions[o.order_no]!.photos.length} selected{photoSessions[o.order_no]!.isLocked ? ' · Locked' : ''}
           </a>
         )}
-        {clientCount > 0 && (
+          {clientCount > 0 && (
           <div className="mb-2 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
             <p>Users: {clientCount}</p>
-            {totalVideo > 0 && <p>Video Bill: {formatINR(totalVideo)}</p>}
-            {totalAlbum > 0 && <p>Album Bill: {formatINR(totalAlbum)}</p>}
+            {totalVideo > 0 && (!stationWork || stationWork === 'video') && <p>Video Bill: {formatINR(totalVideo)}</p>}
+            {totalAlbum > 0 && (!stationWork || stationWork === 'album') && <p>Album Bill: {formatINR(totalAlbum)}</p>}
           </div>
         )}
         <div className="border-t border-slate-100 pt-2 dark:border-white/5">
@@ -609,37 +629,57 @@ export function LabOrders() {
     );
   };
 
+  const renderWorkToggle = (workType: 'album' | 'video') => {
+    if (!selectedOrder) return null;
+    const statusField = workType === 'album' ? 'album_status' : 'video_status';
+    const isLive = selectedOrder[statusField] !== 'Pending';
+    const label = workType === 'album' ? 'Album' : 'Video';
+    return (
+      <button
+        key={workType}
+        type="button"
+        onClick={() => handleWorkStationToggle(workType)}
+        className="flex cursor-pointer items-center gap-3 rounded-full border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm transition-colors hover:bg-zinc-700"
+        aria-pressed={isLive}
+      >
+        <span className={isLive ? 'text-green-400' : 'text-zinc-400'}>{isLive ? `${label} on Station` : `Send ${label} Live`}</span>
+        <span className={`h-6 w-12 rounded-full p-1 transition-colors duration-200 ease-in-out ${isLive ? 'bg-green-500' : 'bg-zinc-600'}`} aria-hidden="true">
+          <span className={`block h-4 w-4 rounded-full bg-white shadow-sm transform transition-transform duration-200 ease-in-out ${isLive ? 'translate-x-6' : 'translate-x-0'}`} />
+        </span>
+      </button>
+    );
+  };
+
   return (
     <div className="flex h-full w-full flex-col space-y-5 overflow-y-auto">
       <div className="flex items-center justify-between">
-        <div>
+        <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Lab Order Form</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">Photolab & Media Production Order Sheet</p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setActiveTab('station')}
+              className={`rounded-lg px-3 py-2 text-xs font-medium ${activeTab === 'station' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
+            >
+              🛠️ On Live Station
+            </button>
+            <button
+              onClick={() => setActiveTab('partners')}
+              className={`rounded-lg px-3 py-2 text-xs font-medium ${activeTab === 'partners' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
+            >
+              👥 Partner Folders
+            </button>
+          </div>
         </div>
-        {displayMode === 'folders' && !openPartner && folderView === 'partners' && (
-          <button
-            onClick={() => { setEditing(null); setPresetPartnerId(undefined); setShowForm(true); }}
-            className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"
-          >
-            <Plus className="h-4 w-4" /> Add Partner
-          </button>
-        )}
+        <button
+          onClick={() => { setEditing(null); setShowForm(true); }}
+          className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"
+        >
+          <Plus className="h-4 w-4" /> New Order
+        </button>
       </div>
 
-      {/* View toggle: Cards vs Folders */}
-      <div className="flex items-center gap-2">
-        <div className="flex rounded-lg border border-slate-200 p-1 dark:border-white/10">
-          <button onClick={() => setDisplayMode('cards')} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${displayMode === 'cards' ? 'bg-amber-500 text-slate-900' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'}`}>
-            <Clapperboard className="h-3.5 w-3.5" /> All Order Cards
-          </button>
-          <button onClick={() => { setDisplayMode('folders'); setOpenPartner(null); setOpenClientFile(null); }} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${displayMode === 'folders' ? 'bg-amber-500 text-slate-900' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'}`}>
-            <FolderOpen className="h-3.5 w-3.5" /> Partner Folders
-          </button>
-        </div>
-      </div>
-
-      {displayMode === 'cards' ? (
-        <>
+        {activeTab === 'station' ? <>
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -659,231 +699,96 @@ export function LabOrders() {
 
           {loading ? (
             <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
-          ) : filtered.length === 0 ? (
+          ) : liveStationItems.length === 0 ? (
             <EmptyState icon={Clapperboard} title="No lab orders found" subtitle="Create a new lab order to get started" />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {sortOrdersByPriority(filtered, deadlineAlerts).map((o) => renderOrderCard(o))}
+              {liveStationItems.map(({ order, workType }) => renderOrderCard(order, workType))}
             </div>
           )}
-        </>
-      ) : (
-        /* Partner Folders View */
-        loading ? (
-          <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
-        ) : openPartner ? (
-          /* Inside a Partner Folder — show Client Files or individual orders */
+        </> : (
           <div className="space-y-4">
-            <button onClick={() => { setOpenPartner(null); setOpenClientFile(null); }} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Partner Folders
-            </button>
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <FolderOpen className="h-5 w-5 text-amber-500" />
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">{openPartner}</h2>
-              </div>
-              <button
-                onClick={() => {
-                  const partnerOrder = partnerFolders.find((f) => f.name === openPartner)?.orders[0];
-                  const partnerId = partnerOrder?.partner_id || '';
-                  setEditing(null);
-                  setPresetPartnerId(partnerId || undefined);
-                  setShowForm(true);
-                }}
-                className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"
-              >
-                <Plus className="h-4 w-4" /> New Order
-              </button>
-            </div>
-            {openClientFile ? (
-              /* Inside a Client File — show order cards */
-              <div className="space-y-3">
-                <button onClick={() => setOpenClientFile(null)} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
-                  <ArrowLeft className="h-3.5 w-3.5" /> Back to Client Files
+            {selectedPartner ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedOrder(null); setSelectedPartner(null); }}
+                  className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
+                >
+                  🔙 Back to Partners
                 </button>
-                <div className="flex items-center gap-2">
-                  <User className="h-4 w-4 text-sky-500" />
-                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{openClientFile}</h3>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {sortOrdersByPriority(partnerClientFiles.find((f) => f.clientName === openClientFile)?.orders ?? [], deadlineAlerts).map((o) => renderOrderCard(o))}
-                </div>
-              </div>
-            ) : (
-              /* Show Client Files */
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {partnerClientFiles.map((cf) => {
-                  const processingCount = cf.orders.filter((o) => o.order_status === 'Processing' || o.order_status === 'Pending' || o.order_status === 'In Design').length;
-                  const readyCount = cf.orders.filter((o) => o.order_status === 'Ready' || o.order_status === 'Printed/Ready').length;
-                  const netDue = cf.orders.reduce((s, o) => s + toNum(o.net_final_due), 0);
-                  const hasEmergency = cf.orders.some((o) => o.is_emergency);
-                  const hasDatePending = cf.orders.some((o) => o.date_pending);
-                  const earliestDeadline = cf.orders.map((o) => getEarliestDeadline(o)).filter(Boolean).sort()[0] ?? null;
-                  const isUrgent = cf.orders.some((o) => isDeadlineUrgent(o, deadlineAlerts));
-                  return (
-                    <button key={cf.clientName} onClick={() => setOpenClientFile(cf.clientName)} className={`rounded-xl border p-4 text-left transition hover:border-amber-300 dark:hover:border-amber-500/30 ${hasEmergency ? 'border-rose-200 dark:border-rose-500/30' : 'border-slate-200 dark:border-white/10'}`}>
-                      <div className="mb-2 flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            {hasEmergency && <Zap className="h-3 w-3 text-rose-500" />}
-                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{cf.clientName}</p>
-                          </div>
-                          <p className="text-xs text-slate-400">{cf.orders.length} order{cf.orders.length === 1 ? '' : 's'}</p>
-                        </div>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {processingCount > 0 && <Badge color="amber">{processingCount} Processing</Badge>}
-                        {readyCount > 0 && <Badge color="sky">{readyCount} Ready</Badge>}
-                        {hasDatePending && <Badge color="amber">Date Pending</Badge>}
-                        {earliestDeadline && <span className={`inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-xs font-medium ${isUrgent ? 'border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/15 dark:text-rose-400' : 'border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-500/20 dark:bg-slate-500/15 dark:text-slate-400'}`}><CalendarClock className="h-3 w-3" /> Due: {formatDate(earliestDeadline)}</span>}
-                        {netDue > 0 && <Badge color="rose">Due: {formatINR(netDue)}</Badge>}
-                      </div>
+                {selectedOrder ? (
+                  <div className="space-y-4">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOrder(null)}
+                      className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
+                    >
+                      🔙 Back to Client List
                     </button>
-                  );
-                })}
-                {partnerClientFiles.length === 0 && <EmptyState icon={User} title="No client files" subtitle="No orders in this partner folder" />}
-              </div>
-            )}
-          </div>
-        ) : folderView === 'delivered' ? (
-          /* Delivered folder view */
-          <div className="space-y-4">
-            <button onClick={() => setFolderView('partners')} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Partner Folders
-            </button>
-            <div className="flex items-center gap-2">
-              <PackageCheck className="h-5 w-5 text-emerald-500" />
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Delivered Orders</h2>
-              <Badge color="emerald">{deliveredOrders.length}</Badge>
-            </div>
-            {openClientFile ? (
-              <div className="space-y-3">
-                <button onClick={() => setOpenClientFile(null)} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
-                  <ArrowLeft className="h-3.5 w-3.5" /> Back to Delivered
-                </button>
-                <div className="flex items-center gap-2">
-                  <User className="h-4 w-4 text-sky-500" />
-                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{openClientFile}</h3>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {(deliveredClientFiles.find((f) => f.clientName === openClientFile)?.orders ?? []).map((o) => renderOrderCard(o))}
-                </div>
-              </div>
-            ) : deliveredOrders.length === 0 ? (
-              <EmptyState icon={PackageCheck} title="No delivered orders" subtitle="Orders marked as Delivered will appear here" />
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {deliveredClientFiles.map((cf) => {
-                  const netDue = cf.orders.reduce((s, o) => s + toNum(o.net_final_due), 0);
-                  return (
-                    <button key={cf.clientName} onClick={() => setOpenClientFile(cf.clientName)} className="rounded-xl border border-emerald-200 p-4 text-left transition hover:border-emerald-400 dark:border-emerald-500/20 dark:hover:border-emerald-500/40">
-                      <div className="mb-2 flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{cf.clientName}</p>
-                          <p className="text-xs text-slate-400">{cf.orders.length} order{cf.orders.length === 1 ? '' : 's'}</p>
-                        </div>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        <Badge color="emerald">Delivered</Badge>
-                        {netDue > 0 && <Badge color="rose">Due: {formatINR(netDue)}</Badge>}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        ) : (
-          /* Partner Folders landing view */
-          <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {/* Partner folder cards */}
-              {partnerFolders.map((pf) => {
-                const processingCount = pf.orders.filter((o) => o.order_status === 'Processing' || o.order_status === 'Pending' || o.order_status === 'In Design').length;
-                const readyCount = pf.orders.filter((o) => o.order_status === 'Ready' || o.order_status === 'Printed/Ready').length;
-                const clientCount = new Set(pf.orders.flatMap((o) => (o.clients ?? []).map((c) => c.client_name).filter(Boolean))).size;
-                const netDue = pf.orders.reduce((s, o) => s + toNum(o.net_final_due), 0);
-                const hasEmergency = pf.orders.some((o) => o.is_emergency);
-                const hasDatePending = pf.orders.some((o) => o.date_pending);
-                const earliestDeadline = pf.orders.map((o) => getEarliestDeadline(o)).filter(Boolean).sort()[0] ?? null;
-                const isUrgent = pf.orders.some((o) => isDeadlineUrgent(o, deadlineAlerts));
-                return (
-                  <button key={pf.name} onClick={() => setOpenPartner(pf.name)} className={`rounded-xl border p-4 text-left transition hover:border-amber-300 dark:hover:border-amber-500/30 ${hasEmergency ? 'border-rose-200 dark:border-rose-500/30' : 'border-slate-200 dark:border-white/10'}`}>
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          {hasEmergency && <Zap className="h-3 w-3 text-rose-500" />}
-                          <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{pf.name}</p>
-                        </div>
-                        {pf.mobile && <p className="text-xs text-slate-400">{pf.mobile}</p>}
-                      </div>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                    {renderOrderCard(selectedOrder)}
+                    <div className="flex flex-wrap gap-3">
+                      {hasAlbumWork(selectedOrder) && renderWorkToggle('album')}
+                      {hasVideoWork(selectedOrder) && renderWorkToggle('video')}
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <Badge color="slate">{pf.orders.length} Orders</Badge>
-                      <Badge color="sky">{clientCount} Clients</Badge>
-                      {processingCount > 0 && <Badge color="amber">{processingCount} Processing</Badge>}
-                      {readyCount > 0 && <Badge color="sky">{readyCount} Ready</Badge>}
-                      {hasDatePending && <Badge color="amber">Date Pending</Badge>}
-                      {earliestDeadline && <span className={`inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-xs font-medium ${isUrgent ? 'border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/15 dark:text-rose-400' : 'border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-500/20 dark:bg-slate-500/15 dark:text-slate-400'}`}><CalendarClock className="h-3 w-3" /> Due: {formatDate(earliestDeadline)}</span>}
-                      {netDue > 0 && <Badge color="rose">Due: {formatINR(netDue)}</Badge>}
-                    </div>
-                    {(() => {
-                      const allStorage = pf.orders.flatMap((o) => o.storage_locations ?? []);
-                      if (allStorage.length === 0) return null;
-                      return (
-                        <div className="mt-2 space-y-0.5">
-                          {allStorage.map((loc) => {
-                            const o = pf.orders.find((o) => (o.storage_locations ?? []).some((l) => l.id === loc.id));
-                            const studioOrProject = o?.studio_name || o?.project_name || '';
-                            return (
-                              <p key={loc.id} className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
-                                <HardDrive className="h-2.5 w-2.5 shrink-0" /> {buildStoragePath(loc, studioOrProject)}
-                              </p>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
-                  </button>
-                );
-              })}
-              {/* Delivered folder card */}
-              <button onClick={() => setFolderView('delivered')} className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 text-left transition hover:border-emerald-400 dark:border-emerald-500/20 dark:bg-emerald-500/5 dark:hover:border-emerald-500/40">
-                <div className="mb-2 flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <PackageCheck className="h-4 w-4 text-emerald-500" />
-                      <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">Delivered</p>
-                    </div>
-                    <p className="text-xs text-slate-400">System folder</p>
                   </div>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  <Badge color="emerald">{deliveredOrders.length} Delivered</Badge>
-                </div>
-              </button>
-              {partnerFolders.length === 0 && deliveredOrders.length === 0 && (
-                <div className="col-span-full"><EmptyState icon={FolderOpen} title="No partner folders" subtitle="Create lab orders to see partner folders here" /></div>
-              )}
-            </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {(selectedPartnerGroup?.orders ?? []).map((order) => {
+                      const partyName = order.project_name || order.clients?.map((client) => client.client_name).filter(Boolean).join(', ') || 'Untitled Project';
+                      const deliveryDate = order.promised_delivery_date || order.album_required_date || order.video_delivery_date;
+                      return (
+                        <button
+                          key={order.id}
+                          type="button"
+                          onClick={() => setSelectedOrder(order)}
+                          className="rounded-xl border border-zinc-700 bg-zinc-800/50 p-4 text-left transition-colors hover:border-amber-500/60 hover:bg-zinc-800"
+                        >
+                          <p className="mb-4 truncate text-sm font-semibold text-zinc-100">{partyName}</p>
+                          <div className="space-y-2 text-xs text-zinc-400">
+                            <div className="flex justify-between gap-3"><span>Delivery Date</span><span className="text-right text-zinc-200">{deliveryDate ? formatDate(deliveryDate) : 'Not set'}</span></div>
+                            <div className="flex justify-between gap-3"><span>Master Total</span><span className="text-right text-zinc-200">{formatINR(toNum(order.master_total))}</span></div>
+                            <div className="flex justify-between gap-3"><span>Advance Paid</span><span className="text-right text-emerald-400">{formatINR(toNum(order.advance_paid))}</span></div>
+                            <div className="flex justify-between gap-3 border-t border-zinc-700 pt-2"><span>Net Final Due</span><span className="text-right font-semibold text-amber-400">{formatINR(toNum(order.net_final_due))}</span></div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {ordersByPartner.map(([key, group]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSelectedPartner(key)}
+                    className="rounded-xl border border-zinc-700 bg-zinc-800/50 p-5 text-left transition-colors hover:border-amber-500/60 hover:bg-zinc-800"
+                  >
+                    <div className="mb-3 flex items-center justify-between">
+                      <span className="text-2xl" aria-hidden="true">📁</span>
+                      <span className="rounded-full bg-amber-500/15 px-2 py-1 text-xs font-semibold text-amber-400">{group.orders.length} orders</span>
+                    </div>
+                    <p className="truncate text-sm font-semibold text-zinc-100">{group.name}</p>
+                    <p className="mt-1 text-xs text-zinc-400">Open partner folder</p>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        )
-      )}
+        )}
 
       <ErrorBoundary>
-        <LabOrderForm open={showForm} onClose={() => setShowForm(false)} editing={editing} existing={orders} presetPartnerId={presetPartnerId} onSaved={(saved) => { setShowForm(false); load(); setSuccessOrder(saved); toast('Saved Successfully!', 'success'); }} />
+        <LabOrderForm open={showForm} onClose={() => setShowForm(false)} editing={editing} existing={orders} onSaved={(saved) => { setShowForm(false); load(); setSuccessOrder(saved); toast('Saved Successfully!', 'success'); }} />
       </ErrorBoundary>
       <ErrorBoundary>
         <ViewBillModal order={viewBillOrder} onClose={() => setViewBillOrder(null)} settings={settings} onCopySummary={copyOrderSummary} />
       </ErrorBoundary>
       <LabWorkSlipModal order={viewSlipOrder} onClose={() => setViewSlipOrder(null)} settings={settings} onDualPrint={() => { if (viewSlipOrder) { setDualPrintOrder(viewSlipOrder); setTimeout(() => { window.print(); setDualPrintOrder(null); }, 100); } }} />
       {dualPrintOrder && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><LabOrderPrintTemplate order={dualPrintOrder} settings={settings} compact /></PrintableDualCopies></div>, document.body)}
-      {settleOrder && <LabSettlementModal order={settleOrder} onClose={() => setSettleOrder(null)} onSaved={() => { setSettleOrder(null); load(); }} />}
-      {quickPayOrder && <LabQuickPayModal order={quickPayOrder} onClose={() => setQuickPayOrder(null)} onSaved={() => { setQuickPayOrder(null); load(); }} />}
+      {settleOrder && <LabSettlementModal order={settleOrder} onClose={() => setSettleOrder(null)} onSaved={(updated) => { setSettleOrder(null); setOrders((prev) => prev.map((order) => (getOrderKey(order) === getOrderKey(updated) ? updated : order))); setSelectedOrder((current) => current && getOrderKey(current) === getOrderKey(updated) ? updated : current); load(); }} />}
+      {quickPayOrder && <LabQuickPayModal order={quickPayOrder} onClose={() => setQuickPayOrder(null)} onSaved={(updated) => { setQuickPayOrder(null); setOrders((prev) => prev.map((order) => (getOrderKey(order) === getOrderKey(updated) ? updated : order))); setSelectedOrder((current) => current && getOrderKey(current) === getOrderKey(updated) ? updated : current); load(); }} />}
       {successOrder && (
         <ErrorBoundary>
           <LabOrderSuccessModal
@@ -1018,8 +923,16 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
     if (amount <= 0) return;
     const payment: LabPaymentInstallment = { id: uid(), amount, payment_date: paymentDate, payment_mode: paymentMode, note: paymentNote };
     const nextHistory = [...paymentHistory, payment];
-    const { error } = await supabase.from('studio_lab_orders').update({ payment_history: nextHistory, advance_paid: totalPaid + amount, net_final_due: toNum(order.master_total) - totalPaid - amount, payment_mode: paymentMode, payment_date: paymentDate, payment_note: paymentNote }).eq('id', order.id);
-    if (!error) { setPaymentHistory(nextHistory); setPaymentAmount(''); setPaymentNote(''); }
+    try {
+      const { error } = await supabase.from('studio_lab_orders').update({ payment_history: nextHistory, advance_paid: totalPaid + amount, net_final_due: toNum(order.master_total) - totalPaid - amount, payment_mode: paymentMode, payment_date: paymentDate, payment_note: paymentNote }).eq('id', order.id);
+      if (error) throw error;
+      setPaymentHistory(nextHistory);
+      setPaymentAmount('');
+      setPaymentNote('');
+      toast('Payment saved instantly!', 'success');
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
+    }
   };
 
   const handlePrintA4 = () => {
@@ -1350,7 +1263,7 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
   );
 }
 
-function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder; onClose: () => void; onSaved: () => void }) {
+function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder; onClose: () => void; onSaved: (updated: StudioLabOrder) => void }) {
   const { toast } = useToast();
   const [amount, setAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(todayISO());
@@ -1362,20 +1275,33 @@ function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) { toast('Enter a valid settlement amount', 'error'); return; }
     setSaving(true);
-    const nextAdvance = toNum(order.advance_paid) + value;
-    const paymentHistory: LabPaymentInstallment[] = [...(order.payment_history ?? []), { id: uid(), amount: value, payment_date: paymentDate, payment_mode: paymentMode, note: reference.trim() || 'Balance settlement' }];
-    const { error } = await supabase.from('studio_lab_orders').update({
-      advance_paid: nextAdvance,
-      net_final_due: toNum(order.master_total) - nextAdvance,
-      payment_mode: paymentMode,
-      payment_date: paymentDate,
-      payment_note: reference.trim(),
-      payment_history: paymentHistory,
-    }).eq('id', order.id);
-    setSaving(false);
-    if (error) { toast('Failed to record lab settlement', 'error'); return; }
-    toast('Lab settlement recorded', 'success');
-    onSaved();
+    try {
+      const nextAdvance = toNum(order.advance_paid) + value;
+      const paymentHistory: LabPaymentInstallment[] = [...(order.payment_history ?? []), { id: uid(), amount: value, payment_date: paymentDate, payment_mode: paymentMode, note: reference.trim() || 'Balance settlement' }];
+      const { error } = await supabase.from('studio_lab_orders').update({
+        advance_paid: nextAdvance,
+        net_final_due: toNum(order.master_total) - nextAdvance,
+        payment_mode: paymentMode,
+        payment_date: paymentDate,
+        payment_note: reference.trim(),
+        payment_history: paymentHistory,
+      }).eq('id', order.id);
+      if (error) throw error;
+      toast('Lab settlement recorded instantly!', 'success');
+      onSaved({
+        ...order,
+        advance_paid: nextAdvance,
+        net_final_due: toNum(order.master_total) - nextAdvance,
+        payment_mode: paymentMode,
+        payment_date: paymentDate,
+        payment_note: reference.trim(),
+        payment_history: paymentHistory,
+      });
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return <Modal open={true} onClose={onClose} title={`Settle ${order.partner_name || order.studio_name}`} size="md" dismissible={false}>
@@ -1388,7 +1314,7 @@ function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder
   </Modal>;
 }
 
-function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; onClose: () => void; onSaved: () => void }) {
+function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; onClose: () => void; onSaved: (updated: StudioLabOrder) => void }) {
   const { toast } = useToast();
   const paymentOptions = ['Cash', 'UPI / Online', 'Bank Transfer', 'Cheque'];
   const [currentOrder, setCurrentOrder] = useState<StudioLabOrder>(order);
@@ -1419,70 +1345,72 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
     const selectedMode = paymentMode || 'Cash';
     const trimmedNote = paymentNote.trim();
     setSaving(true);
-
-    const currentNetDue = Number(currentOrder.net_due ?? currentOrder.net_final_due ?? netDue ?? 0);
-    const nextAdvance = Number(currentOrder.advance_paid || 0) + value;
-    const nextNetDue = Math.max(0, currentNetDue - value);
-    const nextHistory: LabPaymentInstallment[] = [...(currentOrder.payment_history ?? []), {
-      id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : uid(),
-      amount: value,
-      payment_date: paymentDate,
-      payment_mode: selectedMode,
-      note: trimmedNote || '',
-    }];
-
-    const nextOrder: StudioLabOrder = {
-      ...currentOrder,
-      advance_paid: nextAdvance,
-      net_due: nextNetDue,
-      net_final_due: nextNetDue,
-      payment_mode: selectedMode,
-      payment_date: paymentDate,
-      payment_note: trimmedNote,
-      payment_history: nextHistory,
-    };
-
-    setCurrentOrder(nextOrder);
-
-    const { error } = await supabase.from('studio_lab_orders').update({
-      advance_paid: nextAdvance,
-      net_due: nextNetDue,
-      net_final_due: nextNetDue,
-      payment_mode: selectedMode,
-      payment_date: paymentDate,
-      payment_note: trimmedNote,
-      payment_history: nextHistory,
-    }).eq('id', currentOrder.id);
-
-    if (!error && currentOrder.partner_id) {
-      const ledgerDescription = `Order #${currentOrder.order_no} (${currentOrder.project_name || 'Project'}) payment via ${selectedMode}${trimmedNote ? ` - Note: ${trimmedNote}` : ''}`;
-      const ledgerPayload = {
-        partner_id: currentOrder.partner_id,
+    try {
+      const currentNetDue = Number(currentOrder.net_due ?? currentOrder.net_final_due ?? netDue ?? 0);
+      const nextAdvance = Number(currentOrder.advance_paid || 0) + value;
+      const nextNetDue = Math.max(0, currentNetDue - value);
+      const nextHistory: LabPaymentInstallment[] = [...(currentOrder.payment_history ?? []), {
+        id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : uid(),
         amount: value,
-        entry_type: 'CREDIT',
-        description: ledgerDescription,
-        reference_order_id: currentOrder.id,
-        date: paymentDate,
+        payment_date: paymentDate,
+        payment_mode: selectedMode,
+        note: trimmedNote || '',
+      }];
+
+      const nextOrder: StudioLabOrder = {
+        ...currentOrder,
+        advance_paid: nextAdvance,
+        net_due: nextNetDue,
+        net_final_due: nextNetDue,
+        payment_mode: selectedMode,
+        payment_date: paymentDate,
+        payment_note: trimmedNote,
+        payment_history: nextHistory,
       };
-      try {
-        const { error: ledgerError } = await supabase.from('ledger_entries').insert([ledgerPayload]);
-        if (ledgerError) {
-          await supabase.from('photographer_ledger').insert([{ photographer_name: currentOrder.partner_name || currentOrder.studio_name, mobile: currentOrder.studio_mobile, entry_type: 'PAYMENT_SETTLED', description: ledgerDescription, amount: value, created_at: new Date().toISOString() }]);
-        }
-      } catch {
+
+      const { error } = await supabase.from('studio_lab_orders').update({
+        advance_paid: nextAdvance,
+        net_due: nextNetDue,
+        net_final_due: nextNetDue,
+        payment_mode: selectedMode,
+        payment_date: paymentDate,
+        payment_note: trimmedNote,
+        payment_history: nextHistory,
+      }).eq('id', currentOrder.id);
+      if (error) throw error;
+      setCurrentOrder(nextOrder);
+
+      if (currentOrder.partner_id) {
+        const ledgerDescription = `Order #${currentOrder.order_no} (${currentOrder.project_name || 'Project'}) payment via ${selectedMode}${trimmedNote ? ` - Note: ${trimmedNote}` : ''}`;
+        const ledgerPayload = {
+          partner_id: currentOrder.partner_id,
+          amount: value,
+          entry_type: 'CREDIT',
+          description: ledgerDescription,
+          reference_order_id: currentOrder.id,
+          date: paymentDate,
+        };
         try {
-          await supabase.from('photographer_ledger').insert([{ photographer_name: currentOrder.partner_name || currentOrder.studio_name, mobile: currentOrder.studio_mobile, entry_type: 'PAYMENT_SETTLED', description: ledgerDescription, amount: value, created_at: new Date().toISOString() }]);
+          const { error: ledgerError } = await supabase.from('ledger_entries').insert([ledgerPayload]);
+          if (ledgerError) throw ledgerError;
         } catch {
-          // no-op: fail-safe fallback during legacy schema compatibility
+          try {
+            const { error: fallbackError } = await supabase.from('photographer_ledger').insert([{ photographer_name: currentOrder.partner_name || currentOrder.studio_name, mobile: currentOrder.studio_mobile, entry_type: 'PAYMENT_SETTLED', description: ledgerDescription, amount: value, created_at: new Date().toISOString() }]);
+            if (fallbackError) throw fallbackError;
+          } catch (ledgerError) {
+            toast(getDatabaseErrorMessage(ledgerError), 'error');
+          }
         }
       }
-    }
 
-    setSaving(false);
-    if (error) { toast('Failed to record payment', 'error'); return; }
-    toast('Payment recorded', 'success');
-    onSaved();
-    onClose();
+      toast('Payment recorded instantly!', 'success');
+      onSaved(nextOrder);
+      onClose();
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return <Modal open={true} onClose={onClose} title={`Quick Pay — ${currentOrder.partner_name || currentOrder.studio_name}`} size="sm" dismissible={false}>
@@ -1559,7 +1487,7 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
   </Modal>;
 }
 
-function LabOrderForm({ open, onClose, editing, existing, onSaved, presetPartnerId }: { open: boolean; onClose: () => void; editing: StudioLabOrder | null; existing: StudioLabOrder[]; onSaved: (saved: StudioLabOrder) => void; presetPartnerId?: string }) {
+function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boolean; onClose: () => void; editing: StudioLabOrder | null; existing: StudioLabOrder[]; onSaved: (saved: StudioLabOrder) => void }) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [partners, setPartners] = useState<Partner[]>([]);
@@ -1615,27 +1543,34 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved, presetPartner
 
   useEffect(() => {
     (async () => {
-      const [{ data: p }, { data: le }, { data: dt }] = await Promise.all([
-        supabase.from('partners').select('*').order('name'),
-        supabase.from('photographer_ledger').select('*'),
-        supabase.from('direct_transactions').select('*'),
-      ]);
-      const partnerList = (p ?? []) as Partner[];
-      setPartners(partnerList);
-      const balances: Record<string, number> = {};
-      for (const partner of partnerList) {
-        const entries = (le ?? []).filter((e: any) => e.mobile === partner.mobile);
-        const txns = (dt ?? []).filter((t: any) => t.partner_id === partner.id);
-        const credits = entries.filter((e: any) => e.entry_type === 'SHOOT_DUTY_CREDIT').reduce((s: number, e: any) => s + toNum(e.amount), 0);
-        const debits = entries.filter((e: any) => e.entry_type === 'LAB_WORK_DEBIT').reduce((s: number, e: any) => s + toNum(e.amount), 0);
-        const settled = entries.filter((e: any) => e.entry_type === 'PAYMENT_SETTLED').reduce((s: number, e: any) => s + toNum(e.amount), 0);
-        const given = txns.filter((t: any) => t.txn_type === 'Given').reduce((s: number, t: any) => s + toNum(t.amount), 0);
-        const received = txns.filter((t: any) => t.txn_type === 'Received').reduce((s: number, t: any) => s + toNum(t.amount), 0);
-        balances[partner.id] = credits - debits - settled + given - received;
+      try {
+        const [partnersResult, ledgerResult, transactionsResult] = await Promise.all([
+          supabase.from('partners').select('*').order('name'),
+          supabase.from('photographer_ledger').select('*'),
+          supabase.from('direct_transactions').select('*'),
+        ]);
+        if (partnersResult.error) throw partnersResult.error;
+        if (ledgerResult.error) throw ledgerResult.error;
+        if (transactionsResult.error) throw transactionsResult.error;
+        const partnerList = (partnersResult.data ?? []) as Partner[];
+        setPartners(partnerList);
+        const balances: Record<string, number> = {};
+        for (const partner of partnerList) {
+          const entries = (ledgerResult.data ?? []).filter((e: any) => e.mobile === partner.mobile);
+          const txns = (transactionsResult.data ?? []).filter((t: any) => t.partner_id === partner.id);
+          const credits = entries.filter((e: any) => e.entry_type === 'SHOOT_DUTY_CREDIT').reduce((s: number, e: any) => s + toNum(e.amount), 0);
+          const debits = entries.filter((e: any) => e.entry_type === 'LAB_WORK_DEBIT').reduce((s: number, e: any) => s + toNum(e.amount), 0);
+          const settled = entries.filter((e: any) => e.entry_type === 'PAYMENT_SETTLED').reduce((s: number, e: any) => s + toNum(e.amount), 0);
+          const given = txns.filter((t: any) => t.txn_type === 'Given').reduce((s: number, t: any) => s + toNum(t.amount), 0);
+          const received = txns.filter((t: any) => t.txn_type === 'Received').reduce((s: number, t: any) => s + toNum(t.amount), 0);
+          balances[partner.id] = credits - debits - settled + given - received;
+        }
+        setLedgerBalances(balances);
+      } catch (error) {
+        toast(getDatabaseErrorMessage(error), 'error');
       }
-      setLedgerBalances(balances);
     })();
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     if (!open) return;
@@ -1665,12 +1600,6 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved, presetPartner
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing]);
-
-  useEffect(() => {
-    if (!open || editing || !presetPartnerId || partners.length === 0) return;
-    handlePartnerSelect(presetPartnerId);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editing, presetPartnerId, partners]);
 
   useEffect(() => {
     if (paymentHistory.length > 0) setAdvancePaid(String(paymentHistory.reduce((sum, payment) => sum + toNum(payment.amount), 0)));
@@ -1821,6 +1750,8 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved, presetPartner
         payment_history: paymentHistory,
         promised_delivery_date: promisedDeliveryDate || null,
         order_status: orderStatus,
+        album_status: editing?.album_status ?? (totalAlbumBill > 0 && orderStatus !== 'Pending' ? orderStatus : 'Pending'),
+        video_status: editing?.video_status ?? (totalVideoBill > 0 && orderStatus !== 'Pending' ? orderStatus : 'Pending'),
         archived_at: orderStatus === 'Delivered' ? (editing?.archived_at ?? new Date().toISOString()) : null,
         delivery_mode: deliveryMode,
         parcel_tracking_details: parcelTracking,
@@ -1842,7 +1773,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved, presetPartner
       clearDraft();
       if (savedOrder) onSaved(savedOrder);
     } catch (err) {
-      toast('Failed to save order. Please try again.', 'error');
+      toast(getDatabaseErrorMessage(err), 'error');
     } finally {
       setIsSubmitting(false);
     }
