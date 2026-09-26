@@ -467,7 +467,7 @@ export function LabOrders() {
     const totalVideo = toNum(o.total_video_bill);
     const totalAlbum = toNum(o.total_album_bill);
     return (
-      <div key={`${o.id}-${stationWork ?? 'order'}`} className={`rounded-xl border bg-white p-4 dark:bg-slate-900/50 ${o.is_emergency ? 'border-rose-300 dark:border-rose-500/40 ring-1 ring-rose-200 dark:ring-rose-500/20' : 'border-slate-200 dark:border-white/10'}`}>
+      <div key={`${o.id}-${stationWork ?? 'order'}`} className={`rounded-xl border bg-white p-3 dark:bg-slate-900/50 ${o.is_emergency ? 'border-rose-300 dark:border-rose-500/40 ring-1 ring-rose-200 dark:ring-rose-500/20' : 'border-slate-200 dark:border-white/10'}`}>
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
@@ -652,13 +652,13 @@ export function LabOrders() {
   };
 
   return (
-    <div className="flex h-auto w-full flex-col">
-      <div className="flex flex-col justify-between items-start gap-4 mb-6 w-full md:flex-row md:items-center">
+    <div className="flex h-auto w-full flex-col gap-6 px-4 pt-4">
+      <div className="flex w-full flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
           <h1 className="whitespace-nowrap text-2xl font-bold text-slate-900 dark:text-white">Lab Order Form</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">Photolab & Media Production Order Sheet</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={() => setActiveTab('station')}
             className={`rounded-lg px-3 py-2 text-xs font-medium ${activeTab === 'station' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
@@ -680,7 +680,7 @@ export function LabOrders() {
         </div>
       </div>
 
-      <div className="space-y-5 p-4">
+      <div className="space-y-5 pb-4">
         {activeTab === 'station' ? <>
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative flex-1">
@@ -704,7 +704,7 @@ export function LabOrders() {
           ) : liveStationItems.length === 0 ? (
             <EmptyState icon={Clapperboard} title="No lab orders found" subtitle="Create a new lab order to get started" />
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {liveStationItems.map(({ order, workType }) => renderOrderCard(order, workType))}
             </div>
           )}
@@ -735,7 +735,7 @@ export function LabOrders() {
                     </div>
                   </div>
                 ) : (
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {(selectedPartnerGroup?.orders ?? []).map((order) => {
                       const partyName = order.project_name || order.clients?.map((client) => client.client_name).filter(Boolean).join(', ') || 'Untitled Project';
                       const deliveryDate = order.promised_delivery_date || order.album_required_date || order.video_delivery_date;
@@ -744,14 +744,14 @@ export function LabOrders() {
                           key={order.id}
                           type="button"
                           onClick={() => setSelectedOrder(order)}
-                          className="rounded-xl border border-zinc-700 bg-zinc-800/50 p-4 text-left transition-colors hover:border-amber-500/60 hover:bg-zinc-800"
+                          className="rounded-xl border border-zinc-700 bg-zinc-800/50 p-3 text-left transition-colors hover:border-amber-500/60 hover:bg-zinc-800"
                         >
-                          <p className="mb-4 truncate text-sm font-semibold text-zinc-100">{partyName}</p>
-                          <div className="space-y-2 text-xs text-zinc-400">
+                          <p className="mb-2 truncate text-sm font-semibold text-zinc-100">{partyName}</p>
+                          <div className="space-y-1.5 text-xs text-zinc-400">
                             <div className="flex justify-between gap-3"><span>Delivery Date</span><span className="text-right text-zinc-200">{deliveryDate ? formatDate(deliveryDate) : 'Not set'}</span></div>
                             <div className="flex justify-between gap-3"><span>Master Total</span><span className="text-right text-zinc-200">{formatINR(toNum(order.master_total))}</span></div>
                             <div className="flex justify-between gap-3"><span>Advance Paid</span><span className="text-right text-emerald-400">{formatINR(toNum(order.advance_paid))}</span></div>
-                            <div className="flex justify-between gap-3 border-t border-zinc-700 pt-2"><span>Net Final Due</span><span className="text-right font-semibold text-amber-400">{formatINR(toNum(order.net_final_due))}</span></div>
+                            <div className="flex justify-between gap-3 border-t border-zinc-700 pt-1.5"><span>Net Final Due</span><span className="text-right font-semibold text-amber-400">{formatINR(toNum(order.net_final_due))}</span></div>
                           </div>
                         </button>
                       );
@@ -760,16 +760,16 @@ export function LabOrders() {
                 )}
               </>
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {ordersByPartner.map(([key, group]) => (
                   <button
                     key={key}
                     type="button"
                     onClick={() => setSelectedPartner(key)}
-                    className="rounded-xl border border-zinc-700 bg-zinc-800/50 p-5 text-left transition-colors hover:border-amber-500/60 hover:bg-zinc-800"
+                    className="rounded-xl border border-zinc-700 bg-zinc-800/50 p-4 text-left transition-colors hover:border-amber-500/60 hover:bg-zinc-800"
                   >
-                    <div className="mb-3 flex items-center justify-between">
-                      <span className="text-2xl" aria-hidden="true">📁</span>
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-xl" aria-hidden="true">📁</span>
                       <span className="rounded-full bg-amber-500/15 px-2 py-1 text-xs font-semibold text-amber-400">{group.orders.length} orders</span>
                     </div>
                     <p className="truncate text-sm font-semibold text-zinc-100">{group.studioName}</p>
