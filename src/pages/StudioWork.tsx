@@ -1490,6 +1490,22 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
   </Modal>;
 }
 
+function partnerMobile(partner: Partner) {
+  const contact = partner as Partner & {
+    mobile_number?: string | number | null;
+    phone?: string | number | null;
+    whatsapp?: string | number | null;
+    whatsapp_number?: string | number | null;
+  };
+  return [contact.mobile, contact.mobile_number, contact.phone, contact.whatsapp, contact.whatsapp_number]
+    .map((value) => value == null ? '' : String(value).trim())
+    .find(Boolean) ?? '';
+}
+
+function partnerNameWithoutMobile(partner: Partner) {
+  return partner.name.trim().replace(/\s*\(\s*[\d\s+().-]{7,}\s*\)\s*$/, '').trim();
+}
+
 function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boolean; onClose: () => void; editing: StudioLabOrder | null; existing: StudioLabOrder[]; onSaved: (saved: StudioLabOrder) => void }) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1616,9 +1632,10 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
     }
     const partner = partners.find((p) => p.id === id);
     if (partner) {
-      setPartnerName(partner.name);
-      setStudioName(partner.studio_name || partner.name);
-      setStudioMobile(partner.mobile);
+      const name = partnerNameWithoutMobile(partner);
+      setPartnerName(name);
+      setStudioName(partner.studio_name || name);
+      setStudioMobile(partnerMobile(partner));
       setStudioAddress(partner.studio_address || '');
       const bal = ledgerBalances[partner.id] ?? 0;
       setBackDue(bal !== 0 ? String(Math.abs(bal)) : '');
@@ -1797,7 +1814,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
             <Field label="Partner (from Ledger)">
               <select value={selectedPartnerId} onChange={(e) => handlePartnerSelect(e.target.value)} className={selectClass}>
                 <option value="">— No Partner —</option>
-                {partners.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.mobile})</option>)}
+                {partners.map((p) => <option key={p.id} value={p.id}>{partnerNameWithoutMobile(p)} ({partnerMobile(p)})</option>)}
               </select>
             </Field>
             <Field label="Partner Name">
