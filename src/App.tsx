@@ -44,6 +44,8 @@ function AdminApp() {
 
 function DesktopPage({ page, onNavigate }: { page: PageKey; onNavigate: (page: PageKey) => void }) {
   const isWidePage = page === 'photo-selection';
+  if (page === 'lab') return <LabOrders />;
+
   return (
     <div className={`mx-auto my-6 flex min-h-[85vh] w-full flex-col overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/30 p-4 sm:p-6 lg:p-8 ${isWidePage ? 'max-w-[1600px]' : 'max-w-6xl'}`}>
       {page === 'bookings' && <Bookings />}
