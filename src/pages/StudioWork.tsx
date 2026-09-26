@@ -298,15 +298,16 @@ export function LabOrders() {
   });
 
   const ordersByPartner = useMemo(() => {
-    const groups = new Map<string, { name: string; orders: StudioLabOrder[] }>();
+    const groups = new Map<string, { studioName: string; partnerName: string; orders: StudioLabOrder[] }>();
     for (const order of orders) {
       const key = String(order.partner_id ?? order.partner_name ?? order.studio_name ?? 'unassigned').trim() || 'unassigned';
-      const name = (order.partner_name || order.studio_name || 'Unassigned Partner').trim();
-      const group = groups.get(key) ?? { name, orders: [] };
+      const studioName = (order.studio_name || order.partner_name || 'Unassigned Studio').trim() || 'Unassigned Studio';
+      const partnerName = (order.partner_name || 'Unassigned Partner').trim() || 'Unassigned Partner';
+      const group = groups.get(key) ?? { studioName, partnerName, orders: [] };
       group.orders.push(order);
       groups.set(key, group);
     }
-    return Array.from(groups.entries()).sort(([, a], [, b]) => a.name.localeCompare(b.name));
+    return Array.from(groups.entries()).sort(([, a], [, b]) => a.studioName.localeCompare(b.studioName));
   }, [orders]);
 
   const selectedPartnerGroup = selectedPartner ? ordersByPartner.find(([key]) => key === selectedPartner)?.[1] : null;
@@ -651,34 +652,35 @@ export function LabOrders() {
   };
 
   return (
-    <div className="flex h-full w-full flex-col space-y-5 overflow-y-auto">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Lab Order Form</h1>
+    <div className="flex h-auto w-full flex-col">
+      <div className="flex flex-col justify-between items-start gap-4 mb-6 w-full md:flex-row md:items-center">
+        <div>
+          <h1 className="whitespace-nowrap text-2xl font-bold text-slate-900 dark:text-white">Lab Order Form</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">Photolab & Media Production Order Sheet</p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setActiveTab('station')}
-              className={`rounded-lg px-3 py-2 text-xs font-medium ${activeTab === 'station' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
-            >
-              🛠️ On Live Station
-            </button>
-            <button
-              onClick={() => setActiveTab('partners')}
-              className={`rounded-lg px-3 py-2 text-xs font-medium ${activeTab === 'partners' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
-            >
-              👥 Partner Folders
-            </button>
-          </div>
         </div>
-        <button
-          onClick={() => { setEditing(null); setShowForm(true); }}
-          className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"
-        >
-          <Plus className="h-4 w-4" /> New Order
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setActiveTab('station')}
+            className={`rounded-lg px-3 py-2 text-xs font-medium ${activeTab === 'station' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
+          >
+            🛠️ On Live Station
+          </button>
+          <button
+            onClick={() => setActiveTab('partners')}
+            className={`rounded-lg px-3 py-2 text-xs font-medium ${activeTab === 'partners' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
+          >
+            👥 Partner Folders
+          </button>
+          <button
+            onClick={() => { setEditing(null); setShowForm(true); }}
+            className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"
+          >
+            <Plus className="h-4 w-4" /> New Order
+          </button>
+        </div>
       </div>
 
+      <div className="space-y-5 p-4">
         {activeTab === 'station' ? <>
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative flex-1">
@@ -770,14 +772,15 @@ export function LabOrders() {
                       <span className="text-2xl" aria-hidden="true">📁</span>
                       <span className="rounded-full bg-amber-500/15 px-2 py-1 text-xs font-semibold text-amber-400">{group.orders.length} orders</span>
                     </div>
-                    <p className="truncate text-sm font-semibold text-zinc-100">{group.name}</p>
-                    <p className="mt-1 text-xs text-zinc-400">Open partner folder</p>
+                    <p className="truncate text-sm font-semibold text-zinc-100">{group.studioName}</p>
+                    <p className="mt-1 truncate text-xs text-zinc-400">{group.partnerName}</p>
                   </button>
                 ))}
               </div>
             )}
           </div>
         )}
+      </div>
 
       <ErrorBoundary>
         <LabOrderForm open={showForm} onClose={() => setShowForm(false)} editing={editing} existing={orders} onSaved={(saved) => { setShowForm(false); load(); setSuccessOrder(saved); toast('Saved Successfully!', 'success'); }} />
