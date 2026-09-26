@@ -652,8 +652,8 @@ export function LabOrders() {
   };
 
   return (
-    <div className="flex flex-col w-full relative min-h-screen">
-      <div className="sticky top-0 z-50 w-full bg-[#0B1121]/90 backdrop-blur-md py-2 px-4 shadow-md flex flex-col md:flex-row justify-between items-start md:items-center">
+    <div className="w-full flex flex-col relative">
+      <div className="sticky top-0 z-30 w-full mt-0 bg-[#0B1121]/90 backdrop-blur-md py-2 px-4 shadow-md flex flex-col md:flex-row justify-between items-center">
         <div>
           <h1 className="whitespace-nowrap text-lg font-bold text-white md:text-xl">Lab Order Form</h1>
           <p className="text-xs text-slate-400">Photolab & Media Production Order Sheet</p>
