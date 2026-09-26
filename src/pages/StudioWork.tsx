@@ -652,28 +652,28 @@ export function LabOrders() {
   };
 
   return (
-    <div className="flex flex-col gap-6 w-full relative">
-      <section className="sticky top-0 z-50 bg-[#0B1121]/80 backdrop-blur-md border-b border-gray-800 p-4 flex flex-col md:flex-row justify-between items-center gap-4">
+    <main className="flex flex-col gap-6 w-full relative">
+      <section className="flex w-full flex-col items-start justify-between gap-4 border-b border-gray-800 pb-4 md:flex-row md:items-center">
         <div>
-          <h1 className="whitespace-nowrap text-2xl font-bold text-white">Lab Order Form</h1>
-          <p className="text-sm text-slate-400">Photolab & Media Production Order Sheet</p>
+          <h1 className="whitespace-nowrap text-2xl font-bold text-slate-900 dark:text-white">Lab Order Form</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Photolab & Media Production Order Sheet</p>
         </div>
-        <div className="flex flex-row flex-wrap gap-2 justify-start md:justify-end">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setActiveTab('station')}
-            className={`rounded-lg px-2.5 py-2 text-[11px] font-medium sm:px-3 sm:text-xs ${activeTab === 'station' ? 'bg-amber-500 text-slate-900' : 'border border-white/10 text-slate-300'}`}
+            className={`rounded-lg px-3 py-2 text-xs font-medium ${activeTab === 'station' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
           >
             🛠️ On Live Station
           </button>
           <button
             onClick={() => setActiveTab('partners')}
-            className={`rounded-lg px-2.5 py-2 text-[11px] font-medium sm:px-3 sm:text-xs ${activeTab === 'partners' ? 'bg-amber-500 text-slate-900' : 'border border-white/10 text-slate-300'}`}
+            className={`rounded-lg px-3 py-2 text-xs font-medium ${activeTab === 'partners' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
           >
             👥 Partner Folders
           </button>
           <button
             onClick={() => { setEditing(null); setShowForm(true); }}
-            className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-slate-900 transition-colors hover:bg-amber-400 sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm"
+            className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"
           >
             <Plus className="h-4 w-4" /> New Order
           </button>
@@ -704,7 +704,7 @@ export function LabOrders() {
           ) : liveStationItems.length === 0 ? (
             <EmptyState icon={Clapperboard} title="No lab orders found" subtitle="Create a new lab order to get started" />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mt-6">
               {liveStationItems.map(({ order, workType }) => renderOrderCard(order, workType))}
             </div>
           )}
@@ -735,7 +735,7 @@ export function LabOrders() {
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mt-6">
                     {(selectedPartnerGroup?.orders ?? []).map((order) => {
                       const partyName = order.project_name || order.clients?.map((client) => client.client_name).filter(Boolean).join(', ') || 'Untitled Project';
                       const deliveryDate = order.promised_delivery_date || order.album_required_date || order.video_delivery_date;
@@ -760,7 +760,7 @@ export function LabOrders() {
                 )}
               </>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mt-6">
                 {ordersByPartner.map(([key, group]) => (
                   <button
                     key={key}
@@ -818,7 +818,7 @@ export function LabOrders() {
         danger
       />
       <MasterPinDialog open={showPin} settings={settings} onClose={() => { setShowPin(false); setDeleteId(null); }} onVerified={() => { if (pendingDelete === 'permanent') permanentlyDeleteOrder(); else handleDelete(); }} />
-    </div>
+    </main>
   );
 }
 
