@@ -653,34 +653,34 @@ export function LabOrders() {
 
   return (
     <div className="w-full flex flex-col relative">
-      <div className="sticky top-0 z-30 w-full mt-0 bg-[#0B1121]/90 backdrop-blur-md py-2 px-4 shadow-md flex flex-col md:flex-row justify-between items-center">
-        <div>
+      <div className="sticky top-0 z-30 w-full mt-0 bg-[#0B1121]/90 backdrop-blur-md px-3 py-3 shadow-md flex flex-col items-start gap-3 sm:px-4 md:flex-row md:items-center md:justify-between md:gap-0 md:py-2">
+        <div className="w-full min-w-0 md:w-auto">
           <h1 className="whitespace-nowrap text-lg font-bold text-white md:text-xl">Lab Order Form</h1>
           <p className="text-xs text-slate-400">Photolab & Media Production Order Sheet</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 md:w-auto md:justify-end">
           <button
             onClick={() => setActiveTab('station')}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium ${activeTab === 'station' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
+            className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-medium sm:px-3 sm:text-xs ${activeTab === 'station' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
           >
             🛠️ On Live Station
           </button>
           <button
             onClick={() => setActiveTab('partners')}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium ${activeTab === 'partners' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
+            className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-medium sm:px-3 sm:text-xs ${activeTab === 'partners' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
           >
             👥 Partner Folders
           </button>
           <button
             onClick={() => { setEditing(null); setShowForm(true); }}
-            className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-slate-900 transition-colors hover:bg-amber-400"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-500 px-2.5 py-1.5 text-[11px] font-medium text-slate-900 transition-colors hover:bg-amber-400 sm:px-3 sm:text-xs"
           >
             <Plus className="h-4 w-4" /> New Order
           </button>
         </div>
       </div>
 
-      <div className="-mt-2 w-full space-y-3 rounded-xl border border-gray-800 p-2 md:p-3">
+      <div className="mt-0 w-full space-y-3 rounded-xl border border-gray-800 p-2 md:-mt-2 md:p-3">
         {activeTab === 'station' ? <>
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative flex-1">
