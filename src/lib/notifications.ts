@@ -61,6 +61,21 @@ export async function logWorkStatusNotification(
   await logNotification(bookingId, 'work_status', titles[newStatus], labels[newStatus]);
 }
 
+export async function logDeliveryNotification(
+  bookingId: string,
+  item: string,
+  isFinalDelivery: boolean,
+): Promise<void> {
+  await logNotification(
+    bookingId,
+    'delivery',
+    isFinalDelivery ? 'Final Delivery Completed' : 'Delivery Item Received',
+    isFinalDelivery
+      ? `All booked deliverables have been handed over. Final item: ${item}.`
+      : `Received: ${item}. Other booked items are still pending.`,
+  );
+}
+
 export async function logReminderNotification(
   bookingId: string,
   eventDate: string,

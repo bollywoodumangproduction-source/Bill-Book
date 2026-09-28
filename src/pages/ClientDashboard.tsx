@@ -47,6 +47,12 @@ function innerSheetCount(session: ClientSelectionSession): number {
   return (session.proofSheets ?? []).filter((sheet) => Number(sheet.sheetNumber) > 0).length;
 }
 
+function deliveryItemKey(items: string[], index: number): string {
+  const item = items[index];
+  const occurrence = items.slice(0, index + 1).filter((entry) => entry === item).length;
+  return `${item}#${occurrence}`;
+}
+
 function selectionExtra(session: ClientSelectionSession): { sheets: number; amount: number } {
   const sheets = Math.max(0, innerSheetCount(session) - Number(session.packageSheets ?? 0));
   return { sheets, amount: sheets * Number(session.extraSheetRate ?? 0) };
@@ -143,6 +149,32 @@ export function ClientDashboard() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
+    if (!booking?.id || labOrder) return;
+    let active = true;
+    const refreshBooking = async () => {
+      const { data } = await supabase.from('bookings').select('*').eq('id', booking.id).maybeSingle();
+      if (active && data) setBooking(data as Booking);
+    };
+    const channel = supabase
+      .channel(`client-booking-${booking.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings', filter: `id=eq.${booking.id}` }, (payload) => {
+        if (payload.eventType !== 'DELETE') setBooking(payload.new as Booking);
+      })
+      .subscribe();
+    const timer = window.setInterval(() => { void refreshBooking(); }, 20000);
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') void refreshBooking(); };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      void supabase.removeChannel(channel);
+    };
+  }, [booking?.id, labOrder]);
+
+  useEffect(() => {
     if (!booking?.booking_no || labOrder) return;
     const channel = supabase
       .channel(`client-photo-session-${booking.booking_no}`)
@@ -183,6 +215,9 @@ export function ClientDashboard() {
   const safeEvents = booking.events ?? [];
   const safeDeliverables = booking.deliverables_data ?? DEFAULT_DELIVERABLES;
   const delivList = formatDeliverablesList(safeDeliverables);
+  const deliveryReceipts = safeDeliverables.delivery_receipts ?? [];
+  const deliveryReceivedCount = delivList.filter((_item, index) => deliveryReceipts.some((receipt) => receipt.item_key === deliveryItemKey(delivList, index))).length;
+  const allDeliverablesReceived = delivList.length > 0 && deliveryReceivedCount === delivList.length;
   const netDue = Number(booking.net_due ?? 0);
   const paymentHistory: BookingPaymentInstallment[] = booking.deliverables_data?.payment_details?.payment_history ?? [];
   const whatsappNumber = (settings?.studio_whatsapp || settings?.whatsapp_number || '').replace(/\D/g, '');
@@ -460,6 +495,33 @@ export function ClientDashboard() {
         {/* Project Status Timeline — only for confirmed/completed bookings */}
         {booking.booking_status !== 'TENTATIVE' && (
           <ProjectTimeline booking={booking} />
+        )}
+
+        {delivList.length > 0 && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Delivery Status</h2>
+              <Badge color={allDeliverablesReceived ? 'emerald' : 'amber'}>
+                {allDeliverablesReceived ? 'Delivered' : `${deliveryReceivedCount}/${delivList.length} received`}
+              </Badge>
+            </div>
+            <div className="space-y-2">
+              {delivList.map((item, index) => {
+                const receipt = deliveryReceipts.find((entry) => entry.item_key === deliveryItemKey(delivList, index));
+                return (
+                  <div key={deliveryItemKey(delivList, index)} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-white/10">
+                    <span className="min-w-0 flex-1 text-xs text-slate-700 dark:text-slate-300">{item}</span>
+                    <span className={`text-xs font-medium ${receipt ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                      {receipt ? `Received · ${formatDate(receipt.received_at)}` : 'Pending'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            {allDeliverablesReceived && safeDeliverables.final_delivered_at && (
+              <p className="mt-3 text-xs font-medium text-emerald-600 dark:text-emerald-400">Final delivery date: {formatDate(safeDeliverables.final_delivered_at)}</p>
+            )}
+          </div>
         )}
 
         {/* Promo & Marketing — strictly separated from booked client timeline */}

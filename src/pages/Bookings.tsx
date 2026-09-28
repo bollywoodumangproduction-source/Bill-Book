@@ -45,7 +45,7 @@ import type {
 } from '@/lib/types';
 import { WORK_STATUSES, WORK_STATUS_LABELS } from '@/lib/types';
 import { formatINR, formatDate, todayISO, formatPhone, defaultPinFromPhone } from '@/lib/format';
-import { logPaymentNotification, logWorkStatusNotification } from '@/lib/notifications';
+import { logDeliveryNotification, logPaymentNotification, logWorkStatusNotification } from '@/lib/notifications';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { useDraftState, useDraftOpen } from '@/lib/useDraftState';
@@ -108,6 +108,21 @@ function uid(): string {
   });
 }
 
+function bookingDeliveryState(booking: Booking) {
+  const items = formatDeliverablesList(booking.deliverables_data ?? DEFAULT_DELIVERABLES);
+  const receipts = booking.deliverables_data?.delivery_receipts ?? [];
+  const receivedKeys = new Set(receipts.map((receipt) => receipt.item_key));
+  const receivedCount = items.reduce((count, item, index) => count + (receivedKeys.has(deliveryItemKey(items, index)) ? 1 : 0), 0);
+  const isComplete = items.length > 0 && receivedCount === items.length;
+  return { items, receipts, receivedCount, isComplete };
+}
+
+function deliveryItemKey(items: string[], index: number): string {
+  const item = items[index];
+  const occurrence = items.slice(0, index + 1).filter((entry) => entry === item).length;
+  return `${item}#${occurrence}`;
+}
+
 function emptyPaperRow(): BookingPaperRow {
   return { id: uid(), paper_type: 'Glossy', sheets: '', rate: '', total: '' };
 }
@@ -154,7 +169,7 @@ export function Bookings() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [detailBooking, setDetailBooking] = useState<Booking | null>(null);
   const [successBooking, setSuccessBooking] = useState<Booking | null>(null);
-  const [view, setView] = useState<'active' | 'archived' | 'recycle'>('active');
+  const [view, setView] = useState<'active' | 'archived' | 'delivered' | 'recycle'>('active');
   const [showPin, setShowPin] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<'soft' | 'permanent'>('soft');
 
@@ -173,9 +188,24 @@ export function Bookings() {
       ? !!b.deleted_at
       : view === 'archived'
         ? !!b.archived_at && !b.deleted_at
-        : !b.archived_at && !b.deleted_at && !isCancelled;
+        : view === 'delivered'
+          ? !b.archived_at && !b.deleted_at && b.work_status === 'delivered'
+          : !b.archived_at && !b.deleted_at && !isCancelled && b.work_status !== 'delivered';
     return lifecycleMatch && ((b.client_name ?? '').toLowerCase().includes(q) || (b.event_function ?? '').toLowerCase().includes(q) || (b.booking_no ?? '').toLowerCase().includes(q));
   });
+
+  const bookingsByYear = useMemo(() => {
+    const groups = new Map<string, Booking[]>();
+    for (const booking of filtered) {
+      const year = booking.created_at ? new Date(booking.created_at).getFullYear().toString() : 'Unknown year';
+      groups.set(year, [...(groups.get(year) ?? []), booking]);
+    }
+    return [...groups.entries()].sort(([yearA], [yearB]) => {
+      if (yearA === 'Unknown year') return 1;
+      if (yearB === 'Unknown year') return -1;
+      return Number(yearB) - Number(yearA);
+    });
+  }, [filtered]);
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -194,38 +224,79 @@ export function Bookings() {
   };
 
   return (
-    <div className="flex h-full w-full flex-col space-y-5 overflow-y-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Bookings</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">B2C Films — client event bookings</p>
+    <>
+      <div className="sticky top-0 z-30 flex w-full flex-col gap-1 bg-[#0B1121]/90 px-2 py-1 shadow-md backdrop-blur-md sm:gap-2 sm:px-4 sm:py-2">
+        <div className="flex w-full items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h1 className="whitespace-nowrap text-sm font-bold text-white sm:text-lg">Bookings</h1>
+            <p className="hidden truncate text-xs text-slate-400 sm:block">Client Events</p>
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-2">
+            <button
+              onClick={() => { setEditing(null); setShowForm(true); }}
+              className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-500 px-2 py-1 text-[10px] font-medium text-slate-900 transition-colors hover:bg-amber-400 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-xs"
+            >
+              <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> New Booking
+            </button>
+          </div>
         </div>
-        <button
-          onClick={() => { setEditing(null); setShowForm(true); }}
-          className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"
-        >
-          <Plus className="h-4 w-4" /> New Booking
-        </button>
+        <div className="grid grid-cols-[minmax(0,1fr)_96px] items-center gap-1 md:hidden">
+          <div className="relative min-w-0">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by client, event, or booking no..."
+              className={`${inputClass} h-7 py-0.5 pl-8 pr-1 text-[10px]`}
+            />
+          </div>
+          <select
+            value={view}
+            onChange={(event) => setView(event.target.value as typeof view)}
+            aria-label="Booking status"
+            className={`${inputClass} h-7 appearance-auto px-2 py-0 text-[10px]`}
+          >
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+            <option value="recycle">Recycle Bin</option>
+            <option value="delivered">Delivered</option>
+          </select>
+        </div>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by client, event, or booking no..."
-          className={`${inputClass} pl-10`}
-        />
-      </div>
-      <div className="flex gap-2"><button onClick={() => setView('active')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'active' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Active</button><button onClick={() => setView('archived')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'archived' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Archived</button><button onClick={() => setView('recycle')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'recycle' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Recycle Bin</button></div>
-
+      <div className="mt-2 w-full space-y-3 md:-mt-2 md:rounded-xl md:border md:border-gray-800 md:p-3">
+        <div className="hidden space-y-3 md:block">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by client, event, or booking no..."
+              className={`${inputClass} pl-10`}
+            />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setView('active')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'active' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Active</button>
+            <button onClick={() => setView('archived')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'archived' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Archived</button>
+            <button onClick={() => setView('delivered')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'delivered' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Delivered</button>
+            <button onClick={() => setView('recycle')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'recycle' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Recycle Bin</button>
+          </div>
+        </div>
+        <div className="max-h-[calc(100dvh-13rem)] overflow-y-auto overscroll-contain md:max-h-[calc(100vh-11rem)]">
       {loading ? (
         <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
       ) : filtered.length === 0 ? (
-        <EmptyState icon={CalendarPlus} title="No bookings found" subtitle="Create a new booking to get started" />
+        <EmptyState icon={CalendarPlus} title={view === 'delivered' ? 'No delivered bookings yet' : 'No bookings found'} subtitle={view === 'delivered' ? 'Bookings appear here after all delivery items are received' : 'Create a new booking to get started'} />
       ) : (
         <div className="space-y-2.5">
-          {filtered.map((b) => (
+          {bookingsByYear.map(([year, yearBookings]) => (
+            <details key={year} open className="group/year space-y-2.5">
+              <summary className="flex cursor-pointer list-none items-center justify-between px-1 py-1">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{year}</h2>
+                <span className="text-xs text-slate-400">{yearBookings.length} {yearBookings.length === 1 ? 'booking' : 'bookings'}</span>
+              </summary>
+              <div className="space-y-2.5">
+                {yearBookings.map((b) => (
             <div
               key={b.id}
               onClick={() => setDetailBooking(b)}
@@ -242,6 +313,7 @@ export function Bookings() {
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   {b.booking_no} · {b.event_function} · {formatDate(b.shoot_date)} {b.venue && `· ${b.venue}`}
                 </p>
+                <BookingDeliveryStatus booking={b} compact />
               </div>
               <div className="text-right">
                 <p className="text-sm font-semibold text-slate-900 dark:text-white">{formatINR(Number(b.total_amount))}</p>
@@ -256,12 +328,17 @@ export function Bookings() {
                 <Copy className="h-4 w-4" />
               </button>
               <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-amber-500 dark:group-hover:text-amber-400" />
-              {view !== 'active' && <button onClick={(e) => { e.stopPropagation(); restoreBooking(b.id); }} className="text-xs text-emerald-600 dark:text-emerald-400">Restore</button>}
+              {(view === 'archived' || view === 'recycle') && <button onClick={(e) => { e.stopPropagation(); restoreBooking(b.id); }} className="text-xs text-emerald-600 dark:text-emerald-400">Restore</button>}
               {view === 'recycle' && <button onClick={(e) => { e.stopPropagation(); setDeleteId(b.id); setPendingDelete('permanent'); setShowPin(true); }} className="text-xs text-rose-500">Delete Forever</button>}
             </div>
+                ))}
+              </div>
+            </details>
           ))}
         </div>
       )}
+        </div>
+      </div>
 
       <BookingForm
         open={showForm}
@@ -293,6 +370,7 @@ export function Bookings() {
           <BookingDetail
             booking={detailBooking}
             onClose={() => { setDetailBooking(null); load(); }}
+            onUpdated={(updated) => { setDetailBooking(updated); setBookings((prev) => prev.map((item) => item.id === updated.id ? updated : item)); }}
             onEdit={() => { setEditing(detailBooking); setDetailBooking(null); setShowForm(true); }}
             onDelete={() => { setDeleteId(detailBooking.id); setPendingDelete('soft'); setShowPin(true); setDetailBooking(null); }}
           />
@@ -309,7 +387,7 @@ export function Bookings() {
         danger
       />
       <MasterPinDialog open={showPin} settings={settings} onClose={() => { setShowPin(false); setDeleteId(null); }} onVerified={() => { if (pendingDelete === 'permanent') permanentlyDeleteBooking(); else handleDelete(); }} />
-    </div>
+    </>
   );
 }
 
@@ -450,6 +528,8 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
         raw_selected_photos: d.raw_selected_photos ?? false,
         raw_all_photos: d.raw_all_photos ?? false,
         raw_edited_photos: d.raw_edited_photos ?? false,
+        delivery_receipts: d.delivery_receipts ?? [],
+        final_delivered_at: d.final_delivered_at,
       });
       setBaseAmount(editing && Number(editing.base_amount) ? String(editing.base_amount) : '');
       setTotalAmount(editing && Number(editing.total_amount) ? String(editing.total_amount) : '');
@@ -461,6 +541,14 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       setCustomPaymentNote(payment?.custom_note ?? '');
       setPaidAmount(payment?.paid_amount ?? (editing && Number(editing.advance_paid) ? String(editing.advance_paid) : ''));
       setPaymentHistory(payment?.payment_history ?? (editing && Number(editing.advance_paid) ? [{ id: uid(), payment_date: payment?.payment_date ?? todayISO(), payment_mode: payment?.payment_mode ?? 'Cash', custom_note: payment?.custom_note ?? 'Legacy payment record', paid_amount: String(editing.advance_paid) }] : []));
+    } else {
+      setDeliverables((current) => ({
+        ...current,
+        raw_video: false,
+        raw_selected_photos: false,
+        raw_all_photos: false,
+        raw_edited_photos: false,
+      }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing]);
@@ -574,21 +662,8 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
   };
 
   const syncDeliveryData = useCallback(() => {
-    const hasAlbumItems = albumRows.length > 0;
-    const hasVideoItems = videoRows.length > 0;
-    if (!hasAlbumItems && !hasVideoItems) return;
-
-    setDeliverables((current) => ({
-      ...current,
-      raw_video: current.raw_video || hasVideoItems,
-      raw_selected_photos: current.raw_selected_photos || hasAlbumItems,
-      raw_edited_photos: current.raw_edited_photos || hasAlbumItems || hasVideoItems,
-    }));
-  }, [albumRows.length, videoRows.length]);
-
-  useEffect(() => {
-    syncDeliveryData();
-  }, [syncDeliveryData, albumRows, videoRows, customItems]);
+    toast('Package items are synced below. Select photo/video delivery options manually.', 'success');
+  }, [toast]);
 
   const lineItemsTotal = useMemo(() => {
     const albumTotal = albumRows.reduce((s, r) => s + computeAlbumTotal(r), 0);
@@ -1394,6 +1469,22 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
   );
 }
 
+function BookingDeliveryStatus({ booking, compact = false }: { booking: Booking; compact?: boolean }) {
+  const { items, receivedCount, isComplete } = bookingDeliveryState(booking);
+  const finalDate = booking.deliverables_data?.final_delivered_at;
+  const label = isComplete
+    ? `Delivered${finalDate ? ` · ${formatDate(finalDate)}` : ''}`
+    : items.length > 0
+      ? `${receivedCount}/${items.length} items received`
+      : 'No delivery items';
+  return (
+    <div className={`${compact ? 'mt-1' : ''} inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1 text-[11px] dark:border-white/10`}>
+      <span className="text-slate-400">Delivery</span>
+      <span className={isComplete ? 'font-medium text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}>{label}</span>
+    </div>
+  );
+}
+
 function DeliverableCheckbox({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
   return (
     <button onClick={onChange} className="flex items-center gap-2 text-xs">
@@ -1407,7 +1498,7 @@ function DeliverableCheckbox({ label, checked, onChange }: { label: string; chec
   );
 }
 
-function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Booking; onClose: () => void; onEdit: () => void; onDelete: () => void }) {
+function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { booking: Booking; onClose: () => void; onEdit: () => void; onDelete: () => void; onUpdated: (booking: Booking) => void }) {
   const { settings } = useSettings();
   const { toast } = useToast();
   const { triggerRefresh } = useRefresh();
@@ -1501,6 +1592,34 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
   const removeAssignment = async (id: string) => {
     await supabase.from('shoot_assignments').delete().eq('id', id);
     setAssignments((current) => current.filter((item) => item.id !== id));
+  };
+
+  const markDeliveryItemReceived = async (item: string, index: number) => {
+    const deliveryState = bookingDeliveryState(booking);
+    const itemKey = deliveryItemKey(deliveryState.items, index);
+    if (deliveryState.receipts.some((receipt) => receipt.item_key === itemKey)) return;
+    const receivedAt = new Date().toISOString();
+    const receipts = [...deliveryState.receipts, { item_key: itemKey, item, received_at: receivedAt }];
+    const receivedKeys = new Set(receipts.map((receipt) => receipt.item_key));
+    const isFinalDelivery = deliveryState.items.length > 0 && deliveryState.items.every((_deliveryItem, i) => receivedKeys.has(deliveryItemKey(deliveryState.items, i)));
+    const nextDeliverables: BookingDeliverables = {
+      ...safeDeliverables,
+      delivery_receipts: receipts,
+      ...(isFinalDelivery ? { final_delivered_at: receivedAt } : {}),
+    };
+    try {
+      const changes = isFinalDelivery
+        ? { deliverables_data: nextDeliverables, work_status: 'delivered' as WorkStatus }
+        : { deliverables_data: nextDeliverables };
+      const { data, error } = await supabase.from('bookings').update(changes).eq('id', booking.id).select('*').single();
+      if (error) throw error;
+      onUpdated(data as Booking);
+      await logDeliveryNotification(booking.id, item, isFinalDelivery);
+      triggerRefresh();
+      toast(isFinalDelivery ? 'All deliverables marked as delivered' : 'Delivery item marked as received', 'success');
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Could not update delivery status', 'error');
+    }
   };
 
   const sendDutySlip = () => {
@@ -1637,11 +1756,29 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
       {delivList.length > 0 && (
         <div>
           <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-white">Delivery Data</h3>
-          <div className="flex flex-wrap gap-2">
-            {delivList.map((d, i) => (
-              <Badge key={i} color="emerald">{d}</Badge>
-            ))}
+          <div className="space-y-2">
+            {delivList.map((item, index) => {
+              const itemKey = deliveryItemKey(delivList, index);
+              const receipt = safeDeliverables.delivery_receipts?.find((entry) => entry.item_key === itemKey);
+              return (
+                <div key={itemKey} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-white/10 dark:bg-white/5">
+                  <span className="min-w-0 flex-1 text-xs text-slate-700 dark:text-slate-200">{item}</span>
+                  {receipt ? (
+                    <Badge color="emerald">Received · {formatDate(receipt.received_at)}</Badge>
+                  ) : (
+                    <button onClick={() => markDeliveryItemReceived(item, index)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-emerald-500 hover:text-emerald-600 dark:border-white/10 dark:text-slate-300 dark:hover:text-emerald-400">
+                      Mark Received
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
+          <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+            {bookingDeliveryState(booking).isComplete
+              ? `Final Delivered${safeDeliverables.final_delivered_at ? ` · ${formatDate(safeDeliverables.final_delivered_at)}` : ''}`
+              : `${bookingDeliveryState(booking).receivedCount} of ${delivList.length} items received`}
+          </p>
         </div>
       )}
 
@@ -1677,10 +1814,22 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
               <button
                 key={ws}
                 onClick={async () => {
-                  await supabase.from('bookings').update({ work_status: ws }).eq('id', booking.id);
-                  await logWorkStatusNotification(booking.id, ws);
-                  triggerRefresh();
-                  toast(`Work status updated to "${WORK_STATUS_LABELS[ws]}"`, 'success');
+                  const deliveryState = bookingDeliveryState(booking);
+                  if (ws === 'delivered' && deliveryState.items.length > 0 && !deliveryState.isComplete) {
+                    toast('Mark every deliverable as received before setting the booking to Delivered', 'error');
+                    return;
+                  }
+                  try {
+                    const { data, error } = await supabase.from('bookings').update({ work_status: ws }).eq('id', booking.id).select('*').single();
+                    if (error) throw error;
+                    const updated = data as Booking;
+                    onUpdated(updated);
+                    await logWorkStatusNotification(booking.id, ws);
+                    triggerRefresh();
+                    toast(`Work status updated to "${WORK_STATUS_LABELS[ws]}"`, 'success');
+                  } catch (error) {
+                    toast(error instanceof Error ? error.message : 'Could not update work status', 'error');
+                  }
                 }}
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                   (booking.work_status ?? 'pending') === ws
@@ -1719,11 +1868,51 @@ function BookingDetail({ booking, onClose, onEdit, onDelete }: { booking: Bookin
                 if (amt <= 0) { toast('Enter a valid amount', 'error'); return; }
                 const newAdvance = Number(booking.advance_paid) + amt;
                 const newDue = Number(booking.total_amount) - Number(booking.discount) - newAdvance;
-                await supabase.from('bookings').update({ advance_paid: newAdvance, net_due: newDue }).eq('id', booking.id);
-                await logPaymentNotification(booking.id, amt, newDue);
-                triggerRefresh();
-                toast(`Payment of ${formatINR(amt)} recorded`, 'success');
-                if (amtInput) amtInput.value = '';
+                const existingDetails = booking.deliverables_data?.payment_details ?? {
+                  payment_mode: '', payment_date: '', custom_note: '', paid_amount: '', payment_history: [],
+                };
+                const existingHistory: BookingPaymentInstallment[] = existingDetails.payment_history ?? (Number(booking.advance_paid) > 0 ? [{
+                  id: uid(),
+                  payment_date: existingDetails.payment_date || todayISO(),
+                  payment_mode: existingDetails.payment_mode || 'Cash',
+                  custom_note: existingDetails.custom_note || 'Existing payment',
+                  paid_amount: String(booking.advance_paid),
+                }] : []);
+                const paymentDate = todayISO();
+                const nextHistory: BookingPaymentInstallment[] = [...existingHistory, {
+                  id: uid(),
+                  payment_date: paymentDate,
+                  payment_mode: mode,
+                  custom_note: 'Quick payment',
+                  paid_amount: String(amt),
+                }];
+                const nextDeliverables: BookingDeliverables = {
+                  ...(booking.deliverables_data ?? DEFAULT_DELIVERABLES),
+                  payment_details: {
+                    ...existingDetails,
+                    payment_mode: mode,
+                    payment_date: paymentDate,
+                    custom_note: 'Quick payment',
+                    paid_amount: String(newAdvance),
+                    payment_history: nextHistory,
+                  },
+                };
+                try {
+                  const { data, error } = await supabase.from('bookings').update({
+                    advance_paid: newAdvance,
+                    net_due: newDue,
+                    deliverables_data: nextDeliverables,
+                  }).eq('id', booking.id).select('*').single();
+                  if (error) throw error;
+                  const updated = data as Booking;
+                  onUpdated(updated);
+                  await logPaymentNotification(booking.id, amt, newDue);
+                  triggerRefresh();
+                  toast(`Payment of ${formatINR(amt)} recorded`, 'success');
+                  if (amtInput) amtInput.value = '';
+                } catch (error) {
+                  toast(error instanceof Error ? error.message : 'Could not record payment', 'error');
+                }
               }}
               className="rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-600"
             >
@@ -2023,5 +2212,4 @@ function BookingSuccessModal({ booking, onClose, onView }: { booking: Booking; o
     </Modal>
   );
 }
-
 

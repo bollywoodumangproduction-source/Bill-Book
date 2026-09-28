@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Bell, CheckCheck, X, CheckCircle2, Wallet, Camera, Clock, Info } from 'lucide-react';
+import { Bell, CheckCheck, X, CheckCircle2, Wallet, Package, Clock, Info } from 'lucide-react';
 import type { BookingNotification, NotificationType } from '@/lib/types';
 import { fetchNotifications, markAllNotificationsRead } from '@/lib/notifications';
+import { supabase } from '@/lib/supabase';
 
 const TYPE_ICONS: Record<NotificationType, { icon: typeof Bell; color: string; bg: string }> = {
   payment: { icon: Wallet, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10' },
   work_status: { icon: CheckCircle2, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-500/10' },
+  delivery: { icon: Package, color: 'text-sky-600 dark:text-sky-400', bg: 'bg-sky-500/10' },
   reminder: { icon: Clock, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-500/10' },
 };
 
@@ -25,14 +27,30 @@ export function NotificationBell({ bookingId }: { bookingId: string }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const data = await fetchNotifications(bookingId);
     setNotifications(data);
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [bookingId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    void load();
+    const channel = supabase
+      .channel(`booking-notifications-${bookingId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'booking_notifications', filter: `booking_id=eq.${bookingId}` }, () => { void load(true); })
+      .subscribe();
+    const timer = window.setInterval(() => { void load(true); }, 20000);
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') void load(true); };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      void supabase.removeChannel(channel);
+    };
+  }, [load, bookingId]);
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
@@ -44,7 +62,7 @@ export function NotificationBell({ bookingId }: { bookingId: string }) {
   return (
     <>
       <button
-        onClick={() => { setOpen(!open); if (!open && unreadCount > 0) handleMarkAllRead(); }}
+        onClick={() => { setOpen(!open); if (!open) { void load(true); if (unreadCount > 0) handleMarkAllRead(); } }}
         className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
         title="Notifications"
       >

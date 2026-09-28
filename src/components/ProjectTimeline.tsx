@@ -6,15 +6,18 @@ import {
   Camera,
   AlertCircle,
   Sparkles,
+  Package,
 } from 'lucide-react';
 import type { Booking, BookingNotification, NotificationType, WorkStatus } from '@/lib/types';
 import { WORK_STATUS_LABELS } from '@/lib/types';
 import { fetchNotifications, shouldShowShootReminder } from '@/lib/notifications';
 import { formatINR, formatDate } from '@/lib/format';
+import { supabase } from '@/lib/supabase';
 
 const TYPE_CONFIG: Record<NotificationType, { icon: typeof Wallet; color: string; bg: string; ring: string }> = {
   payment: { icon: Wallet, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10', ring: 'ring-emerald-500/20' },
   work_status: { icon: CheckCircle2, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-500/10', ring: 'ring-amber-500/20' },
+  delivery: { icon: Package, color: 'text-sky-600 dark:text-sky-400', bg: 'bg-sky-500/10', ring: 'ring-sky-500/20' },
   reminder: { icon: Clock, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-500/10', ring: 'ring-rose-500/20' },
 };
 
@@ -35,7 +38,23 @@ export function ProjectTimeline({ booking }: { booking: Booking }) {
     setNotifications(data);
   }, [booking.id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    void load();
+    const channel = supabase
+      .channel(`project-timeline-${booking.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'booking_notifications', filter: `booking_id=eq.${booking.id}` }, () => { void load(); })
+      .subscribe();
+    const timer = window.setInterval(() => { void load(); }, 20000);
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') void load(); };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      void supabase.removeChannel(channel);
+    };
+  }, [booking.id, load]);
 
   const currentWorkStatus = booking.work_status ?? 'pending';
   const currentStatusIndex = WORK_STATUS_ORDER.indexOf(currentWorkStatus);

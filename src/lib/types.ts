@@ -132,6 +132,8 @@ export interface BookingDeliverables {
   video_rows?: BookingVideoRow[];
   custom_items?: BookingCustomItem[];
   payment_details?: BookingPaymentDetails;
+  delivery_receipts?: BookingDeliveryReceipt[];
+  final_delivered_at?: string;
   raw_video?: boolean;
   raw_selected_photos?: boolean;
   raw_all_photos?: boolean;
@@ -143,6 +145,12 @@ export interface BookingDeliverables {
   cinematic_reel?: boolean;
   cinematic_reel_count?: number;
   cinematic_story?: boolean;
+}
+
+export interface BookingDeliveryReceipt {
+  item_key: string;
+  item: string;
+  received_at: string;
 }
 
 export interface Booking {
@@ -189,7 +197,7 @@ export const WORK_STATUS_LABELS: Record<WorkStatus, string> = {
   delivered: 'Delivered',
 };
 
-export type NotificationType = 'payment' | 'work_status' | 'reminder';
+export type NotificationType = 'payment' | 'work_status' | 'delivery' | 'reminder';
 
 export interface BookingNotification {
   id: string;
