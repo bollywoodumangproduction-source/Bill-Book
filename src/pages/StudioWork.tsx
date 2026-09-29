@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, TriangleAlert as AlertTriangle, Zap, CalendarClock, Images, HardDrive } from 'lucide-react';
+import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, TriangleAlert as AlertTriangle, Zap, CalendarClock, Images, HardDrive, FolderOpen } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabClientDeliveryStatus, LabClientDispatchMode, StorageLocation } from '@/lib/types';
 import { formatINR, formatDate, todayISO, defaultPinFromPhone } from '@/lib/format';
@@ -41,6 +41,9 @@ const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Ready: 'sky',
   Delivered: 'emerald',
 };
+
+const LIVE_VIDEO_STATUSES = ['Processing', 'Edit', 'Ready', 'Delivered', 'Complete'];
+const LIVE_ALBUM_STATUSES = ['Processing', 'Edit', 'Print', 'In Studio', 'Delivered', 'Complete'];
 
 const DEFAULT_PRODUCTION_TERMS = `1. रॉ डाटा बैकअप व सुरक्षा (Raw Data Backup): जब तक तैयार प्रोजेक्ट/डाटा आपको नहीं मिल जाता, तब तक रॉ फुटेज की एक बैकअप कॉपी अपने पास सुरक्षित रखें।
 2. एल्बम डिजाइन व प्रिंट अप्रूवल (Album Approval): एल्बम प्रिंटिंग से पूर्व डिजाइन अप्रूवल अनिवार्य है। शीट प्रिंट होने के बाद किसी भी प्रकार का स्पेलिंग या फोटो बदलाव नहीं होगा।
@@ -462,6 +465,44 @@ export function LabOrders() {
     }
   };
 
+  const handleLiveStatusChange = async (order: StudioLabOrder, workType: 'album' | 'video', nextStatus: string) => {
+    const statusField = workType === 'album' ? 'album_status' : 'video_status';
+    const targetKey = getOrderKey(order);
+    const previousStatus = order[statusField] ?? 'Pending';
+    if (!targetKey || previousStatus === nextStatus) return;
+
+    const updateLocalStatus = (items: StudioLabOrder[], status: string, onlyIfCurrentIs?: string) =>
+      items.map((item) => {
+        if (getOrderKey(item) !== targetKey || (onlyIfCurrentIs && item[statusField] !== onlyIfCurrentIs)) return item;
+        return { ...item, [statusField]: status };
+      });
+
+    setOrders((current) => updateLocalStatus(current, nextStatus));
+    setSelectedOrder((current) => current && getOrderKey(current) === targetKey ? { ...current, [statusField]: nextStatus } : current);
+
+    try {
+      const isDemo = !order.id || String(order.id).startsWith('DEMO-') || String(order.id).startsWith('demo-');
+      const result = isDemo
+        ? await supabase.from('studio_lab_orders').update({ [statusField]: nextStatus }).eq('order_no', order.order_no)
+        : await supabase.from('studio_lab_orders').update({ [statusField]: nextStatus }).eq('id', order.id);
+      if (result.error) throw result.error;
+      toast(`${workType === 'album' ? 'Album' : 'Video'} status updated to ${nextStatus}`, 'success');
+    } catch (error) {
+      setOrders((current) => updateLocalStatus(current, previousStatus, nextStatus));
+      setSelectedOrder((current) => current && getOrderKey(current) === targetKey && current[statusField] === nextStatus
+        ? { ...current, [statusField]: previousStatus }
+        : current);
+      toast(getDatabaseErrorMessage(error), 'error');
+    }
+  };
+
+  const openPartnerLocation = (order: StudioLabOrder) => {
+    const partnerKey = String(order.partner_id ?? order.partner_name ?? order.studio_name ?? 'unassigned').trim() || 'unassigned';
+    setSelectedPartner(partnerKey);
+    setSelectedOrder(order);
+    setActiveTab('partners');
+  };
+
   const renderOrderCard = (o: StudioLabOrder, stationWork?: 'album' | 'video') => {
     const clientCount = (o.clients ?? []).length;
     const totalVideo = toNum(o.total_video_bill);
@@ -481,12 +522,14 @@ export function LabOrders() {
             <button onClick={() => { setEditing(o); setShowForm(true); }} className="rounded-md p-2 text-slate-400 transition-colors hover:bg-zinc-700 hover:text-amber-400" title="Edit order">
               <Edit3 className="h-4 w-4" />
             </button>
-            <button onClick={() => handleArchiveOrder(getOrderKey(o))} className="rounded-md p-2 text-slate-400 transition-colors hover:bg-zinc-700 hover:text-amber-400" title="Archive order">
-              <Archive className="h-4 w-4" />
-            </button>
-            <button onClick={() => { const key = getOrderKey(o); if (!key) return; setDeleteId(key); setPendingDelete('soft'); setShowPin(true); }} className="rounded-md p-2 text-slate-400 transition-colors hover:bg-zinc-700 hover:text-rose-400" title="Delete order">
-              <Trash2 className="h-4 w-4" />
-            </button>
+            {!stationWork && <>
+              <button onClick={() => handleArchiveOrder(getOrderKey(o))} className="rounded-md p-2 text-slate-400 transition-colors hover:bg-zinc-700 hover:text-amber-400" title="Archive order">
+                <Archive className="h-4 w-4" />
+              </button>
+              <button onClick={() => { const key = getOrderKey(o); if (!key) return; setDeleteId(key); setPendingDelete('soft'); setShowPin(true); }} className="rounded-md p-2 text-slate-400 transition-colors hover:bg-zinc-700 hover:text-rose-400" title="Delete order">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </>}
           </div>
         </div>
         <div className="mb-3 flex flex-wrap gap-1.5">
@@ -591,6 +634,46 @@ export function LabOrders() {
             {view === 'recycle' && <button onClick={() => { const key = getOrderKey(o); if (!key) return; setDeleteId(key); setPendingDelete('permanent'); setShowPin(true); }} className="rounded-lg border border-rose-500/30 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">Delete Forever</button>}
           </div>
         )}
+        {stationWork ? (
+          <div className="mt-3 space-y-2 border-t border-slate-100 pt-3 dark:border-white/5">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {hasAlbumWork(o) && (
+                <label className="flex min-w-0 flex-col gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  Album Status
+                  <select
+                    aria-label="Album Status"
+                    value={o.album_status ?? 'Pending'}
+                    onChange={(event) => { void handleLiveStatusChange(o, 'album', event.target.value); }}
+                    className={selectClass}
+                  >
+                    {!LIVE_ALBUM_STATUSES.includes(o.album_status ?? 'Pending') && <option value={o.album_status ?? 'Pending'} disabled>{o.album_status ?? 'Pending'}</option>}
+                    {LIVE_ALBUM_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+                  </select>
+                </label>
+              )}
+              {hasVideoWork(o) && (
+                <label className="flex min-w-0 flex-col gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  Video Status
+                  <select
+                    aria-label="Video Status"
+                    value={o.video_status ?? 'Pending'}
+                    onChange={(event) => { void handleLiveStatusChange(o, 'video', event.target.value); }}
+                    className={selectClass}
+                  >
+                    {!LIVE_VIDEO_STATUSES.includes(o.video_status ?? 'Pending') && <option value={o.video_status ?? 'Pending'} disabled>{o.video_status ?? 'Pending'}</option>}
+                    {LIVE_VIDEO_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+                  </select>
+                </label>
+              )}
+            </div>
+            <button
+              onClick={() => openPartnerLocation(o)}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-900 transition-colors hover:bg-amber-400"
+            >
+              <FolderOpen className="h-4 w-4" /> Open Location
+            </button>
+          </div>
+        ) : (
         <div className="mt-3 flex items-center gap-2">
           <button
             onClick={() => setSettleOrder(o)}
@@ -626,6 +709,7 @@ export function LabOrders() {
             <MessageCircle className="h-4 w-4" />
           </button>
         </div>
+        )}
       </div>
     );
   };
