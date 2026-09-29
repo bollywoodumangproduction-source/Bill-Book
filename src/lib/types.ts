@@ -296,6 +296,11 @@ export interface StudioLabOrder {
   order_status: string;
   album_status?: string;
   video_status?: string;
+  album_started_at?: string | null;
+  video_started_at?: string | null;
+  album_completed_at?: string | null;
+  video_completed_at?: string | null;
+  delivered_at?: string | null;
   delivery_mode: string;
   parcel_tracking_details: string;
   video_rows: VideoRow[];

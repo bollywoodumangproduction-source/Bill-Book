@@ -267,25 +267,20 @@ export function PhotoSelection() {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
-              <Images className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Photo Selection & Proofing</h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400">Client photo selection, proofing, and auto-copier engine</p>
-            </div>
+    <div className="relative flex w-full flex-col space-y-2">
+      <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-2 py-2 shadow-md backdrop-blur-md sm:px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400 sm:h-9 sm:w-9"><Images className="h-4 w-4 sm:h-5 sm:w-5" /></div>
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">Photo Selection &amp; Proofing</h1>
+            <p className="hidden truncate text-xs text-slate-400 sm:block">Client photo selection, proofing, and auto-copier engine</p>
           </div>
         </div>
-        <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-amber-400">
-          <Plus className="h-4 w-4" /> New Session
-        </button>
+        <button onClick={() => setShowCreate(true)} aria-label="New Session" title="New Session" className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-500 px-2 py-1.5 text-[11px] font-medium text-slate-900 transition hover:bg-amber-400 sm:px-3 sm:text-xs"><Plus className="h-4 w-4" /><span className="hidden sm:inline">New Session</span></button>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="w-full space-y-2 px-2 sm:px-3 md:px-4">
+      <div className="grid gap-3 lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="space-y-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -343,6 +338,7 @@ export function PhotoSelection() {
         />
       )}
       {previewPartner && <PartnerPreviewModal partner={previewPartner.partner} partnerName={previewPartner.name} orders={previewPartner.orders} onClose={() => setPreviewPartner(null)} />}
+      </div>
     </div>
   );
 }

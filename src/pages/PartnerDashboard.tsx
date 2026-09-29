@@ -115,7 +115,7 @@ async function fetchPartnerData(p: Partner) {
   });
   const bookings = ((bookingData ?? []) as Omit<CrewBooking, 'assignments'>[]).map((b) => ({ ...b, assignments: assignmentsByBooking.get(b.id) ?? [] }));
 
-  const activeLabOrders = ((labOrderData ?? []) as StudioLabOrder[]).filter((o) => !o.deleted_at && !o.archived_at);
+  const activeLabOrders = ((labOrderData ?? []) as StudioLabOrder[]).filter((o) => !o.deleted_at && (!o.archived_at || o.order_status === 'Delivered'));
 
   const ledgerEntries = (ledger ?? []) as Array<{ entry_type: string; amount: number }>;
   const directEntries = (directTxns ?? []) as Array<{ txn_type: string; amount: number }>;
@@ -390,10 +390,11 @@ export function PartnerDashboardContent({
       const query = orderSearch.trim().toLowerCase();
       const matchesSearch = !query || [order.order_no, order.project_name, order.partner_name, ...(order.clients ?? []).map((client) => client.client_name)]
         .some((value) => String(value || '').toLowerCase().includes(query));
-      const status = order.order_status || 'Processing';
+      const status = order.order_status || 'Pending';
+      const workStatuses = [order.album_status, order.video_status].filter(Boolean);
       const matchesFilter = orderFilter === 'All'
-        || (orderFilter === 'Processing' && status !== 'Ready' && status !== 'Printed/Ready' && status !== 'Delivered')
-        || (orderFilter === 'Ready' && (status === 'Ready' || status === 'Printed/Ready'))
+        || (orderFilter === 'Processing' && status !== 'Delivered' && workStatuses.some((workStatus) => ['Processing', 'Edit', 'Print', 'In Studio'].includes(String(workStatus))))
+        || (orderFilter === 'Ready' && status !== 'Delivered' && workStatuses.some((workStatus) => ['Ready', 'Complete'].includes(String(workStatus))))
         || status === orderFilter;
       return matchesSearch && matchesFilter;
     })
@@ -551,6 +552,23 @@ export function PartnerDashboardContent({
 
                     {isExpanded && <>
 
+                    <div className="mt-3 rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs">
+                      <p className="mb-2 font-medium text-slate-200">Production Progress</p>
+                      <div className="flex flex-wrap gap-2">
+                        {Number(order.total_album_bill ?? 0) > 0 && <span className="rounded-full bg-white/5 px-2 py-1 text-slate-300">Album: {order.album_status || 'Pending'}</span>}
+                        {Number(order.total_video_bill ?? 0) > 0 && <span className="rounded-full bg-white/5 px-2 py-1 text-slate-300">Video: {order.video_status || 'Pending'}</span>}
+                      </div>
+                      {(order.album_started_at || order.video_started_at || order.album_completed_at || order.video_completed_at) && (
+                        <div className="mt-2 space-y-1 text-[10px] text-slate-400">
+                          {order.album_started_at && <p>Album work started: {formatDate(order.album_started_at)}</p>}
+                          {order.album_completed_at && <p>Album work completed: {formatDate(order.album_completed_at)}</p>}
+                          {order.video_started_at && <p>Video work started: {formatDate(order.video_started_at)}</p>}
+                          {order.video_completed_at && <p>Video work completed: {formatDate(order.video_completed_at)}</p>}
+                        </div>
+                      )}
+                      {order.delivered_at && <p className="mt-2 text-emerald-400">Final delivery: {formatDate(order.delivered_at)}</p>}
+                    </div>
+
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {order.is_emergency && <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white"><Zap className="h-2.5 w-2.5" />EMERGENCY</span>}
                       {order.date_pending ? (
@@ -587,7 +605,7 @@ export function PartnerDashboardContent({
 
                     {order.clients && order.clients.length > 0 && (
                       <div className="mt-3 border-t border-white/10 pt-3 text-xs text-slate-300">
-                        <p className="mb-2 font-medium text-slate-200">Client-wise Order Status</p>
+                        <p className="mb-2 font-medium text-slate-200">Client Details & Work Status</p>
                         <div className="space-y-2">
                           {order.clients.map((client, idx) => (
                             <div key={client.id || idx} className="rounded-md border border-white/10 bg-slate-950/40 p-2">
@@ -601,6 +619,8 @@ export function PartnerDashboardContent({
                                 {client.dispatch_mode && <span>Dispatch: {client.dispatch_mode}</span>}
                                 {client.video_rows?.length > 0 && <span>Videos: {client.video_rows.length}</span>}
                                 {client.album_rows?.length > 0 && <span>Albums: {client.album_rows.length}</span>}
+                                {client.album_rows?.length > 0 && <span>Album work: {order.album_status || 'Pending'}</span>}
+                                {client.video_rows?.length > 0 && <span>Video work: {order.video_status || 'Pending'}</span>}
                               </div>
                             </div>
                           ))}
@@ -625,7 +645,7 @@ export function PartnerDashboardContent({
                     )}
 
                     {(order.order_status === 'Delivered') && (
-                      <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" /> Delivered</div>
+                      <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" /> Delivered{order.delivered_at ? ` · ${formatDate(order.delivered_at)}` : ''}</div>
                     )}
                     {session ? (
                       <div className="mt-3 space-y-2 border-t border-white/10 pt-3">

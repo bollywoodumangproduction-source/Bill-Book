@@ -395,35 +395,40 @@ export function Ledger() {
   const [statementClient, setStatementClient] = useState<BookingClientSummary | null>(null);
 
   return (
-    <div className="flex h-full w-full flex-col space-y-5 overflow-y-auto">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Ledger</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Partner ledger — credits, debits & direct transactions</p>
+    <div className="relative flex w-full flex-col space-y-2">
+      <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-2 py-2 shadow-md backdrop-blur-md sm:px-4">
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">Ledger</h1>
+          <p className="hidden truncate text-xs text-slate-400 sm:block">Partner ledger — credits, debits & direct transactions</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <button
             type="button"
             onClick={() => {
               setEditingPartner(null);
               setShowPartnerForm(true);
             }}
-            className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20"
+            aria-label="Add Partner"
+            title="Add Partner"
+            className="flex shrink-0 items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20 sm:px-3 sm:text-xs"
           >
-            <Plus className="h-4 w-4" /> Add Partner
+            <Plus className="h-4 w-4" /><span className="hidden sm:inline">Add Partner</span>
           </button>
           <button
             type="button"
             onClick={() => setShowDirectTxn(true)}
-            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-white/5"
+            aria-label="Quick Entry"
+            title="Quick Entry"
+            className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-white/5 sm:px-3 sm:text-xs"
           >
-            <Wallet className="h-4 w-4" /> Quick Entry
+            <Wallet className="h-4 w-4" /><span className="hidden sm:inline">Quick Entry</span>
           </button>
         </div>
       </div>
 
+      <div className="w-full space-y-2 px-2 sm:px-3 md:px-4">
       {/* View tabs */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-1.5">
         <TabButton active={activeTab === 'partners'} onClick={() => setLedgerTab('partners')} icon={Users} label="Partners" count={balances.filter((b) => b.partner.status === 'Active' || b.partner.status === 'Inactive').length} />
         <TabButton active={activeTab === 'clients'} onClick={() => setLedgerTab('clients')} icon={Wallet} label="Booking Clients" count={bookingClientSummaries.length} />
         <TabButton active={activeTab === 'archived'} onClick={() => setLedgerTab('archived')} icon={FolderArchive} label="Archived" count={balances.filter((b) => b.partner.status === 'Archived').length} />
@@ -431,7 +436,7 @@ export function Ledger() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-2">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
@@ -557,6 +562,7 @@ export function Ledger() {
         confirmLabel="Delete Forever"
         danger
       />
+      </div>
     </div>
   );
 }
@@ -565,7 +571,7 @@ function TabButton({ active, onClick, icon: Icon, label, count }: { active: bool
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
         active
           ? 'bg-amber-500 text-slate-900'
           : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-white/5'

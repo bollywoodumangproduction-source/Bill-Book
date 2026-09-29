@@ -40,10 +40,11 @@ const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Processing: 'amber',
   Ready: 'sky',
   Delivered: 'emerald',
+  Complete: 'emerald',
 };
 
-const LIVE_VIDEO_STATUSES = ['Processing', 'Edit', 'Ready', 'Delivered', 'Complete'];
-const LIVE_ALBUM_STATUSES = ['Processing', 'Edit', 'Print', 'In Studio', 'Delivered', 'Complete'];
+const LIVE_VIDEO_STATUSES = ['Processing', 'Edit', 'Ready', 'Complete'];
+const LIVE_ALBUM_STATUSES = ['Processing', 'Edit', 'Print', 'In Studio', 'Complete'];
 
 const DEFAULT_PRODUCTION_TERMS = `1. रॉ डाटा बैकअप व सुरक्षा (Raw Data Backup): जब तक तैयार प्रोजेक्ट/डाटा आपको नहीं मिल जाता, तब तक रॉ फुटेज की एक बैकअप कॉपी अपने पास सुरक्षित रखें।
 2. एल्बम डिजाइन व प्रिंट अप्रूवल (Album Approval): एल्बम प्रिंटिंग से पूर्व डिजाइन अप्रूवल अनिवार्य है। शीट प्रिंट होने के बाद किसी भी प्रकार का स्पेलिंग या फोटो बदलाव नहीं होगा।
@@ -77,6 +78,17 @@ function uid(): string {
 
 function getOrderKey(order: Partial<StudioLabOrder> | null | undefined): string {
   return String(order?.id ?? order?.order_no ?? (order as any)?.bup_no ?? '').trim();
+}
+
+function getDeliveryYear(order: StudioLabOrder): string {
+  const rawDate = order.delivered_at || order.archived_at || order.created_at;
+  if (!rawDate) return 'Unknown year';
+  const date = new Date(rawDate);
+  return Number.isNaN(date.getTime()) ? 'Unknown year' : String(date.getUTCFullYear());
+}
+
+function getLabClientKey(client: LabClientRow): string {
+  return `${String(client.client_name ?? '').trim().toLocaleLowerCase()}|${String(client.event_address ?? '').trim().toLocaleLowerCase()}`;
 }
 
 function nextOrderNo(existing: StudioLabOrder[]): string {
@@ -128,6 +140,14 @@ function hasVideoWork(order: Partial<StudioLabOrder>): boolean {
   return toNum(order.total_video_bill) > 0 || (Array.isArray(order.video_rows) && order.video_rows.length > 0);
 }
 
+function isProductionComplete(order: Partial<StudioLabOrder>): boolean {
+  const albumWork = hasAlbumWork(order);
+  const videoWork = hasVideoWork(order);
+  return (albumWork || videoWork)
+    && (!albumWork || order.album_status === 'Complete')
+    && (!videoWork || order.video_status === 'Complete');
+}
+
 function normalizeLabOrder(raw: Partial<StudioLabOrder>): StudioLabOrder {
   const clients = (Array.isArray(raw.clients) ? raw.clients : []).map((client) => ({
     ...emptyClient(),
@@ -166,6 +186,11 @@ function normalizeLabOrder(raw: Partial<StudioLabOrder>): StudioLabOrder {
     order_status: raw.order_status ?? 'Pending',
     album_status: raw.album_status || (hasAlbumWork(raw) && raw.order_status !== 'Pending' ? raw.order_status : 'Pending'),
     video_status: raw.video_status || (hasVideoWork(raw) && raw.order_status !== 'Pending' ? raw.order_status : 'Pending'),
+    album_started_at: raw.album_started_at ?? null,
+    video_started_at: raw.video_started_at ?? null,
+    album_completed_at: raw.album_completed_at ?? null,
+    video_completed_at: raw.video_completed_at ?? null,
+    delivered_at: raw.delivered_at ?? null,
     delivery_mode: raw.delivery_mode ?? 'By Hand',
     parcel_tracking_details: raw.parcel_tracking_details ?? '',
     video_rows: Array.isArray(raw.video_rows) ? raw.video_rows : [],
@@ -223,6 +248,9 @@ export function LabOrders() {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'station' | 'partners'>('station');
   const [selectedPartner, setSelectedPartner] = useState<string | null>(null);
+  const [selectedClientKey, setSelectedClientKey] = useState<string | null>(null);
+  const [selectedDeliveryYear, setSelectedDeliveryYear] = useState<string | null>(null);
+  const [showReadyDeliveries, setShowReadyDeliveries] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<StudioLabOrder | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
@@ -294,7 +322,7 @@ export function LabOrders() {
 
   const filtered = orders.filter((o) => {
     const q = search.toLowerCase();
-    const matchSearch = (o.studio_name ?? '').toLowerCase().includes(q) || (o.project_name ?? '').toLowerCase().includes(q) || (o.order_no ?? '').toLowerCase().includes(q) || (o.partner_name ?? '').toLowerCase().includes(q);
+    const matchSearch = (o.studio_name ?? '').toLowerCase().includes(q) || (o.project_name ?? '').toLowerCase().includes(q) || (o.order_no ?? '').toLowerCase().includes(q) || (o.partner_name ?? '').toLowerCase().includes(q) || (o.clients ?? []).some((client) => (client.client_name ?? '').toLowerCase().includes(q));
     const matchStatus = statusFilter === 'all' || o.order_status === statusFilter;
     const lifecycleMatch = view === 'recycle' ? !!o.deleted_at : view === 'archived' ? !!o.archived_at && !o.deleted_at : !o.archived_at && !o.deleted_at;
     return lifecycleMatch && matchSearch && matchStatus;
@@ -314,6 +342,34 @@ export function LabOrders() {
   }, [orders]);
 
   const selectedPartnerGroup = selectedPartner ? ordersByPartner.find(([key]) => key === selectedPartner)?.[1] : null;
+  const selectedClient = (selectedPartnerGroup?.orders ?? []).flatMap((order) => order.clients ?? []).find((client) => getLabClientKey(client) === selectedClientKey) ?? null;
+  const partnerClientGroups = useMemo(() => {
+    const groups = new Map<string, { client: LabClientRow; orders: StudioLabOrder[] }>();
+    for (const order of selectedPartnerGroup?.orders ?? []) {
+      if (order.deleted_at || order.archived_at || order.order_status === 'Delivered') continue;
+      for (const client of order.clients ?? []) {
+        const key = getLabClientKey(client);
+        const group = groups.get(key) ?? { client, orders: [] };
+        if (!group.orders.some((item) => getOrderKey(item) === getOrderKey(order))) group.orders.push(order);
+        groups.set(key, group);
+      }
+    }
+    return Array.from(groups.entries()).sort(([, a], [, b]) => a.client.client_name.localeCompare(b.client.client_name));
+  }, [selectedPartnerGroup]);
+  const deliveredYearGroups = useMemo(() => {
+    const groups = new Map<string, StudioLabOrder[]>();
+    for (const order of selectedPartnerGroup?.orders ?? []) {
+      if (order.deleted_at || order.order_status !== 'Delivered') continue;
+      const year = getDeliveryYear(order);
+      groups.set(year, [...(groups.get(year) ?? []), order]);
+    }
+    return Array.from(groups.entries()).sort(([a], [b]) => b.localeCompare(a));
+  }, [selectedPartnerGroup]);
+  const selectedClientOrders = (selectedPartnerGroup?.orders ?? []).filter((order) =>
+    order.order_status !== 'Delivered' && !order.archived_at && !order.deleted_at
+    && (order.clients ?? []).some((client) => getLabClientKey(client) === selectedClientKey));
+  const readyDeliveryOrders = (selectedPartnerGroup?.orders ?? []).filter((order) =>
+    order.order_status !== 'Delivered' && !order.archived_at && !order.deleted_at && isProductionComplete(order));
 
   // Deadline alerts
   const deadlineAlerts = useMemo(() => {
@@ -348,8 +404,8 @@ export function LabOrders() {
   }, [orders]);
 
   const liveStationItems = sortOrdersByPriority(filtered, deadlineAlerts).flatMap((order) => [
-    ...(hasAlbumWork(order) && order.album_status !== 'Pending' ? [{ order, workType: 'album' as const }] : []),
-    ...(hasVideoWork(order) && order.video_status !== 'Pending' ? [{ order, workType: 'video' as const }] : []),
+    ...(order.order_status !== 'Delivered' && hasAlbumWork(order) && order.album_status !== 'Pending' && order.album_status !== 'Complete' ? [{ order, workType: 'album' as const }] : []),
+    ...(order.order_status !== 'Delivered' && hasVideoWork(order) && order.video_status !== 'Pending' && order.video_status !== 'Complete' ? [{ order, workType: 'video' as const }] : []),
   ]);
 
   const handleArchiveOrder = async (orderIdOrNo: string) => {
@@ -449,16 +505,19 @@ export function LabOrders() {
     if (!selectedOrder) return;
     try {
       const statusField = workType === 'album' ? 'album_status' : 'video_status';
+      const startedField = workType === 'album' ? 'album_started_at' : 'video_started_at';
       const currentStatus = selectedOrder[statusField] ?? 'Pending';
+      if (currentStatus === 'Complete') { toast('Completed work cannot be turned off. Use Re-edit to return it to Live Station.', 'info'); return; }
       const nextStatus = currentStatus !== 'Pending' ? 'Pending' : 'Processing';
+      const patch = { [statusField]: nextStatus, [startedField]: nextStatus === 'Processing' ? (selectedOrder[startedField] || new Date().toISOString()) : selectedOrder[startedField] };
       const isDemo = !selectedOrder.id || String(selectedOrder.id).startsWith('DEMO-') || String(selectedOrder.id).startsWith('demo-');
       const result = isDemo
-        ? await supabase.from('studio_lab_orders').update({ [statusField]: nextStatus }).eq('order_no', selectedOrder.order_no)
-        : await supabase.from('studio_lab_orders').update({ [statusField]: nextStatus }).eq('id', selectedOrder.id);
+        ? await supabase.from('studio_lab_orders').update(patch).eq('order_no', selectedOrder.order_no)
+        : await supabase.from('studio_lab_orders').update(patch).eq('id', selectedOrder.id);
       if (result.error) throw result.error;
-      const updatedOrder = { ...selectedOrder, [statusField]: nextStatus };
+      const updatedOrder = { ...selectedOrder, ...patch };
       setSelectedOrder(updatedOrder);
-      setOrders((prev) => prev.map((order) => (getOrderKey(order) === getOrderKey(selectedOrder) ? { ...order, [statusField]: nextStatus } : order)));
+      setOrders((prev) => prev.map((order) => (getOrderKey(order) === getOrderKey(selectedOrder) ? { ...order, ...patch } : order)));
       toast(`${workType === 'album' ? 'Album' : 'Video'} ${nextStatus === 'Processing' ? 'sent to Live Station' : 'moved back to Pending'}`, 'success');
     } catch (error) {
       toast(getDatabaseErrorMessage(error), 'error');
@@ -467,6 +526,8 @@ export function LabOrders() {
 
   const handleLiveStatusChange = async (order: StudioLabOrder, workType: 'album' | 'video', nextStatus: string) => {
     const statusField = workType === 'album' ? 'album_status' : 'video_status';
+    const startedField = workType === 'album' ? 'album_started_at' : 'video_started_at';
+    const completedField = workType === 'album' ? 'album_completed_at' : 'video_completed_at';
     const targetKey = getOrderKey(order);
     const previousStatus = order[statusField] ?? 'Pending';
     if (!targetKey || previousStatus === nextStatus) return;
@@ -482,10 +543,17 @@ export function LabOrders() {
 
     try {
       const isDemo = !order.id || String(order.id).startsWith('DEMO-') || String(order.id).startsWith('demo-');
+      const now = new Date().toISOString();
+      const timestampPatch = {
+        ...(nextStatus === 'Complete' ? { [completedField]: now } : {}),
+        ...(nextStatus !== 'Pending' && !order[startedField] ? { [startedField]: now } : {}),
+      };
       const result = isDemo
-        ? await supabase.from('studio_lab_orders').update({ [statusField]: nextStatus }).eq('order_no', order.order_no)
-        : await supabase.from('studio_lab_orders').update({ [statusField]: nextStatus }).eq('id', order.id);
+        ? await supabase.from('studio_lab_orders').update({ [statusField]: nextStatus, ...timestampPatch }).eq('order_no', order.order_no)
+        : await supabase.from('studio_lab_orders').update({ [statusField]: nextStatus, ...timestampPatch }).eq('id', order.id);
       if (result.error) throw result.error;
+      setOrders((current) => current.map((item) => getOrderKey(item) === targetKey ? { ...item, ...timestampPatch } : item));
+      setSelectedOrder((current) => current && getOrderKey(current) === targetKey ? { ...current, ...timestampPatch } : current);
       toast(`${workType === 'album' ? 'Album' : 'Video'} status updated to ${nextStatus}`, 'success');
     } catch (error) {
       setOrders((current) => updateLocalStatus(current, previousStatus, nextStatus));
@@ -496,9 +564,45 @@ export function LabOrders() {
     }
   };
 
+  const handleDeliveryAction = async (order: StudioLabOrder, action: 'deliver' | 're-edit') => {
+    if (action === 'deliver' && !hasAlbumWork(order) && !hasVideoWork(order)) {
+      toast('Add Album or Video work before final delivery.', 'error');
+      return;
+    }
+    const albumComplete = !hasAlbumWork(order) || order.album_status === 'Complete';
+    const videoComplete = !hasVideoWork(order) || order.video_status === 'Complete';
+    if (action === 'deliver' && (!albumComplete || !videoComplete)) {
+      toast('Complete all Album and Video work before final delivery.', 'error');
+      return;
+    }
+    const deliveredAt = action === 'deliver' ? new Date().toISOString() : null;
+    const patch = action === 'deliver'
+      ? { order_status: 'Delivered', delivered_at: deliveredAt, archived_at: null }
+      : {
+          order_status: 'Pending', delivered_at: null, archived_at: null,
+          ...(hasAlbumWork(order) ? { album_status: 'Edit' } : {}),
+          ...(hasVideoWork(order) ? { video_status: 'Edit' } : {}),
+        };
+    try {
+      const isDemo = !order.id || String(order.id).startsWith('DEMO-') || String(order.id).startsWith('demo-');
+      const result = isDemo
+        ? await supabase.from('studio_lab_orders').update(patch).eq('order_no', order.order_no)
+        : await supabase.from('studio_lab_orders').update(patch).eq('id', order.id);
+      if (result.error) throw result.error;
+      const updated = { ...order, ...patch } as StudioLabOrder;
+      setOrders((current) => current.map((item) => getOrderKey(item) === getOrderKey(order) ? updated : item));
+      setSelectedOrder(updated);
+      toast(action === 'deliver' ? 'Order delivered and filed by delivery year.' : 'Order sent back to Live Station for re-edit.', 'success');
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
+    }
+  };
+
   const openPartnerLocation = (order: StudioLabOrder) => {
     const partnerKey = String(order.partner_id ?? order.partner_name ?? order.studio_name ?? 'unassigned').trim() || 'unassigned';
     setSelectedPartner(partnerKey);
+    setSelectedClientKey(order.clients?.[0] ? getLabClientKey(order.clients[0]) : null);
+    setSelectedDeliveryYear(null);
     setSelectedOrder(order);
     setActiveTab('partners');
   };
@@ -522,7 +626,7 @@ export function LabOrders() {
             <button onClick={() => { setEditing(o); setShowForm(true); }} className="rounded-md p-2 text-slate-400 transition-colors hover:bg-zinc-700 hover:text-amber-400" title="Edit order">
               <Edit3 className="h-4 w-4" />
             </button>
-            {!stationWork && <>
+            {!stationWork && activeTab !== 'partners' && <>
               <button onClick={() => handleArchiveOrder(getOrderKey(o))} className="rounded-md p-2 text-slate-400 transition-colors hover:bg-zinc-700 hover:text-amber-400" title="Archive order">
                 <Archive className="h-4 w-4" />
               </button>
@@ -717,7 +821,7 @@ export function LabOrders() {
   const renderWorkToggle = (workType: 'album' | 'video') => {
     if (!selectedOrder) return null;
     const statusField = workType === 'album' ? 'album_status' : 'video_status';
-    const isLive = selectedOrder[statusField] !== 'Pending';
+    const isLive = selectedOrder.order_status !== 'Delivered' && selectedOrder[statusField] !== 'Pending';
     const label = workType === 'album' ? 'Album' : 'Video';
     return (
       <button
@@ -737,34 +841,40 @@ export function LabOrders() {
 
   return (
     <div className="w-full flex flex-col relative">
-      <div className="sticky top-0 z-30 w-full mt-0 bg-[#0B1121]/90 backdrop-blur-md px-3 py-3 shadow-md flex flex-col items-start gap-3 sm:px-4 md:flex-row md:items-center md:justify-between md:gap-0 md:py-2">
-        <div className="w-full min-w-0 md:w-auto">
-          <h1 className="whitespace-nowrap text-lg font-bold text-white md:text-xl">Lab Order Form</h1>
-          <p className="text-xs text-slate-400">Photolab & Media Production Order Sheet</p>
+      <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-2 py-2 shadow-md backdrop-blur-md sm:px-4 md:gap-0 md:py-2">
+        <div className="min-w-0 flex-1 md:w-auto md:flex-none">
+          <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">{activeTab === 'partners' && selectedOrder ? selectedOrder.project_name || selectedOrder.order_no : activeTab === 'partners' && showReadyDeliveries ? 'Ready for Delivery' : activeTab === 'partners' && selectedDeliveryYear ? `Delivered Orders · ${selectedDeliveryYear}` : activeTab === 'partners' && selectedClient ? selectedClient.client_name : activeTab === 'partners' && selectedPartnerGroup ? selectedPartnerGroup.partnerName : 'Lab Order Form'}</h1>
+          <p className="hidden truncate text-xs text-slate-400 sm:block">{activeTab === 'partners' && selectedOrder ? `${selectedOrder.order_no} · ${selectedOrder.partner_name}` : activeTab === 'partners' && showReadyDeliveries ? `${selectedPartnerGroup?.partnerName ?? 'Partner'} · ${readyDeliveryOrders.length} completed bills awaiting handover` : activeTab === 'partners' && selectedDeliveryYear ? `${selectedPartnerGroup?.partnerName ?? 'Partner'} · ${deliveredYearGroups.find(([year]) => year === selectedDeliveryYear)?.[1].length ?? 0} delivered bills` : activeTab === 'partners' && selectedClient ? `${selectedPartnerGroup?.partnerName ?? 'Partner'} · Client dashboard` : activeTab === 'partners' && selectedPartnerGroup ? `${selectedPartnerGroup.studioName} · Partner dashboard` : 'Photolab & Media Production Order Sheet'}</p>
         </div>
-        <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 md:w-auto md:justify-end">
+        <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2 md:w-auto">
           <button
             onClick={() => setActiveTab('station')}
-            className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-medium sm:px-3 sm:text-xs ${activeTab === 'station' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
+            aria-label="On Live Station"
+            title="On Live Station"
+            className={`shrink-0 rounded-lg px-2 py-1.5 text-[11px] font-medium sm:px-3 sm:text-xs ${activeTab === 'station' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
           >
-            🛠️ On Live Station
+            <span aria-hidden="true">🛠️</span><span className="hidden sm:inline"> On Live Station</span>
           </button>
           <button
             onClick={() => setActiveTab('partners')}
-            className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-medium sm:px-3 sm:text-xs ${activeTab === 'partners' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
+            aria-label="Partner Folders"
+            title="Partner Folders"
+            className={`shrink-0 rounded-lg px-2 py-1.5 text-[11px] font-medium sm:px-3 sm:text-xs ${activeTab === 'partners' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
           >
-            👥 Partner Folders
+            <span aria-hidden="true">👥</span><span className="hidden sm:inline"> Partner Folders</span>
           </button>
           <button
             onClick={() => { setEditing(null); setShowForm(true); }}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-500 px-2.5 py-1.5 text-[11px] font-medium text-slate-900 transition-colors hover:bg-amber-400 sm:px-3 sm:text-xs"
+            aria-label="New Order"
+            title="New Order"
+            className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-500 px-2 py-1.5 text-[11px] font-medium text-slate-900 transition-colors hover:bg-amber-400 sm:px-3 sm:text-xs"
           >
-            <Plus className="h-4 w-4" /> New Order
+            <Plus className="h-4 w-4" /><span className="hidden sm:inline">New Order</span>
           </button>
         </div>
       </div>
 
-      <div className="mt-0 w-full space-y-3 rounded-xl border border-gray-800 p-2 md:-mt-2 md:p-3">
+      <div className="mt-0 w-full space-y-2 rounded-xl border border-gray-800 p-1 sm:p-2 md:-mt-2 md:space-y-3 md:p-3">
         {activeTab === 'station' ? <>
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative flex-1">
@@ -781,8 +891,6 @@ export function LabOrders() {
               {LAB_ORDER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
-          <div className="flex gap-2"><button onClick={() => setView('active')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'active' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Active</button><button onClick={() => setView('archived')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'archived' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Archived</button><button onClick={() => setView('recycle')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'recycle' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Recycle Bin</button></div>
-
           {loading ? (
             <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
           ) : liveStationItems.length === 0 ? (
@@ -796,13 +904,30 @@ export function LabOrders() {
           <div className="space-y-3">
             {selectedPartner ? (
               <>
-                <button
-                  type="button"
-                  onClick={() => { setSelectedOrder(null); setSelectedPartner(null); }}
-                  className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
-                >
-                  🔙 Back to Partners
-                </button>
+                <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto pb-0.5 sm:justify-between">
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedOrder(null); setSelectedClientKey(null); setSelectedDeliveryYear(null); setShowReadyDeliveries(false); setSelectedPartner(null); }}
+                    title="Back to Partners"
+                    aria-label="Back to Partners"
+                    className="shrink-0 rounded-md border border-zinc-700 px-2 py-1.5 text-[11px] font-medium text-zinc-300 transition-colors hover:bg-zinc-800 sm:rounded-lg sm:px-3 sm:py-2 sm:text-xs"
+                  >
+                    <span className="sm:hidden">← Partners</span><span className="hidden sm:inline">🔙 Back to Partners</span>
+                  </button>
+                  <div className="flex shrink-0 items-center gap-1.5 sm:ml-auto" aria-label="Delivered orders by year">
+                    <span className="shrink-0 text-[10px] font-medium text-zinc-500">Complete</span>
+                    <button type="button" onClick={() => { setSelectedClientKey(null); setSelectedOrder(null); setSelectedDeliveryYear(null); setShowReadyDeliveries(true); }} className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${showReadyDeliveries ? 'border-amber-500/60 bg-amber-500/10 text-amber-300' : 'border-zinc-700 bg-zinc-800/60 text-zinc-300 hover:border-amber-500/50'}`}>
+                      <span aria-hidden="true">📁</span><span className="font-semibold">Ready</span>
+                    </button>
+                    <span className="shrink-0 text-[10px] font-medium text-zinc-500">Delivered</span>
+                    {deliveredYearGroups.map(([year]) => (
+                      <button key={year} type="button" title={`Delivered orders for ${year}`} onClick={() => { setSelectedClientKey(null); setSelectedOrder(null); setShowReadyDeliveries(false); setSelectedDeliveryYear(year); }} className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${selectedDeliveryYear === year ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-300' : 'border-zinc-700 bg-zinc-800/60 text-zinc-300 hover:border-emerald-500/50'}`}>
+                        <span aria-hidden="true">📁</span><span className="font-semibold">{year}</span>
+                      </button>
+                    ))}
+                    {deliveredYearGroups.length === 0 && <span className="shrink-0 text-[10px] text-zinc-500">No delivered years</span>}
+                  </div>
+                </div>
                 {selectedOrder ? (
                   <div className="space-y-3">
                     <button
@@ -810,36 +935,76 @@ export function LabOrders() {
                       onClick={() => setSelectedOrder(null)}
                       className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
                     >
-                      🔙 Back to Client List
+                      🔙 Back to {showReadyDeliveries ? 'Ready for Delivery' : selectedDeliveryYear ? `${selectedDeliveryYear} Delivered` : selectedClient ? selectedClient.client_name : 'Partner Dashboard'}
                     </button>
                     {renderOrderCard(selectedOrder)}
+                    {selectedOrder.order_status === 'Delivered' ? (
+                      <label className="flex max-w-xs flex-col gap-1 text-xs font-medium text-slate-400">
+                        Delivery action
+                        <select defaultValue="" onChange={(event) => { if (event.target.value === 're-edit') void handleDeliveryAction(selectedOrder, 're-edit'); event.target.value = ''; }} className={selectClass}>
+                          <option value="" disabled>Deliver / Re-edit</option>
+                          <option value="re-edit">Re-edit — send to Live Station</option>
+                        </select>
+                      </label>
+                    ) : (
+                      <label className="flex max-w-xs flex-col gap-1 text-xs font-medium text-slate-400">
+                        Final delivery
+                        <select defaultValue="" onChange={(event) => { if (event.target.value === 'deliver') void handleDeliveryAction(selectedOrder, 'deliver'); event.target.value = ''; }} className={selectClass}>
+                          <option value="" disabled>Deliver / Re-edit</option>
+                        <option value="deliver" disabled={!((hasAlbumWork(selectedOrder) || hasVideoWork(selectedOrder)) && (!hasAlbumWork(selectedOrder) || selectedOrder.album_status === 'Complete') && (!hasVideoWork(selectedOrder) || selectedOrder.video_status === 'Complete'))}>Deliver bill</option>
+                        </select>
+                        {!((hasAlbumWork(selectedOrder) || hasVideoWork(selectedOrder)) && (!hasAlbumWork(selectedOrder) || selectedOrder.album_status === 'Complete') && (!hasVideoWork(selectedOrder) || selectedOrder.video_status === 'Complete')) && <span className="text-[11px] text-amber-400">Add Album/Video work and complete all applicable work before delivery.</span>}
+                      </label>
+                    )}
                     <div className="flex flex-wrap gap-3">
-                      {hasAlbumWork(selectedOrder) && renderWorkToggle('album')}
-                      {hasVideoWork(selectedOrder) && renderWorkToggle('video')}
+                      {selectedOrder.order_status !== 'Delivered' && hasAlbumWork(selectedOrder) && renderWorkToggle('album')}
+                      {selectedOrder.order_status !== 'Delivered' && hasVideoWork(selectedOrder) && renderWorkToggle('video')}
                     </div>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-2">
-                    {(selectedPartnerGroup?.orders ?? []).map((order) => {
-                      const partyName = order.project_name || order.clients?.map((client) => client.client_name).filter(Boolean).join(', ') || 'Untitled Project';
-                      const deliveryDate = order.promised_delivery_date || order.album_required_date || order.video_delivery_date;
-                      return (
-                        <button
-                          key={order.id}
-                          type="button"
-                          onClick={() => setSelectedOrder(order)}
-                          className="rounded-xl border border-zinc-700 bg-zinc-800/50 p-3 text-left transition-colors hover:border-amber-500/60 hover:bg-zinc-800"
-                        >
-                          <p className="mb-2 truncate text-sm font-semibold text-zinc-100">{partyName}</p>
-                          <div className="space-y-1.5 text-xs text-zinc-400">
-                            <div className="flex justify-between gap-3"><span>Delivery Date</span><span className="text-right text-zinc-200">{deliveryDate ? formatDate(deliveryDate) : 'Not set'}</span></div>
-                            <div className="flex justify-between gap-3"><span>Master Total</span><span className="text-right text-zinc-200">{formatINR(toNum(order.master_total))}</span></div>
-                            <div className="flex justify-between gap-3"><span>Advance Paid</span><span className="text-right text-emerald-400">{formatINR(toNum(order.advance_paid))}</span></div>
-                            <div className="flex justify-between gap-3 border-t border-zinc-700 pt-1.5"><span>Net Final Due</span><span className="text-right font-semibold text-amber-400">{formatINR(toNum(order.net_final_due))}</span></div>
-                          </div>
+                ) : showReadyDeliveries ? (
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {readyDeliveryOrders.map((order) => (
+                      <button key={getOrderKey(order)} type="button" onClick={() => setSelectedOrder(order)} className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5 text-left transition-colors hover:border-amber-500/60">
+                        <p className="truncate text-sm font-semibold text-zinc-100">{order.project_name || order.order_no}</p>
+                        <p className="mt-0.5 truncate text-xs text-zinc-400">{order.clients?.map((client) => client.client_name).filter(Boolean).join(', ') || 'Client'} · {order.order_no}</p>
+                        <p className="mt-1.5 text-[11px] text-amber-300">Work complete · waiting for client handover</p>
+                      </button>
+                    ))}
+                    {readyDeliveryOrders.length === 0 && <EmptyState icon={Clapperboard} title="No work awaiting delivery" subtitle="Bills appear here after all Album and Video work is complete." />}
+                  </div>
+                ) : selectedDeliveryYear ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      {(selectedPartnerGroup?.orders ?? []).filter((order) => order.order_status === 'Delivered' && !order.deleted_at && getDeliveryYear(order) === selectedDeliveryYear).map((order) => (
+                        <button key={getOrderKey(order)} type="button" onClick={() => setSelectedOrder(order)} className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-2.5 text-left transition-colors hover:border-amber-500/60">
+                          <p className="text-sm font-semibold text-zinc-100">{order.project_name || order.order_no}</p>
+                          <p className="mt-1 text-xs text-zinc-400">{order.clients?.map((client) => client.client_name).filter(Boolean).join(', ') || 'Client'} · {order.order_no}</p>
+                          <p className="mt-2 text-xs text-emerald-400">Delivered {order.delivered_at ? formatDate(order.delivered_at) : 'date unavailable'}</p>
                         </button>
-                      );
-                    })}
+                      ))}
+                    </div>
+                  </div>
+                ) : selectedClientKey ? (
+                  <div className="space-y-3">
+                    <button type="button" onClick={() => setSelectedClientKey(null)} className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300">🔙 Back to Clients</button>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      {selectedClientOrders.map((order) => (
+                        <button key={getOrderKey(order)} type="button" onClick={() => setSelectedOrder(order)} className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-2.5 text-left transition-colors hover:border-amber-500/60">
+                          <p className="text-sm font-semibold text-zinc-100">{order.project_name || 'Untitled Project'}</p>
+                          <p className="mt-1 text-xs text-zinc-400">{order.order_no}</p>
+                          <p className="mt-2 text-xs text-zinc-300">Album: {hasAlbumWork(order) ? order.album_status || 'Pending' : '—'} · Video: {hasVideoWork(order) ? order.video_status || 'Pending' : '—'}</p>
+                          <p className="mt-1 text-xs text-amber-300">Net due {formatINR(toNum(order.net_final_due))}</p>
+                        </button>
+                      ))}
+                    </div>
+                    {selectedClientOrders.length === 0 && <EmptyState icon={Clapperboard} title="No active orders for this client" subtitle="Delivered bills are available in the Partner's year folders." />}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 items-start gap-3">
+                    <section className="min-w-0">
+                      <h2 className="mb-2 text-sm font-semibold text-zinc-200">Clients</h2>
+                      {partnerClientGroups.length ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{partnerClientGroups.map(([key, group]) => <button key={key} type="button" onClick={() => setSelectedClientKey(key)} className="min-w-0 rounded-lg border border-zinc-700 bg-zinc-800/50 p-2.5 text-left transition-colors hover:border-amber-500/60"><p className="truncate text-sm font-semibold text-zinc-100">{group.client.client_name || 'Unnamed Client'}</p><p className="mt-0.5 line-clamp-1 text-xs text-zinc-400">{group.client.event_address || 'No event address'}</p><p className="mt-1.5 text-[11px] text-amber-300">{group.orders.length} active bill{group.orders.length === 1 ? '' : 's'}</p></button>)}</div> : <p className="text-xs text-zinc-500">No active client work.</p>}
+                    </section>
                   </div>
                 )}
               </>
@@ -849,8 +1014,8 @@ export function LabOrders() {
                   <button
                     key={key}
                     type="button"
-                    onClick={() => setSelectedPartner(key)}
-                    className="rounded-xl border border-zinc-700 bg-zinc-800/50 p-3 text-left transition-colors hover:border-amber-500/60 hover:bg-zinc-800"
+                    onClick={() => { setSelectedPartner(key); setSelectedClientKey(null); setSelectedDeliveryYear(null); setShowReadyDeliveries(false); setSelectedOrder(null); }}
+                    className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-2.5 text-left transition-colors hover:border-amber-500/60 hover:bg-zinc-800"
                   >
                     <div className="mb-2 flex items-center justify-between">
                       <span className="text-xl" aria-hidden="true">📁</span>
@@ -1603,7 +1768,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
   const [studioAddress, setStudioAddress] = useDraftState<string>(`${draftKey}-studioAddress`, '');
   const [backDue, setBackDue] = useDraftState<string>(`${draftKey}-backDue`, '');
   const [projectName, setProjectName] = useDraftState<string>(`${draftKey}-projectName`, '');
-  const [orderStatus, setOrderStatus] = useDraftState<string>(`${draftKey}-orderStatus`, 'Processing');
+  const [orderStatus, setOrderStatus] = useDraftState<string>(`${draftKey}-orderStatus`, 'Pending');
   const [deliveryMode, setDeliveryMode] = useDraftState<string>(`${draftKey}-deliveryMode`, 'By Hand');
   const [parcelTracking, setParcelTracking] = useDraftState<string>(`${draftKey}-parcelTracking`, '');
   const [clients, setClients] = useDraftState<LabClientRow[]>(`${draftKey}-clients`, []);
@@ -1627,7 +1792,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
     setStudioAddress('');
     setBackDue('');
     setProjectName('');
-    setOrderStatus('Processing');
+    setOrderStatus('Pending');
     setDeliveryMode('By Hand');
     setParcelTracking('');
     setClients([]);
@@ -1685,7 +1850,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
       setStudioAddress(editing?.studio_address ?? '');
       setBackDue(editing && toNum(editing.previous_back_due) ? String(editing.previous_back_due) : '');
       setProjectName(editing?.project_name ?? '');
-      setOrderStatus(editing?.order_status ?? 'Processing');
+      setOrderStatus(editing?.order_status ?? 'Pending');
       setDeliveryMode(editing?.delivery_mode ?? 'By Hand');
       setParcelTracking(editing?.parcel_tracking_details ?? '');
       setClients(editing?.clients ?? [emptyClient()]);
@@ -1700,6 +1865,8 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
       setVideoDeliveryDate(editing?.video_delivery_date ?? '');
       setDatePending(editing?.date_pending ?? false);
       setStorageLocations(editing?.storage_locations ?? []);
+    } else {
+      setOrderStatus('Pending');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing]);
@@ -1854,9 +2021,14 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
         payment_history: paymentHistory,
         promised_delivery_date: promisedDeliveryDate || null,
         order_status: orderStatus,
-        album_status: editing?.album_status ?? (totalAlbumBill > 0 && orderStatus !== 'Pending' ? orderStatus : 'Pending'),
-        video_status: editing?.video_status ?? (totalVideoBill > 0 && orderStatus !== 'Pending' ? orderStatus : 'Pending'),
-        archived_at: orderStatus === 'Delivered' ? (editing?.archived_at ?? new Date().toISOString()) : null,
+        album_status: editing?.album_status ?? 'Pending',
+        video_status: editing?.video_status ?? 'Pending',
+        album_started_at: editing?.album_started_at ?? null,
+        video_started_at: editing?.video_started_at ?? null,
+        album_completed_at: editing?.album_completed_at ?? null,
+        video_completed_at: editing?.video_completed_at ?? null,
+        delivered_at: editing?.delivered_at ?? null,
+        archived_at: editing?.archived_at ?? null,
         delivery_mode: deliveryMode,
         parcel_tracking_details: parcelTracking,
         video_rows: allVideoRows,
@@ -1925,9 +2097,11 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
               </select>
             </Field>
             <Field label="Order Status">
-              <select value={orderStatus} onChange={(e) => setOrderStatus(e.target.value)} className={selectClass}>
+              <select value={orderStatus} onChange={(e) => setOrderStatus(e.target.value)} disabled={editing?.order_status === 'Delivered'} className={selectClass}>
                 {LAB_ORDER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                {orderStatus !== 'Pending' && <option value={orderStatus} disabled={orderStatus === 'Delivered'}>{orderStatus} (existing status)</option>}
               </select>
+              {editing?.order_status === 'Delivered' && <p className="mt-1 text-[11px] text-slate-500">Use Deliver / Re-edit in the Partner folder to change final delivery.</p>}
             </Field>
           </div>
           {deliveryMode !== 'By Hand' && (

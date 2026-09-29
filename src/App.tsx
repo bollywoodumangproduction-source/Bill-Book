@@ -43,21 +43,19 @@ function AdminApp() {
 }
 
 function DesktopPage({ page, onNavigate }: { page: PageKey; onNavigate: (page: PageKey) => void }) {
-  const isWidePage = page === 'photo-selection';
   if (page === 'lab') return <LabOrders />;
   if (page === 'bookings') return <Bookings />;
+  if (page === 'dairy') return <DairyBook />;
+  if (page === 'promo') return <PromoManagement />;
+  if (page === 'music') return <MusicSelection />;
+  if (page === 'teaser') return <TeaserPreview />;
+  if (page === 'invitation') return <InvitationHub />;
+  if (page === 'photo-selection') return <PhotoSelection />;
+  if (page === 'ledger') return <Ledger />;
+  if (page === 'payments') return <Payments />;
 
   return (
-    <div className={`mx-auto my-6 flex min-h-[85vh] w-full flex-col overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/30 p-4 sm:p-6 lg:p-8 ${isWidePage ? 'max-w-[1600px]' : 'max-w-6xl'}`}>
-      {page === 'lab' && <LabOrders />}
-      {page === 'ledger' && <Ledger />}
-      {page === 'payments' && <Payments />}
-      {page === 'dairy' && <DairyBook />}
-      {page === 'promo' && <PromoManagement />}
-      {page === 'music' && <MusicSelection />}
-      {page === 'teaser' && <TeaserPreview />}
-      {page === 'invitation' && <InvitationHub />}
-      {page === 'photo-selection' && <PhotoSelection />}
+    <div className="mx-auto my-6 flex min-h-[85vh] w-full max-w-6xl flex-col overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/30 p-4 sm:p-6 lg:p-8">
       {page === 'settings' && <SettingsPage />}
       {page === 'dashboard' && <Dashboard onNavigate={onNavigate} />}
     </div>

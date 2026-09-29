@@ -221,12 +221,13 @@ export function PromoManagement() {
   ];
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Promo &amp; Marketing</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Manage banners, popups, coupons, broadcasts, and promo ads</p>
+    <div className="relative flex w-full flex-col space-y-2">
+      <div className="sticky top-0 z-30 w-full bg-[#0B1121]/90 px-2 py-2 shadow-md backdrop-blur-md sm:px-4">
+        <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">Promo &amp; Marketing</h1>
+        <p className="hidden truncate text-xs text-slate-400 sm:block">Manage banners, popups, coupons, broadcasts, and promo ads</p>
       </div>
 
+      <div className="w-full space-y-2 px-2 sm:px-3 md:px-4">
       {/* Section tabs */}
       <div className="flex flex-wrap gap-2">
         {sections.map((s) => {
@@ -236,7 +237,7 @@ export function PromoManagement() {
             <button
               key={s.key}
               onClick={() => setSection(s.key)}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
                 active
                   ? 'bg-amber-500 text-slate-900'
                   : 'border border-slate-200 text-slate-600 hover:bg-amber-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5'
@@ -251,32 +252,30 @@ export function PromoManagement() {
 
       {/* BANNERS */}
       {section === 'banners' && (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+        <div className="space-y-2">
+          <div className="rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 dark:border-white/10 dark:bg-slate-900">
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
               <Megaphone className="h-4 w-4 text-amber-500" /> Create Announcement Banner
             </h2>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <Field label="Banner Text" className="sm:col-span-2">
+            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]">
+              <Field label="Banner Text">
                 <input value={bannerText} onChange={(e) => setBannerText(e.target.value)} className={inputClass} placeholder="e.g., Monsoon Wedding Offer — 20% off!" />
               </Field>
               <Field label="Link (optional)">
                 <input value={bannerLink} onChange={(e) => setBannerLink(e.target.value)} className={inputClass} placeholder="https://..." />
               </Field>
-            </div>
-            <div className="mt-4 flex justify-end">
-              <button onClick={addBanner} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400">
+              <button onClick={addBanner} className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-slate-900 transition-colors hover:bg-amber-400">
                 <Plus className="h-4 w-4" /> Add Banner
               </button>
             </div>
           </div>
 
           {banners.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-400">No banners yet. Create one above.</p>
+            <p className="py-2 text-center text-sm text-slate-400">No banners yet. Create one above.</p>
           ) : (
             <div className="space-y-2">
               {banners.map((b) => (
-                <div key={b.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900">
+                <div key={b.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 dark:border-white/10 dark:bg-slate-900">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-slate-900 dark:text-white">{b.text}</p>
                     {b.link && <p className="mt-0.5 truncate text-xs text-slate-400">{b.link}</p>}
@@ -298,32 +297,30 @@ export function PromoManagement() {
 
       {/* POPUPS */}
       {section === 'popups' && (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+        <div className="space-y-2">
+          <div className="rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 dark:border-white/10 dark:bg-slate-900">
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
               <Bell className="h-4 w-4 text-amber-500" /> Create In-App Popup
             </h2>
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_1.5fr_auto]">
               <Field label="Popup Title">
                 <input value={popupTitle} onChange={(e) => setPopupTitle(e.target.value)} className={inputClass} placeholder="e.g., Festive Season Special" />
               </Field>
               <Field label="Popup Message">
-                <textarea value={popupMessage} onChange={(e) => setPopupMessage(e.target.value)} className={`${inputClass} min-h-[80px]`} placeholder="Popup message content..." />
+                <textarea value={popupMessage} onChange={(e) => setPopupMessage(e.target.value)} className={`${inputClass} min-h-[42px]`} placeholder="Popup message content..." />
               </Field>
-            </div>
-            <div className="mt-4 flex justify-end">
-              <button onClick={addPopup} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400">
+              <button onClick={addPopup} className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-slate-900 transition-colors hover:bg-amber-400">
                 <Plus className="h-4 w-4" /> Add Popup
               </button>
             </div>
           </div>
 
           {popups.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-400">No popups yet.</p>
+            <p className="py-2 text-center text-sm text-slate-400">No popups yet.</p>
           ) : (
             <div className="space-y-2">
               {popups.map((p) => (
-                <div key={p.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900">
+                <div key={p.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 dark:border-white/10 dark:bg-slate-900">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-slate-900 dark:text-white">{p.title}</p>
                     <p className="mt-0.5 truncate text-xs text-slate-400">{p.message}</p>
@@ -345,12 +342,12 @@ export function PromoManagement() {
 
       {/* COUPONS */}
       {section === 'coupons' && (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+        <div className="space-y-2">
+          <div className="rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 dark:border-white/10 dark:bg-slate-900">
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
               <Tag className="h-4 w-4 text-amber-500" /> Create Discount Coupon
             </h2>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
               <Field label="Coupon Code">
                 <input value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())} className={`${inputClass} font-mono`} placeholder="MONSOON20" />
               </Field>
@@ -360,21 +357,19 @@ export function PromoManagement() {
               <Field label="Valid Until">
                 <input type="date" value={couponValid} onChange={(e) => setCouponValid(e.target.value)} className={inputClass} />
               </Field>
-            </div>
-            <div className="mt-4 flex justify-end">
-              <button onClick={addCoupon} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400">
+              <button onClick={addCoupon} className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-slate-900 transition-colors hover:bg-amber-400">
                 <Plus className="h-4 w-4" /> Add Coupon
               </button>
             </div>
           </div>
 
           {coupons.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-400">No coupons yet.</p>
+            <p className="py-2 text-center text-sm text-slate-400">No coupons yet.</p>
           ) : (
             <div className="space-y-2">
               {coupons.map((c) => (
-                <div key={c.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900">
-                  <div className="flex items-center gap-4">
+                <div key={c.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 dark:border-white/10 dark:bg-slate-900">
+                  <div className="flex items-center gap-2 sm:gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10">
                       <Tag className="h-5 w-5 text-amber-600 dark:text-amber-400" />
                     </div>
@@ -400,13 +395,13 @@ export function PromoManagement() {
 
       {/* BROADCASTS */}
       {section === 'broadcasts' && (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+        <div className="space-y-2">
+          <div className="rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 dark:border-white/10 dark:bg-slate-900">
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
               <Send className="h-4 w-4 text-amber-500" /> Send Broadcast Notification
             </h2>
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_1fr_1.5fr_auto]">
+              <div className="grid grid-cols-1 gap-2 sm:col-span-2 sm:grid-cols-2">
                 <Field label="Broadcast Title">
                   <input value={broadcastTitle} onChange={(e) => setBroadcastTitle(e.target.value)} className={inputClass} placeholder="e.g., New Service Launch" />
                 </Field>
@@ -419,22 +414,20 @@ export function PromoManagement() {
                 </Field>
               </div>
               <Field label="Message">
-                <textarea value={broadcastMessage} onChange={(e) => setBroadcastMessage(e.target.value)} className={`${inputClass} min-h-[80px]`} placeholder="Broadcast message..." />
+                <textarea value={broadcastMessage} onChange={(e) => setBroadcastMessage(e.target.value)} className={`${inputClass} min-h-[42px]`} placeholder="Broadcast message..." />
               </Field>
-            </div>
-            <div className="mt-4 flex justify-end">
-              <button onClick={addBroadcast} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400">
+              <button onClick={addBroadcast} className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-slate-900 transition-colors hover:bg-amber-400">
                 <Send className="h-4 w-4" /> Send Broadcast
               </button>
             </div>
           </div>
 
           {broadcasts.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-400">No broadcasts sent yet.</p>
+            <p className="py-2 text-center text-sm text-slate-400">No broadcasts sent yet.</p>
           ) : (
             <div className="space-y-2">
               {broadcasts.map((b) => (
-                <div key={b.id} className="flex items-start justify-between rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900">
+                <div key={b.id} className="flex items-start justify-between rounded-xl border border-slate-200 bg-white p-2.5 dark:border-white/10 dark:bg-slate-900">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium text-slate-900 dark:text-white">{b.title}</p>
@@ -453,8 +446,8 @@ export function PromoManagement() {
       )}
 
       {/* PROMO ADS (existing) */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-        <div className="mb-4 flex items-center justify-between">
+      <div className="rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 dark:border-white/10 dark:bg-slate-900">
+        <div className="mb-3 flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
             <ImageIcon className="h-4 w-4 text-amber-500" /> Promo Ad Cards
           </h2>
@@ -466,9 +459,9 @@ export function PromoManagement() {
           </button>
         </div>
         {promoAds.length === 0 ? (
-          <p className="py-4 text-center text-sm text-slate-400">No promo ads yet. Click "New Ad" to create one.</p>
+          <p className="py-2 text-center text-sm text-slate-400">No promo ads yet. Click "New Ad" to create one.</p>
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {promoAds.map((ad) => (
               <div key={ad.id} className="overflow-hidden rounded-xl border border-slate-200 dark:border-white/10">
                 {ad.image_url && <img src={ad.image_url} alt={ad.title} className="h-32 w-full object-cover" />}
@@ -507,6 +500,7 @@ export function PromoManagement() {
           toast={toast}
         />
       )}
+      </div>
     </div>
   );
 }

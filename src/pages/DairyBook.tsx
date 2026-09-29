@@ -157,31 +157,36 @@ export function DairyBook() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="relative flex w-full flex-col space-y-2">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dairy Book</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Daily cash-flow ledger — auto-synced + manual entries</p>
+      <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-2 py-2 shadow-md backdrop-blur-md sm:px-4 md:gap-0 md:py-2">
+        <div className="min-w-0 flex-1 md:w-auto md:flex-none">
+          <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">Dairy Book</h1>
+          <p className="hidden truncate text-xs text-slate-400 sm:block">Daily cash-flow ledger — auto-synced + manual entries</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2 md:w-auto">
           <button
             onClick={() => setShowExpenseForm(true)}
-            className="flex items-center gap-2 rounded-lg bg-rose-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-rose-400"
+            aria-label="Add Expense"
+            title="Add Expense"
+            className="flex shrink-0 items-center gap-1 rounded-lg bg-rose-500 px-2 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-rose-400 sm:px-3 sm:text-xs"
           >
-            <Plus className="h-4 w-4" /> Add Expense
+            <Plus className="h-4 w-4" /><span className="hidden sm:inline">Add Expense</span>
           </button>
           <button
             onClick={() => setShowIncomeForm(true)}
-            className="flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-400"
+            aria-label="Add Income"
+            title="Add Income"
+            className="flex shrink-0 items-center gap-1 rounded-lg bg-emerald-500 px-2 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-emerald-400 sm:px-3 sm:text-xs"
           >
-            <Plus className="h-4 w-4" /> Add Income
+            <Plus className="h-4 w-4" /><span className="hidden sm:inline">Add Income</span>
           </button>
         </div>
       </div>
 
+      <div className="w-full space-y-3 px-2 sm:px-3 md:px-4">
       {/* Opening Balance Card */}
-      <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-4 dark:border-white/10 dark:from-slate-900/50 dark:to-slate-900/30">
+      <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-3 dark:border-white/10 dark:from-slate-900/50 dark:to-slate-900/30">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
             <Wallet className="h-5 w-5 text-blue-500" />
@@ -214,8 +219,8 @@ export function DairyBook() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900/50">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900/50">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10">
               <TrendingUp className="h-5 w-5 text-emerald-500" />
@@ -226,7 +231,7 @@ export function DairyBook() {
             </div>
           </div>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900/50">
+        <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900/50">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-rose-500/10">
               <TrendingDown className="h-5 w-5 text-rose-500" />
@@ -238,7 +243,7 @@ export function DairyBook() {
             </div>
           </div>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900/50">
+        <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900/50">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10">
               <IndianRupee className="h-5 w-5 text-amber-500" />
@@ -249,7 +254,7 @@ export function DairyBook() {
             </div>
           </div>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900/50">
+        <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900/50">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
               <Wallet className="h-5 w-5 text-blue-500" />
@@ -264,7 +269,7 @@ export function DairyBook() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
@@ -279,7 +284,7 @@ export function DairyBook() {
             <button
               key={p}
               onClick={() => setPeriod(p)}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+              className={`rounded-md px-2.5 py-1 text-xs font-medium capitalize transition-colors ${
                 period === p
                   ? 'bg-amber-500 text-slate-900'
                   : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'
@@ -291,10 +296,10 @@ export function DairyBook() {
         </div>
         <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={`${selectClass} w-40`}>
           <option value="all">All Types</option>
-          <option value="B2C_CASH_IN">B2C Cash In</option>
-          <option value="B2B_CASH_OUT">B2B Cash Out</option>
-          <option value="MANUAL_EXPENSE">Manual Expense</option>
-          <option value="MANUAL_INCOME">Manual Income</option>
+          <option value="B2C_CASH_IN">{ENTRY_TYPE_LABELS.B2C_CASH_IN}</option>
+          <option value="B2B_CASH_OUT">{ENTRY_TYPE_LABELS.B2B_CASH_OUT}</option>
+          <option value="MANUAL_EXPENSE">{ENTRY_TYPE_LABELS.MANUAL_EXPENSE}</option>
+          <option value="MANUAL_INCOME">{ENTRY_TYPE_LABELS.MANUAL_INCOME}</option>
         </select>
         {period === 'custom' && (
           <>
@@ -306,7 +311,7 @@ export function DairyBook() {
 
       {/* Category Breakdown */}
       {categoryBreakdown.length > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900/50">
+        <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900/50">
           <div className="mb-3 flex items-center gap-2">
             <PieChart className="h-4 w-4 text-orange-500" />
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Extra Kharcha Breakdown</h3>
@@ -338,13 +343,13 @@ export function DairyBook() {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800/50">
                 <tr className="text-left text-xs text-slate-500 dark:text-slate-400">
-                  <th className="px-3 py-2.5">Type</th>
-                  <th className="px-3 py-2.5">Party / Description</th>
-                  <th className="px-3 py-2.5">Category</th>
-                  <th className="px-3 py-2.5">Mode</th>
-                  <th className="px-3 py-2.5 text-right">Amount</th>
-                  <th className="px-3 py-2.5">Date</th>
-                  <th className="px-3 py-2.5"></th>
+                  <th className="px-2.5 py-2">Type</th>
+                  <th className="px-2.5 py-2">Party / Description</th>
+                  <th className="px-2.5 py-2">Category</th>
+                  <th className="px-2.5 py-2">Mode</th>
+                  <th className="px-2.5 py-2 text-right">Amount</th>
+                  <th className="px-2.5 py-2">Date</th>
+                  <th className="px-2.5 py-2"></th>
                 </tr>
               </thead>
               <tbody>
@@ -352,7 +357,7 @@ export function DairyBook() {
                   const isIn = e.entry_type === 'B2C_CASH_IN' || e.entry_type === 'MANUAL_INCOME';
                   return (
                     <tr key={e.id} className="border-t border-slate-100 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/5">
-                      <td className="px-3 py-2.5">
+                      <td className="px-2.5 py-2">
                         <div className="flex items-center gap-2">
                           {isIn ? (
                             <ArrowUpCircle className="h-4 w-4 text-emerald-500" />
@@ -360,22 +365,23 @@ export function DairyBook() {
                             <ArrowDownCircle className="h-4 w-4 text-rose-500" />
                           )}
                           <Badge color={ENTRY_TYPE_COLORS[e.entry_type]} size="sm">
-                            {e.is_auto ? 'Auto' : 'Manual'}
+                            {ENTRY_TYPE_LABELS[e.entry_type]}
                           </Badge>
+                          <span className="text-[10px] text-slate-400">{e.is_auto ? 'Auto' : 'Manual'}</span>
                         </div>
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-2.5 py-2">
                         <p className="font-medium text-slate-900 dark:text-white">{e.party_name || '—'}</p>
                         {e.note && <p className="text-xs text-slate-400">{e.note}</p>}
                         {e.source_ref && <p className="text-[10px] text-slate-400">Ref: {e.source_ref}</p>}
                       </td>
-                      <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">{e.category || '—'}</td>
-                      <td className="px-3 py-2.5"><Badge color="slate" size="sm">{e.payment_mode}</Badge></td>
-                      <td className={`px-3 py-2.5 text-right font-semibold ${isIn ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                      <td className="px-2.5 py-2 text-slate-600 dark:text-slate-300">{e.category || '—'}</td>
+                      <td className="px-2.5 py-2"><Badge color="slate" size="sm">{e.payment_mode}</Badge></td>
+                      <td className={`px-2.5 py-2 text-right font-semibold ${isIn ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                         {isIn ? '+' : '-'}{formatINR(Number(e.amount ?? 0))}
                       </td>
-                      <td className="px-3 py-2.5 text-slate-500 dark:text-slate-400">{formatDate(e.entry_date)}</td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-2.5 py-2 text-slate-500 dark:text-slate-400">{formatDate(e.entry_date)}</td>
+                      <td className="px-2.5 py-2">
                         {!e.is_auto && (
                           <button onClick={() => setDeleteId(e.id)} className="text-slate-400 hover:text-rose-500">
                             <Trash2 className="h-4 w-4" />
@@ -425,6 +431,7 @@ export function DairyBook() {
           </div>
         </Modal>
       )}
+      </div>
     </div>
   );
 }
