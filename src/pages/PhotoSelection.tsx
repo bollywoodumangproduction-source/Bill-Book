@@ -6,9 +6,6 @@ import {
   FolderPlus,
   Upload,
   Trash2,
-  Lock,
-  Unlock,
-  FileDown,
   Send,
   Clipboard,
   Eye,
@@ -200,7 +197,6 @@ export function PhotoSelection() {
     setBookings((bookingData ?? []) as Booking[]);
     setLabOrders((labData ?? []) as StudioLabOrder[]);
     setPartners((partnerData ?? []) as Partner[]);
-    setSelectedId((cur) => cur || next[0]?.id || '');
     setLoading(false);
   }, []);
 
@@ -212,11 +208,19 @@ export function PhotoSelection() {
   }, [sessions, search]);
 
   const selected = sessions.find((s) => s.id === selectedId) ?? null;
+  const completedProfiles = sessions.filter((session) => Boolean(session.submitted_at)).length;
+  const pendingProfiles = sessions.length - completedProfiles;
 
   const updateSession = async (id: string, patch: Partial<ClientSelectionSession>) => {
+    const previous = sessions.find((session) => session.id === id);
+    if (!previous) return;
+    const optimistic = { ...previous, ...patch, updated_at: now() };
+    setSessions((current) => current.map((session) => session.id === id ? optimistic : session));
     const { error } = await supabase.from('photo_selection_sessions').update({ ...patch, updated_at: now() }).eq('id', id);
-    if (error) { toast('Could not update session', 'error'); return; }
-    await load();
+    if (error) {
+      setSessions((current) => current.map((session) => session.id === id ? previous : session));
+      toast('Could not update session', 'error');
+    }
   };
 
   const createSession = async (data: {
@@ -280,53 +284,65 @@ export function PhotoSelection() {
       </div>
 
       <div className="w-full space-y-2 px-2 sm:px-3 md:px-4">
-      <div className="grid gap-3 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="space-y-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} className={`${inputClass} pl-9`} placeholder="Search clients..." />
+      {!selected ? (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <span className="rounded-md border border-slate-200 px-2 py-1 text-slate-600 dark:border-white/10 dark:text-slate-300">{sessions.length} Profiles</span>
+              <span className="rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-amber-600 dark:text-amber-400">{pendingProfiles} Pending</span>
+              <span className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-2 py-1 text-emerald-600 dark:text-emerald-400">{completedProfiles} Complete</span>
+            </div>
+            <div className="relative ml-auto w-full sm:w-64 md:w-72 lg:w-80">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} className={`${inputClass} !h-9 !py-1.5 pl-9 text-xs`} placeholder="Search client, partner, bill or order..." />
+            </div>
           </div>
           {loading ? (
-            <div className="flex justify-center py-16"><Sparkles className="h-5 w-5 animate-pulse text-amber-500" /></div>
+            <div className="flex justify-center py-12"><Sparkles className="h-5 w-5 animate-pulse text-amber-500" /></div>
           ) : filtered.length === 0 ? (
-            <EmptyState icon={Images} title="No sessions yet" subtitle="Create a session to begin" />
+            <EmptyState icon={Images} title={search ? 'No matching profiles' : 'No sessions yet'} subtitle={search ? 'Try another client, partner or bill number' : 'Create a session to begin'} />
           ) : (
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
               {filtered.map((s) => (
-                <div key={s.id} role="button" tabIndex={0} onClick={() => setSelectedId(s.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedId(s.id); }} className={`w-full rounded-xl border p-3 text-left transition ${selectedId === s.id ? 'border-amber-400 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10' : 'border-slate-200 bg-white hover:border-amber-300 dark:border-white/10 dark:bg-slate-900/50'}`}>
-                  <div className="flex items-start gap-2">
-                    <Images className={`mt-0.5 h-4 w-4 shrink-0 ${selectedId === s.id ? 'text-amber-500' : 'text-slate-400'}`} />
-                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900 dark:text-white">{s.clientName}</span>
+                <article key={s.id} className="min-w-0 rounded-lg border border-slate-200 bg-white p-2.5 transition hover:border-amber-400 dark:border-white/10 dark:bg-slate-900/60 dark:hover:border-amber-500/50">
+                  <button type="button" onClick={() => setSelectedId(s.id)} className="block w-full min-w-0 text-left">
+                    <div className="flex items-center gap-2">
+                      <Images className="h-4 w-4 shrink-0 text-amber-500" />
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900 dark:text-white">{s.clientName}</span>
+                      <Badge color={isLabSession(s.clientType) ? 'sky' : 'amber'}>{sessionTypeLabel(s.clientType)}</Badge>
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                      <span className="truncate">{isLabSession(s.clientType) ? `${s.partnerName || 'Lab Partner'} · ` : ''}Bill #{s.labOrderNo || s.billId}</span>
+                      <span>{s.photos.length} photos · {s.folders.length} folders</span>
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {s.folders.slice(0, 4).map((folder) => <span key={folder} className="max-w-full truncate rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600 dark:bg-white/5 dark:text-slate-300">{folder}</span>)}
+                      {s.folders.length > 4 && <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-white/5">+{s.folders.length - 4}</span>}
+                    </div>
+                  </button>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    <CompactToggle label="" enabled={Boolean(s.submitted_at)} onLabel="Complete" offLabel="Pending" onToggle={() => { const complete = !s.submitted_at; void updateSession(s.id, { submitted_at: complete ? now() : null, isLocked: complete }); }} />
                   </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-6">
-                    <Badge color={isLabSession(s.clientType) ? 'sky' : 'amber'}>{sessionTypeLabel(s.clientType)}</Badge>
-                    {isLabSession(s.clientType) && s.partnerName && <button type="button" onClick={(event) => { event.stopPropagation(); setPreviewPartner({ name: s.partnerName!, partner: partners.find((item) => item.name === s.partnerName || item.studio_name === s.partnerName) ?? null, orders: labOrders.filter((order) => order.partner_name === s.partnerName || order.studio_name === s.partnerName) }); }} className="text-left text-xs text-slate-500 underline decoration-dotted underline-offset-2 hover:text-amber-600 dark:text-slate-400 dark:hover:text-amber-400">Lab: {s.partnerName} | Order #{s.labOrderNo || s.billId}</button>}
-                    {s.clientType === 'B2C' && <span className="text-xs text-slate-500 dark:text-slate-400">Direct Client | Bill #{s.billId}</span>}
-                    {s.isLocked && <Badge color="emerald">Locked</Badge>}
-                    <Badge color="slate">PIN {s.pinCode}</Badge>
-                  </div>
-                </div>
+                </article>
               ))}
             </div>
           )}
-        </aside>
-
-        <section className="min-w-0">
-          {!selected ? (
-            <EmptyState icon={Images} title="Select a session" subtitle="Session details and controls will appear here" />
-          ) : (
-            <SessionDetail
-              session={selected}
-              partners={partners}
-              bookings={bookings}
-              labOrders={labOrders}
-              onUpdate={(patch) => updateSession(selected.id, patch)}
-              onDelete={() => deleteSession(selected.id)}
-              onRefresh={load}
-            />
-          )}
+          <p className="text-[11px] text-slate-500">{filtered.length} profile{filtered.length === 1 ? '' : 's'}</p>
         </section>
-      </div>
+      ) : (
+        <section className="min-w-0 space-y-2">
+          <button type="button" onClick={() => setSelectedId('')} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-amber-400 hover:text-amber-600 dark:border-white/10 dark:text-slate-300 dark:hover:text-amber-400">← All profiles</button>
+          <SessionDetail
+            session={selected}
+            partners={partners}
+            bookings={bookings}
+            labOrders={labOrders}
+            onUpdate={(patch) => updateSession(selected.id, patch)}
+            onDelete={() => { setSelectedId(''); void deleteSession(selected.id); }}
+            onRefresh={load}
+          />
+        </section>
+      )}
 
       {showCreate && (
         <CreateSessionModal
@@ -368,6 +384,13 @@ function SessionDetail({
   const [newFolderName, setNewFolderName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadFolder, setUploadFolder] = useState(session.folders[0] ?? 'Card 1');
+  const [activeFolder, setActiveFolder] = useState(session.folders[0] ?? 'Card 1');
+
+  useEffect(() => {
+    const firstFolder = session.folders[0] ?? 'Card 1';
+    setActiveFolder((current) => session.folders.includes(current) ? current : firstFolder);
+    setUploadFolder((current) => session.folders.includes(current) ? current : firstFolder);
+  }, [session.id, session.folders]);
 
   useEffect(() => {
     if (!isLabSession(session.clientType)) return;
@@ -407,6 +430,12 @@ function SessionDetail({
     toast(session.isLocked ? 'Session unlocked for client' : 'Session locked', 'success');
   };
 
+  const toggleSelectionComplete = () => {
+    const complete = !session.submitted_at;
+    onUpdate({ submitted_at: complete ? now() : null, isLocked: complete });
+    toast(complete ? 'Selection marked complete' : 'Selection moved back to pending', 'success');
+  };
+
   const togglePdf = () => {
     onUpdate({ pdfDownloadAllowed: !session.pdfDownloadAllowed });
     toast(session.pdfDownloadAllowed ? 'PDF download disabled' : 'PDF download enabled', 'success');
@@ -441,6 +470,8 @@ function SessionDetail({
     const photos = session.photos.filter((p) => p.folder !== folder);
     const folders = session.folders.filter((f) => f !== folder);
     onUpdate({ folders, photos });
+    if (activeFolder === folder) setActiveFolder(folders[0] ?? '');
+    if (uploadFolder === folder) setUploadFolder(folders[0] ?? '');
     toast('Folder removed', 'info');
   };
 
@@ -473,52 +504,58 @@ function SessionDetail({
   }));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5">
       {/* Header card */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900/60">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-md shadow-slate-950/10 ring-1 ring-inset ring-white/5 dark:border-white/10 dark:bg-slate-900/60 dark:shadow-black/30">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900 dark:text-white">{session.clientName}</h2>
               <Badge color={isLabSession(session.clientType) ? 'sky' : 'amber'}>{sessionTypeLabel(session.clientType)}</Badge>
               {session.isLocked && <Badge color="emerald">Locked</Badge>}
               {session.submitted_at && <Badge color="sky">Submitted</Badge>}
             </div>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Bill: {session.billId} | Phone: {session.phone} | PIN: <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{session.pinCode}</span>
-            </p>
             {session.partnerName && isLabSession(session.clientType) && (
-              <button type="button" onClick={() => setShowPartner(true)} className="mt-1 block text-left text-sm text-slate-600 underline decoration-dotted underline-offset-2 hover:text-amber-600 dark:text-slate-300 dark:hover:text-amber-400">
-                Client: {session.clientName} • Assigned Lab: {session.partnerName} • Lab Order: #{session.labOrderNo || session.billId} • Sheets: {totalSheets}
-              </button>
+              <div className="mt-1 w-fit">
+                <button type="button" onClick={() => setShowPartner(true)} className="block w-full text-left text-sm text-slate-600 underline decoration-dotted underline-offset-2 hover:text-amber-600 dark:text-slate-300 dark:hover:text-amber-400">
+                  Assigned Lab: {session.partnerName}
+                </button>
+                <p className="mt-0.5 text-center text-xs text-slate-600 dark:text-slate-300">Phone: {session.phone}</p>
+              </div>
             )}
-            <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
-              Package: {session.packageSheets} sheets | Extra rate: ₹{session.extraSheetRate}/sheet
-            </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={copyShareLink} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
-              <Clipboard className="h-3.5 w-3.5" /> Copy Link
-            </button>
-            <button onClick={copyPinLink} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
-              <Copy className="h-3.5 w-3.5" /> Link+PIN
-            </button>
-            <a onClick={shareWhatsApp} className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400">
-              <Send className="h-3.5 w-3.5" /> WhatsApp
-            </a>
-            <button onClick={toggleLock} className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ${session.isLocked ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-slate-900 text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900'}`}>
-              {session.isLocked ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
-              {session.isLocked ? 'Unlock' : 'Lock'}
-            </button>
-            <button onClick={onDelete} className="flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:border-rose-500/20 dark:text-rose-400 dark:hover:bg-rose-500/10">
-              <Trash2 className="h-3.5 w-3.5" /> Delete
-            </button>
+          <div className="flex shrink-0 flex-col gap-1 text-xs sm:items-center sm:pt-1">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="text-slate-500 dark:text-slate-400">Bill <strong className="font-medium text-slate-700 dark:text-slate-200">{session.billId}</strong></span>
+              {!isLabSession(session.clientType) && <span className="text-slate-500 dark:text-slate-400">Phone <strong className="font-medium text-slate-700 dark:text-slate-200">{session.phone}</strong></span>}
+              <span className="text-slate-500 dark:text-slate-400">PIN <strong className="font-mono font-bold text-amber-600 dark:text-amber-400">{session.pinCode}</strong></span>
+            </div>
+            <span className="text-slate-500 dark:text-slate-400">Package <strong className="font-medium text-slate-700 dark:text-slate-200">{session.packageSheets} sheets</strong> <span className="whitespace-nowrap">| Extra rate: ₹{session.extraSheetRate}/sheet</span></span>
           </div>
+        </div>
+      </div>
+      <div className="ml-auto w-fit max-w-full rounded-lg border border-slate-200 bg-white p-2 dark:border-white/15 dark:bg-slate-800/70">
+        <div className="flex flex-wrap justify-end gap-2">
+          <CompactToggle label="" enabled={Boolean(session.submitted_at)} onLabel="Complete" offLabel="Pending" onToggle={toggleSelectionComplete} />
+          <CompactToggle label="PDF" enabled={session.pdfDownloadAllowed} onLabel="On" offLabel="Off" onToggle={togglePdf} />
+          <button onClick={copyShareLink} className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
+            <Clipboard className="h-3.5 w-3.5" /> Copy Link
+          </button>
+          <button onClick={copyPinLink} className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
+            <Copy className="h-3.5 w-3.5" /> Link+PIN
+          </button>
+          <a onClick={shareWhatsApp} className="flex cursor-pointer items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400">
+            <Send className="h-3.5 w-3.5" /> WhatsApp
+          </a>
+          <CompactToggle label="" enabled={session.isLocked} onLabel="Lock" offLabel="Unlock" onToggle={toggleLock} />
+          <button onClick={onDelete} className="flex items-center gap-1 rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:border-rose-500/20 dark:text-rose-400 dark:hover:bg-rose-500/10">
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </button>
         </div>
       </div>
 
       {/* Live counters */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-4 gap-2">
         <CounterCard label="Total Images" value={session.photos.length} icon={Images} color="amber" />
         <CounterCard label="Selected" value={selectedCount} icon={CheckCircle2} color="emerald" />
         <CounterCard label="Folders" value={session.folders.length} icon={FolderOpen} color="sky" />
@@ -527,15 +564,17 @@ function SessionDetail({
 
       {/* Folder breakdown */}
       {folderBreakdown.length > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900/60">
-          <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">Folder Breakdown</h3>
-          <div className="flex flex-wrap gap-2">
+        <div className="!mt-4 rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-slate-900/60">
+          <h3 className="mb-1.5 text-xs font-semibold text-slate-900 dark:text-white">Folder Breakdown</h3>
+          <div className="flex flex-wrap gap-1.5">
             {folderBreakdown.map((f) => (
-              <div key={f.folder} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-white/10 dark:bg-white/5">
-                <FolderOpen className="h-3.5 w-3.5 text-slate-400" />
-                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{f.folder}</span>
-                <span className="text-xs text-slate-400">{f.selected}/{f.total}</span>
-                <button onClick={() => removeFolder(f.folder)} className="text-slate-300 hover:text-rose-500 dark:text-slate-600">
+              <div key={f.folder} className={`flex items-center gap-1 rounded-lg border px-2 py-1.5 dark:border-white/10 ${activeFolder === f.folder ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10' : 'border-slate-200 bg-slate-50 dark:bg-white/5'}`}>
+                <button type="button" onClick={() => { setActiveFolder(f.folder); setUploadFolder(f.folder); }} className="flex min-w-0 items-center gap-1.5 text-left">
+                  <FolderOpen className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  <span className="max-w-32 truncate text-xs font-medium text-slate-700 dark:text-slate-300">{f.folder}</span>
+                  <span className="shrink-0 text-[10px] text-slate-400">{f.selected}/{f.total}</span>
+                </button>
+                <button aria-label={`Remove ${f.folder}`} onClick={() => removeFolder(f.folder)} className="text-slate-300 hover:text-rose-500 dark:text-slate-600">
                   <X className="h-3 w-3" />
                 </button>
               </div>
@@ -545,32 +584,32 @@ function SessionDetail({
       )}
 
       {/* Folder & upload management */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900/60">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h3 className="font-semibold text-slate-900 dark:text-white">Folders & Photo Upload</h3>
+      <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900/60">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Folders & Photo Upload</h3>
           <div className="flex items-center gap-2">
-            <input value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} className={`${inputClass} w-40`} placeholder="New folder name" />
-            <button onClick={addFolder} className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2.5 text-xs font-semibold text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900">
+            <input value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} className={`${inputClass} !h-8 w-32 !px-2 !py-1 text-xs sm:w-36`} placeholder="New folder name" />
+            <button onClick={addFolder} className="flex items-center gap-1 rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900">
               <FolderPlus className="h-3.5 w-3.5" /> Add
             </button>
           </div>
         </div>
 
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <select value={uploadFolder} onChange={(e) => setUploadFolder(e.target.value)} className={`${selectClass} w-auto`}>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <select value={uploadFolder} onChange={(e) => { setUploadFolder(e.target.value); setActiveFolder(e.target.value); }} className={`${selectClass} !h-8 !w-fit min-w-28 max-w-full !py-1 text-xs`}>
             {session.folders.map((f) => <option key={f}>{f}</option>)}
           </select>
           <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void handlePhotoUpload(e.target.files)} />
-          <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2.5 text-xs font-semibold text-slate-950 hover:bg-amber-400">
+          <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400">
             <Upload className="h-3.5 w-3.5" /> Upload Photos
           </button>
         </div>
 
-        {session.photos.length === 0 ? (
-          <EmptyState icon={Images} title="No photos uploaded yet" subtitle="Upload photos to the selected folder" />
+        {session.photos.filter((photo) => photo.folder === activeFolder).length === 0 ? (
+          <EmptyState icon={Images} title={`No photos in ${activeFolder || 'this folder'}`} subtitle="Upload photos to this folder" />
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-            {session.photos.map((photo) => (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            {session.photos.filter((photo) => photo.folder === activeFolder).map((photo) => (
               <div key={photo.id} className="group relative overflow-hidden rounded-xl border border-slate-200 dark:border-white/10">
                 <img src={photo.previewUrl} alt={photo.fileName} className="aspect-square w-full object-cover" draggable={false} />
                 {photo.selected && (
@@ -596,11 +635,11 @@ function SessionDetail({
       </div>
 
       {/* Proofing, Watermark, File Copier */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <button onClick={() => setShowProofing(true)} className="flex flex-col items-start gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-amber-300 dark:border-white/10 dark:bg-slate-900/60 dark:hover:border-amber-500/30">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400"><Layers className="h-5 w-5" /></div>
+      <div className="grid gap-2 md:grid-cols-3">
+        <button onClick={() => setShowProofing(true)} className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-2.5 text-left transition hover:border-amber-300 dark:border-white/10 dark:bg-slate-900/60 dark:hover:border-amber-500/30">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400"><Layers className="h-4 w-4" /></div>
           <div>
-            <p className="text-sm font-semibold text-slate-900 dark:text-white">Proofing & Lab Billing</p>
+            <p className="text-sm font-semibold leading-7 text-slate-900 dark:text-white">Proofing & Lab Billing</p>
             <p className="text-xs text-slate-500 dark:text-slate-400">{totalSheets} sheets | Extra: ₹{extraCost}</p>
             {session.partnerName && <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Lab Partner: {session.partnerName}</p>}
             <p className="text-xs text-slate-500 dark:text-slate-400">Allocated Sheets: {totalSheets} | Extra Rate: ₹{session.extraSheetRate}/sheet</p>
@@ -608,36 +647,20 @@ function SessionDetail({
           </div>
         </button>
 
-        <button onClick={() => setShowWatermark(true)} className="flex flex-col items-start gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-amber-300 dark:border-white/10 dark:bg-slate-900/60 dark:hover:border-amber-500/30">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400"><Settings2 className="h-5 w-5" /></div>
+        <button onClick={() => setShowWatermark(true)} className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-2.5 text-left transition hover:border-amber-300 dark:border-white/10 dark:bg-slate-900/60 dark:hover:border-amber-500/30">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400"><Settings2 className="h-4 w-4" /></div>
           <div>
-            <p className="text-sm font-semibold text-slate-900 dark:text-white">Watermark Engine</p>
+            <p className="text-sm font-semibold leading-7 text-slate-900 dark:text-white">Watermark Engine</p>
             <p className="text-xs text-slate-500 dark:text-slate-400">Configure studio watermark</p>
           </div>
         </button>
 
-        <button onClick={() => setShowCopy(true)} className="flex flex-col items-start gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-amber-300 dark:border-white/10 dark:bg-slate-900/60 dark:hover:border-amber-500/30">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"><Copy className="h-5 w-5" /></div>
+        <button onClick={() => setShowCopy(true)} className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-2.5 text-left transition hover:border-amber-300 dark:border-white/10 dark:bg-slate-900/60 dark:hover:border-amber-500/30">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"><Copy className="h-4 w-4" /></div>
           <div>
-            <p className="text-sm font-semibold text-slate-900 dark:text-white">Auto-Copier Engine</p>
+            <p className="text-sm font-semibold leading-7 text-slate-900 dark:text-white">Auto-Copier Engine</p>
             <p className="text-xs text-slate-500 dark:text-slate-400">Copy selected originals</p>
           </div>
-        </button>
-      </div>
-
-      {/* PDF toggle */}
-      <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900/60">
-        <div className="flex items-center gap-3">
-          <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${session.pdfDownloadAllowed ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 text-slate-400 dark:bg-white/5'}`}>
-            <FileDown className="h-4 w-4" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-slate-900 dark:text-white">Allow PDF Download</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Client can download proofing PDF when enabled</p>
-          </div>
-        </div>
-        <button onClick={togglePdf} className={`relative h-7 w-12 rounded-full transition ${session.pdfDownloadAllowed ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}>
-          <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${session.pdfDownloadAllowed ? 'left-6' : 'left-1'}`} />
         </button>
       </div>
 
@@ -662,6 +685,18 @@ function SessionDetail({
   );
 }
 
+function CompactToggle({ label, enabled, onLabel, offLabel, onToggle }: { label: string; enabled: boolean; onLabel: string; offLabel: string; onToggle: () => void }) {
+  return (
+    <button type="button" role="switch" aria-checked={enabled} aria-label={`${label ? `${label}: ` : ''}${enabled ? onLabel : offLabel}`} onClick={onToggle} className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-medium leading-4 transition ${enabled ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400' : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400'}`}>
+      {label && <span>{label}</span>}
+      <span className="whitespace-nowrap">{enabled ? onLabel : offLabel}</span>
+      <span className={`relative h-4 w-7 rounded-full transition ${enabled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}>
+        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition ${enabled ? 'left-3.5' : 'left-0.5'}`} />
+      </span>
+    </button>
+  );
+}
+
 function CounterCard({ label, value, icon: Icon, color }: { label: string; value: number; icon: typeof Images; color: 'amber' | 'emerald' | 'sky' | 'violet' }) {
   const colors = {
     amber: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
@@ -670,12 +705,12 @@ function CounterCard({ label, value, icon: Icon, color }: { label: string; value
     violet: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
   };
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900/60">
-      <div className="flex items-center gap-2">
-        <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${colors[color]}`}><Icon className="h-4 w-4" /></div>
-        <span className="text-xs text-slate-500 dark:text-slate-400">{label}</span>
+    <div className="flex min-w-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-2 dark:border-white/10 dark:bg-slate-900/60">
+      <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${colors[color]}`}><Icon className="h-3.5 w-3.5" /></div>
+      <div className="flex min-w-0 items-baseline gap-1 whitespace-nowrap">
+        <span className="truncate text-[10px] text-slate-500 dark:text-slate-400 sm:text-xs">{label}</span>
+        <span className="text-sm font-bold leading-none text-slate-900 dark:text-white sm:text-base">{value}</span>
       </div>
-      <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
     </div>
   );
 }
@@ -706,7 +741,7 @@ function PartnerPreviewModal({ partner, partnerName, orders, onClose }: { partne
           {partner?.studio_address && <p>Address: {partner.studio_address}</p>}
         </div>
         <div className="mt-5 flex justify-end">
-          <button type="button" onClick={onClose} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400">Close</button>
+          <button type="button" onClick={onClose} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400">Close</button>
         </div>
       </div>
     </div>
@@ -839,19 +874,19 @@ function CreateSessionModal({
         </div>
         <div className="space-y-4">
           <div className="flex gap-2">
-            <button onClick={() => setLinkMode('search')} className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium ${linkMode === 'search' ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400' : 'border-slate-200 text-slate-500 dark:border-white/10 dark:text-slate-400'}`}>Link Existing Bill</button>
-            <button onClick={() => setLinkMode('manual')} className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium ${linkMode === 'manual' ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400' : 'border-slate-200 text-slate-500 dark:border-white/10 dark:text-slate-400'}`}>Manual Entry</button>
+            <button onClick={() => setLinkMode('search')} className={`flex-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${linkMode === 'search' ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400' : 'border-slate-200 text-slate-500 dark:border-white/10 dark:text-slate-400'}`}>Link Existing Bill</button>
+            <button onClick={() => setLinkMode('manual')} className={`flex-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${linkMode === 'manual' ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400' : 'border-slate-200 text-slate-500 dark:border-white/10 dark:text-slate-400'}`}>Manual Entry</button>
           </div>
 
           {linkMode === 'search' && clientType === 'B2C' && (
             <div className="space-y-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input value={search} onChange={(e) => setSearch(e.target.value)} className={`${inputClass} pl-9`} placeholder="Search client or bill no..." />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} className={`${inputClass} !h-9 !py-1.5 pl-9 text-xs`} placeholder="Search client or bill no..." />
               </div>
               <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-slate-200 dark:border-white/10">
                 {filtered.slice(0, 10).map((c) => (
-                  <button key={c.id} onClick={() => selectClient(c)} className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-slate-50 dark:hover:bg-white/5 ${billId === c.id ? 'bg-amber-50 dark:bg-amber-500/10' : ''}`}>
+            <button key={c.id} onClick={() => selectClient(c)} className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs hover:bg-slate-50 dark:hover:bg-white/5 ${billId === c.id ? 'bg-amber-50 dark:bg-amber-500/10' : ''}`}>
                     <span className="min-w-0 truncate font-medium text-slate-700 dark:text-slate-300">
                       {clientType !== 'B2C' ? `${c.name} • Lab: ${'partnerName' in c ? c.partnerName : ''} • ${c.packageSheets} Sheets • #${c.id}` : `${c.name} • ${c.id}`}
                     </span>
@@ -868,11 +903,11 @@ function CreateSessionModal({
                 <>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <input value={search} onChange={(e) => setSearch(e.target.value)} className={`${inputClass} pl-9`} placeholder="Search lab partners..." />
+                    <input value={search} onChange={(e) => setSearch(e.target.value)} className={`${inputClass} !h-9 !py-1.5 pl-9 text-xs`} placeholder="Search lab partners..." />
                   </div>
                   <div className="max-h-64 space-y-2 overflow-y-auto">
                     {labPartners.filter((partner) => !search.trim() || `${partner.name} ${partner.studioName}`.toLowerCase().includes(search.trim().toLowerCase())).map((partner) => (
-                      <button key={partner.id} type="button" onClick={() => { setSelectedPartner(partner); setLabStep('orders'); setSearch(''); }} className="w-full rounded-xl border border-slate-200 p-3 text-left transition hover:border-amber-300 hover:bg-amber-50 dark:border-white/10 dark:hover:border-amber-500/30 dark:hover:bg-amber-500/10">
+                  <button key={partner.id} type="button" onClick={() => { setSelectedPartner(partner); setLabStep('orders'); setSearch(''); }} className="w-full rounded-lg border border-slate-200 p-2.5 text-left transition hover:border-amber-300 hover:bg-amber-50 dark:border-white/10 dark:hover:border-amber-500/30 dark:hover:bg-amber-500/10">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{partner.name}</p>
@@ -891,7 +926,7 @@ function CreateSessionModal({
                   <button type="button" onClick={() => { setLabStep('partners'); setSelectedPartner(null); }} className="text-sm font-medium text-amber-600 hover:text-amber-500 dark:text-amber-400">← Back | Orders for {selectedPartner.name}</button>
                   <div className="max-h-64 space-y-2 overflow-y-auto">
                     {selectedPartner.orders.map((order) => (
-                      <button key={order.id} type="button" onClick={() => selectLabOrder(order, selectedPartner)} className="w-full rounded-xl border border-slate-200 p-3 text-left transition hover:border-amber-300 hover:bg-amber-50 dark:border-white/10 dark:hover:border-amber-500/30 dark:hover:bg-amber-500/10">
+                    <button key={order.id} type="button" onClick={() => selectLabOrder(order, selectedPartner)} className="w-full rounded-lg border border-slate-200 p-2.5 text-left transition hover:border-amber-300 hover:bg-amber-50 dark:border-white/10 dark:hover:border-amber-500/30 dark:hover:bg-amber-500/10">
                         <div className="flex items-start justify-between gap-3">
                           <p className="text-sm font-semibold text-slate-900 dark:text-white">{(order.clients ?? []).map((client) => client.client_name).filter(Boolean).join(' + ') || order.project_name || 'Lab Client'}</p>
                           <Badge color="sky">{labOrderSheetCount(order)} Sheets</Badge>
@@ -924,8 +959,8 @@ function CreateSessionModal({
             <Field label="Extra Sheet Rate (₹)"><input type="number" value={extraSheetRate} onChange={(e) => setExtraSheetRate(e.target.value)} className={inputClass} /></Field>
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
-            <button onClick={handleCreate} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400">Create Session</button>
+            <button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
+            <button onClick={handleCreate} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400">Create Session</button>
           </div>
         </div>
       </div>
@@ -1027,7 +1062,7 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
           <div className="rounded-xl border-2 border-dashed border-slate-300 p-4 dark:border-white/10">
             <p className="mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">Box 1: Cover Spread (Sheet 0)</p>
             <input ref={coverInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleCoverUpload(e.target.files)} />
-            <button onClick={() => coverInputRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 py-3 text-xs text-slate-500 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5">
+            <button onClick={() => coverInputRef.current?.click()} className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-2 text-xs text-slate-500 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5">
               <Upload className="h-4 w-4" /> Upload Cover
             </button>
             {sheets.find((s) => s.sheetNumber === 0) && (
@@ -1045,7 +1080,7 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
               <input type="number" value={sheetRangeEnd} onChange={(e) => setSheetRangeEnd(e.target.value)} className={`${inputClass} w-16`} placeholder="50" />
             </div>
             <input ref={innerInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleInnerUpload} />
-            <button onClick={() => innerInputRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 py-3 text-xs text-slate-500 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5">
+            <button onClick={() => innerInputRef.current?.click()} className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-2 text-xs text-slate-500 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5">
               <Upload className="h-4 w-4" /> Upload Inner Spreads
             </button>
           </div>
@@ -1069,8 +1104,8 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
         )}
 
         <div className="mt-4 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
-          <button onClick={save} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400">Save Proofing</button>
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
+          <button onClick={save} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400">Save Proofing</button>
         </div>
       </div>
     </div>
@@ -1098,8 +1133,8 @@ function WatermarkModal({ settings, onClose }: { settings: any; onClose: () => v
         </div>
         <div className="space-y-4">
           <div className="flex gap-2">
-            <button onClick={() => setMode('text')} className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium ${mode === 'text' ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400' : 'border-slate-200 text-slate-500 dark:border-white/10 dark:text-slate-400'}`}>Text Watermark</button>
-            <button onClick={() => setMode('logo')} className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium ${mode === 'logo' ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400' : 'border-slate-200 text-slate-500 dark:border-white/10 dark:text-slate-400'}`}>PNG Logo</button>
+            <button onClick={() => setMode('text')} className={`flex-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${mode === 'text' ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400' : 'border-slate-200 text-slate-500 dark:border-white/10 dark:text-slate-400'}`}>Text Watermark</button>
+            <button onClick={() => setMode('logo')} className={`flex-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${mode === 'logo' ? 'border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400' : 'border-slate-200 text-slate-500 dark:border-white/10 dark:text-slate-400'}`}>PNG Logo</button>
           </div>
           {mode === 'text' && (
             <Field label="Watermark Text (supports {Studio Name}, {Client Name}, {Phone})">
@@ -1126,7 +1161,7 @@ function WatermarkModal({ settings, onClose }: { settings: any; onClose: () => v
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <button onClick={onClose} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400">Done</button>
+            <button onClick={onClose} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400">Done</button>
           </div>
         </div>
       </div>
@@ -1152,12 +1187,26 @@ function FileCopierModal({ session, onClose }: { session: ClientSelectionSession
       setCopying(true);
       setProgress('Select root folder...');
       const rootHandle = await directoryPicker();
-      const selectedDir = await rootHandle.getDirectoryHandle('Selected_Originals', { create: true });
+      const selectedDir = await rootHandle.getDirectoryHandle('PhotoSelect', { create: true });
 
       for (const photo of selectedPhotos) {
         setProgress(`Copying ${photo.fileName} → ${photo.folder}/`);
         const folderHandle = await selectedDir.getDirectoryHandle(photo.folder, { create: true });
-        const fileHandle = await folderHandle.getFileHandle(photo.fileName, { create: true });
+        const extensionIndex = photo.fileName.lastIndexOf('.');
+        const baseName = extensionIndex > 0 ? photo.fileName.slice(0, extensionIndex) : photo.fileName;
+        const extension = extensionIndex > 0 ? photo.fileName.slice(extensionIndex) : '';
+        let copyName = photo.fileName;
+        let suffix = 2;
+        while (true) {
+          try {
+            await folderHandle.getFileHandle(copyName);
+            copyName = `${baseName} (${suffix++})${extension}`;
+          } catch (error) {
+            if ((error as DOMException).name !== 'NotFoundError') throw error;
+            break;
+          }
+        }
+        const fileHandle = await folderHandle.getFileHandle(copyName, { create: true });
         const writable = await fileHandle.createWritable();
 
         const response = await fetch(photo.previewUrl);
@@ -1166,7 +1215,7 @@ function FileCopierModal({ session, onClose }: { session: ClientSelectionSession
         await writable.close();
       }
 
-      setProgress(`Done! ${selectedPhotos.length} files copied to /Selected_Originals/`);
+      setProgress(`Done! ${selectedPhotos.length} files copied to /PhotoSelect/`);
       toast(`${selectedPhotos.length} files copied successfully`, 'success');
     } catch (err: any) {
       if (err.name === 'AbortError') { setProgress('Cancelled'); }
@@ -1187,12 +1236,12 @@ function FileCopierModal({ session, onClose }: { session: ClientSelectionSession
           <div className="flex items-start gap-3 rounded-lg border border-sky-200 bg-sky-50 p-3 dark:border-sky-500/20 dark:bg-sky-500/10">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />
             <p className="text-xs text-sky-700 dark:text-sky-300">
-              Uses the native File System Access API. Works on Chrome, Edge, and Brave. Selected photos will be copied with zero compression to <code className="font-mono">/Selected_Originals/[Folder]/filename</code>
+              Uses the native File System Access API. Works on Chrome, Edge, and Brave. Selected photos are copied without image recompression to <code className="font-mono">/PhotoSelect/[Folder]/filename</code>. Existing destination files are kept; duplicate names receive a numbered suffix.
             </p>
           </div>
           <div className="rounded-lg border border-slate-200 p-4 dark:border-white/10">
             <p className="text-sm font-semibold text-slate-900 dark:text-white">{selectedPhotos.length} selected photos ready to copy</p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Original quality preserved. No compression or metadata changes.</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Copy only: source files are not moved or deleted. Image bytes and embedded metadata are preserved.</p>
           </div>
           {progress && <p className="text-xs text-slate-500 dark:text-slate-400">{progress}</p>}
           {!directoryPicker && (
@@ -1201,9 +1250,9 @@ function FileCopierModal({ session, onClose }: { session: ClientSelectionSession
             </p>
           )}
           <div className="flex justify-end gap-2">
-            <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Close</button>
-            <button onClick={startCopy} disabled={copying || selectedPhotos.length === 0} className="flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-50">
-              <Copy className="h-4 w-4" /> {copying ? 'Copying...' : 'Select Root Folder & Copy'}
+            <button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Close</button>
+            <button onClick={startCopy} disabled={copying || selectedPhotos.length === 0} className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-50">
+              <Copy className="h-3.5 w-3.5" /> {copying ? 'Copying...' : 'Select Root Folder & Copy'}
             </button>
           </div>
         </div>

@@ -357,10 +357,24 @@ export function PartnerDashboardContent({
     try {
       setCopyingSessionId(session.id);
       const rootHandle = await directoryPicker();
-      const selectedDir = await rootHandle.getDirectoryHandle('Selected_Originals', { create: true });
+      const selectedDir = await rootHandle.getDirectoryHandle('PhotoSelect', { create: true });
       for (const photo of selectedPhotos) {
         const folderHandle = await selectedDir.getDirectoryHandle(photo.folder, { create: true });
-        const fileHandle = await folderHandle.getFileHandle(photo.fileName, { create: true });
+        const extensionIndex = photo.fileName.lastIndexOf('.');
+        const baseName = extensionIndex > 0 ? photo.fileName.slice(0, extensionIndex) : photo.fileName;
+        const extension = extensionIndex > 0 ? photo.fileName.slice(extensionIndex) : '';
+        let copyName = photo.fileName;
+        let suffix = 2;
+        while (true) {
+          try {
+            await folderHandle.getFileHandle(copyName);
+            copyName = `${baseName} (${suffix++})${extension}`;
+          } catch (error) {
+            if ((error as DOMException).name !== 'NotFoundError') throw error;
+            break;
+          }
+        }
+        const fileHandle = await folderHandle.getFileHandle(copyName, { create: true });
         const writable = await fileHandle.createWritable();
         const response = await fetch(photo.previewUrl);
         await writable.write(await response.blob());
