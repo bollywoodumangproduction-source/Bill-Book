@@ -17,7 +17,7 @@ import {
   Maximize2,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { ClientSelectionSession, PhotoItem } from '@/lib/types';
+import type { ClientSelectionSession, Partner, PhotoItem } from '@/lib/types';
 import { withPhotoSessionCounts } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
@@ -33,6 +33,7 @@ export function PublicPhotoSelection() {
   const { settings } = useSettings();
   const { toast } = useToast();
   const [session, setSession] = useState<ClientSelectionSession | null>(null);
+  const [partner, setPartner] = useState<Partner | null>(null);
   const [loading, setLoading] = useState(true);
   const [pinVerified, setPinVerified] = useState(false);
   const [pinInput, setPinInput] = useState('');
@@ -47,9 +48,32 @@ export function PublicPhotoSelection() {
   const load = useCallback(async () => {
     if (!sessionId) return;
     const { data } = await supabase.from('photo_selection_sessions').select('*').eq('id', sessionId).single();
-    setSession(data ? withPhotoSessionCounts(data as ClientSelectionSession) : null);
+    const loadedSession = data ? withPhotoSessionCounts(data as ClientSelectionSession) : null;
+    setSession(loadedSession);
+    if (loadedSession?.partnerId || loadedSession?.partnerName) {
+      const partnerQuery = supabase.from('partners').select('*');
+      const { data: partnerData } = await (loadedSession.partnerId
+        ? partnerQuery.eq('id', loadedSession.partnerId).maybeSingle()
+        : partnerQuery.eq('name', loadedSession.partnerName).maybeSingle());
+      setPartner(partnerData as Partner | null);
+    } else {
+      setPartner(null);
+    }
     setLoading(false);
   }, [sessionId]);
+
+  // Keep partner name and logo current on existing B2B links after profile edits.
+  useEffect(() => {
+    if (!session?.partnerId) return;
+    const channel = supabase
+      .channel(`public-photo-partner-${session.partnerId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'partners', filter: `id=eq.${session.partnerId}` }, (payload) => {
+        if (payload.eventType === 'DELETE') setPartner(null);
+        else setPartner(payload.new as Partner);
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [session?.partnerId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -190,8 +214,11 @@ export function PublicPhotoSelection() {
 
   const isProductionSession = session?.clientType === 'B2B' || session?.clientType === 'Lab Order';
   const studioName = isProductionSession
-    ? settings?.production_title || 'Bollywood Umang Production'
+    ? (partner?.name || session?.partnerName || settings?.production_title || 'Bollywood Umang Production')
     : settings?.films_title || 'Bollywood Umang Films';
+  const brandLogo = isProductionSession
+    ? partner?.logo_url || settings?.production_logo_url
+    : settings?.films_logo_url;
 
   if (loading) {
     return (
@@ -265,12 +292,10 @@ export function PublicPhotoSelection() {
         <div className="w-full px-4 py-3">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10">
-                <Images className="h-4 w-4 text-amber-400" />
-              </div>
+              {brandLogo ? <img src={brandLogo} alt={`${studioName} logo`} className="h-9 w-9 rounded-lg object-cover" /> : <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10"><Images className="h-4 w-4 text-amber-400" /></div>}
               <div className="min-w-0">
                 <p className="truncate text-sm font-bold text-white">{studioName}</p>
-                <p className="truncate text-xs text-slate-400">{session.clientName}</p>
+                <p className="truncate text-xs text-slate-400">{isProductionSession ? `Run by ${settings?.production_title || 'Bollywood Umang Production'} · ${session.clientName}` : session.clientName}</p>
               </div>
             </div>
             <div className="flex items-center gap-3">

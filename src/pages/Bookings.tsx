@@ -44,7 +44,7 @@ import type {
   WorkStatus,
 } from '@/lib/types';
 import { WORK_STATUSES, WORK_STATUS_LABELS } from '@/lib/types';
-import { formatINR, formatDate, todayISO, formatPhone, defaultPinFromPhone } from '@/lib/format';
+import { formatINR, formatDate, formatDateTime, todayISO, formatPhone, defaultPinFromPhone } from '@/lib/format';
 import { logDeliveryNotification, logPaymentNotification, logWorkStatusNotification } from '@/lib/notifications';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
@@ -93,7 +93,7 @@ function sanitizePayload<T>(payload: T): T {
 }
 
 const bookingDue = (booking: Pick<Booking, 'total_amount' | 'discount' | 'advance_paid'>) =>
-  toNum(booking.total_amount) - toNum(booking.discount) - toNum(booking.advance_paid);
+  Math.max(0, toNum(booking.total_amount) - toNum(booking.discount) - toNum(booking.advance_paid));
 
 function recycleDaysRemaining(deletedAt: string | null | undefined): number {
   if (!deletedAt) return 90;
@@ -674,7 +674,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
 
   const computedTotal = lineItemsTotal;
   const totalAmountNum = totalAmount !== '' ? toNum(totalAmount) : computedTotal;
-  const netDue = totalAmountNum - toNum(discount) - toNum(advancePaid);
+  const netDue = Math.max(0, totalAmountNum - toNum(discount) - toNum(advancePaid));
 
   const eventFunctionLabel = events.length > 0
     ? events.map((e) => e.name === 'Custom' && e.customName ? e.customName : e.name).join(', ')
@@ -730,7 +730,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
     });
     const newAdvance = paymentHistory.reduce((sum, payment) => sum + toNum(payment.paid_amount), 0);
     const oldAdvance = editing ? toNum(editing.advance_paid) : 0;
-    const newNetDue = totalAmountNum - toNum(discount) - newAdvance;
+    const newNetDue = Math.max(0, totalAmountNum - toNum(discount) - newAdvance);
     let savedBooking: Booking | null = null;
     const { data, error } = await supabase.from('bookings').upsert(payload).select().single();
     if (error) {
@@ -756,12 +756,15 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       toast('Enter an amount greater than zero before paying', 'error');
       return;
     }
+    const remaining = Math.max(0, totalAmountNum - toNum(discount) - paymentHistory.reduce((sum, payment) => sum + toNum(payment.paid_amount), 0));
+    if (toNum(paidAmount) > remaining) { toast('Payment cannot be greater than the remaining balance', 'error'); return; }
     const installment: BookingPaymentInstallment = {
       id: uid(),
       payment_date: paymentDate,
       payment_mode: paymentMode,
       custom_note: customPaymentNote,
       paid_amount: paidAmount,
+      created_at: new Date().toISOString(),
     };
     setPaymentHistory((history) => [...history, installment]);
     setAdvancePaid(paidAmount);
@@ -782,7 +785,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
     if (phone.length === 10) phone = `91${phone}`;
     const currentAdvance = paymentHistory.reduce((sum, item) => sum + toNum(item.paid_amount), 0);
     const remainingDue = totalAmountNum - toNum(discount) - currentAdvance;
-    const message = `*Payment Receipt*\nClient: ${clientName || 'Client'}\nDate: ${formatDate(payment.payment_date)}\nAmount Paid: ${formatINR(toNum(payment.paid_amount))}\nPayment Mode: ${payment.payment_mode}\nNote: ${payment.custom_note || '—'}\nRemaining Due: ${formatINR(remainingDue)}`;
+    const message = `*Payment Receipt*\nClient: ${clientName || 'Client'}\nDate: ${formatDateTime(payment.created_at || payment.payment_date)}\nAmount Paid: ${formatINR(toNum(payment.paid_amount))}\nPayment Mode: ${payment.payment_mode}\nNote: ${payment.custom_note || '—'}\nRemaining Due: ${formatINR(remainingDue)}`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
   };
 
@@ -1395,7 +1398,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
                   <tbody>
                     {paymentHistory.map((payment) => (
                       <tr key={payment.id} className="border-t border-slate-800 text-slate-300">
-                        <td className="px-2.5 py-2">{formatDate(payment.payment_date)}</td>
+                        <td className="px-2.5 py-2">{formatDateTime(payment.created_at || payment.payment_date)}</td>
                         <td className="px-2.5 py-2">{payment.payment_mode}</td>
                         <td className="max-w-[220px] truncate px-2.5 py-2">{payment.custom_note || '—'}</td>
                         <td className="px-2.5 py-2 text-right font-semibold text-emerald-400">{formatINR(toNum(payment.paid_amount))}</td>
@@ -1872,7 +1875,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
                 const mode = modeInput?.value ?? 'Cash';
                 if (amt <= 0) { toast('Enter a valid amount', 'error'); return; }
                 const newAdvance = Number(booking.advance_paid) + amt;
-                const newDue = Number(booking.total_amount) - Number(booking.discount) - newAdvance;
+                const newDue = Math.max(0, Number(booking.total_amount) - Number(booking.discount) - newAdvance);
                 const existingDetails = booking.deliverables_data?.payment_details ?? {
                   payment_mode: '', payment_date: '', custom_note: '', paid_amount: '', payment_history: [],
                 };
@@ -1882,6 +1885,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
                   payment_mode: existingDetails.payment_mode || 'Cash',
                   custom_note: existingDetails.custom_note || 'Existing payment',
                   paid_amount: String(booking.advance_paid),
+                  created_at: existingDetails.payment_date || new Date().toISOString(),
                 }] : []);
                 const paymentDate = todayISO();
                 const nextHistory: BookingPaymentInstallment[] = [...existingHistory, {
@@ -1890,6 +1894,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
                   payment_mode: mode,
                   custom_note: 'Quick payment',
                   paid_amount: String(amt),
+                  created_at: new Date().toISOString(),
                 }];
                 const nextDeliverables: BookingDeliverables = {
                   ...(booking.deliverables_data ?? DEFAULT_DELIVERABLES),

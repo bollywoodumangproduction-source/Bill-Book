@@ -17,6 +17,13 @@ export function formatDate(dateStr: string | null): string {
   return `${dd}/${mm}/${yyyy}`;
 }
 
+export function formatDateTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—';
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return formatDate(dateStr);
+  return date.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 export function todayISO(): string {
   return new Date().toISOString().split('T')[0];
 }

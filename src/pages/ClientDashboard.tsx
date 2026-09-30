@@ -34,7 +34,7 @@ import type { Booking, PromoAd, StudioLabOrder, LabClientRow, TeaserProject, Inv
 import { withPhotoSessionCounts } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
-import { formatINR, formatDate, formatPhone } from '@/lib/format';
+import { formatINR, formatDate, formatDateTime, formatPhone } from '@/lib/format';
 import { formatDeliverablesList } from '@/components/BillInvoice';
 import { getClientSession, clearClientSession, isLabSession, getLabSessionId } from '@/pages/ClientLogin';
 import { Modal } from '@/components/ui/Modal';
@@ -395,7 +395,7 @@ export function ClientDashboard() {
                 <tbody>
                   {paymentHistory.map((p, i) => (
                     <tr key={p.id || i} className="border-b border-slate-100 dark:border-white/5">
-                      <td className="px-2 py-1 text-slate-600 dark:text-slate-300">{formatDate(p.payment_date)}</td>
+                      <td className="px-2 py-1 text-slate-600 dark:text-slate-300">{formatDateTime(p.created_at || p.payment_date)}</td>
                       <td className="px-2 py-1 text-slate-600 dark:text-slate-300">{p.payment_mode}</td>
                       <td className="px-2 py-1 text-slate-500 dark:text-slate-400">{p.custom_note || '—'}</td>
                       <td className="px-2 py-1 text-right font-medium text-emerald-600 dark:text-emerald-400">{formatINR(Number(p.paid_amount))}</td>
@@ -645,7 +645,7 @@ function LabOrderDashboard({
 }) {
   const totalPaid = Number(order.advance_paid ?? 0);
   const masterTotal = Number(order.master_total ?? 0);
-  const netDue = Number(order.net_final_due ?? 0);
+  const netDue = Math.max(0, masterTotal - totalPaid);
   const safeClients: LabClientRow[] = order.clients ?? [];
   const [labPhotoSession, setLabPhotoSession] = useState<ClientSelectionSession | null>(null);
 
@@ -784,29 +784,13 @@ function LabOrderDashboard({
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
             <Wallet className="h-4 w-4 text-amber-500" /> Bill Summary
           </h2>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center dark:border-white/10 dark:bg-white/5">
-              <p className="text-xs text-slate-500 dark:text-slate-400">Order Total</p>
-              <p className="mt-0.5 text-base font-bold text-slate-900 dark:text-white">{formatINR(Number(order.current_order_total))}</p>
-            </div>
-            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-center dark:border-rose-500/20 dark:bg-rose-500/5">
-              <p className="text-xs text-slate-500 dark:text-slate-400">Back Due</p>
-              <p className="mt-0.5 text-base font-bold text-rose-600 dark:text-rose-400">{formatINR(Number(order.previous_back_due))}</p>
-            </div>
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center dark:border-emerald-500/20 dark:bg-emerald-500/5">
-              <p className="text-xs text-slate-500 dark:text-slate-400">Advance Paid</p>
-              <p className="mt-0.5 text-base font-bold text-emerald-600 dark:text-emerald-400">{formatINR(totalPaid)}</p>
-            </div>
-            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-center dark:border-rose-500/20 dark:bg-rose-500/5">
-              <p className="text-xs text-slate-500 dark:text-slate-400">Balance Due</p>
-              <p className="mt-0.5 text-base font-bold text-rose-600 dark:text-rose-400">{formatINR(netDue)}</p>
-            </div>
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+            <div><span className="text-slate-500 dark:text-slate-400">Work subtotal</span><p className="font-semibold text-slate-900 dark:text-white">{formatINR(Number(order.current_order_total))}</p></div>
+            <div><span className="text-slate-500 dark:text-slate-400">Previous balance</span><p className="font-semibold text-slate-900 dark:text-white">{formatINR(Number(order.previous_back_due))}</p></div>
+            <div><span className="text-slate-500 dark:text-slate-400">Paid</span><p className="font-semibold text-emerald-600 dark:text-emerald-400">{formatINR(totalPaid)}</p></div>
+            <div><span className="text-slate-500 dark:text-slate-400">Balance due</span><p className="font-bold text-rose-600 dark:text-rose-400">{formatINR(netDue)}</p></div>
           </div>
-          <div className="mt-3 space-y-1 text-sm">
-            <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Master Total</span><span className="font-semibold text-slate-900 dark:text-white">{formatINR(masterTotal)}</span></div>
-            <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Total Video Bill</span><span className="text-slate-700 dark:text-slate-300">{formatINR(Number(order.total_video_bill))}</span></div>
-            <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Total Album Bill</span><span className="text-slate-700 dark:text-slate-300">{formatINR(Number(order.total_album_bill))}</span></div>
-          </div>
+          {(order.extra_items ?? []).length > 0 && <div className="mt-3 border-t border-slate-200 pt-3 dark:border-white/10"><p className="mb-1 text-xs font-semibold text-slate-700 dark:text-slate-200">Itemized Extra Charges</p><div className="space-y-1">{(order.extra_items ?? []).map((item) => <div key={item.id} className="flex justify-between gap-3 text-xs"><span className="text-slate-500 dark:text-slate-400">{item.client_name ? `${item.client_name} · ` : ''}{item.description} · {item.quantity} × {formatINR(Number(item.unit_rate))}</span><span className="font-medium text-slate-900 dark:text-white">{formatINR(Number(item.line_amount))}</span></div>)}</div></div>}
         </div>
 
         {/* Payment History */}
@@ -828,7 +812,7 @@ function LabOrderDashboard({
                 <tbody>
                   {(order.payment_history ?? []).map((p, i) => (
                     <tr key={p.id || i} className="border-b border-slate-100 dark:border-white/5">
-                      <td className="px-2 py-1 text-slate-600 dark:text-slate-300">{formatDate(p.payment_date)}</td>
+                      <td className="px-2 py-1 text-slate-600 dark:text-slate-300">{formatDateTime(p.created_at || p.payment_date)}</td>
                       <td className="px-2 py-1 text-slate-600 dark:text-slate-300">{p.payment_mode}</td>
                       <td className="px-2 py-1 text-slate-500 dark:text-slate-400">{p.note || '—'}</td>
                       <td className="px-2 py-1 text-right font-medium text-emerald-600 dark:text-emerald-400">{formatINR(Number(p.amount))}</td>

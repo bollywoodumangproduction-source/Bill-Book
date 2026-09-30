@@ -1,4 +1,4 @@
-import { formatINR, formatDate, formatPhone } from '@/lib/format';
+import { formatINR, formatDate, formatDateTime, formatPhone } from '@/lib/format';
 import type { Booking, StudioSettings, BookingDeliverables } from '@/lib/types';
 
 const toNum = (v: string | number | undefined) => { const n = Number(v); return isNaN(n) ? 0 : n; };
@@ -65,8 +65,9 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
   const totalAmount = bookingNumber(booking.total_amount);
   const discount = bookingNumber(booking.discount);
   const advancePaid = bookingNumber(booking.advance_paid);
-  const netDue = totalAmount - discount - advancePaid;
+  const netDue = Math.max(0, totalAmount - discount - advancePaid);
   const paymentHistory = booking.deliverables_data?.payment_details?.payment_history ?? [];
+  const extraItems = booking.deliverables_data?.custom_items ?? [];
   const cn = compact ? 'compact-bill' : '';
   return (
     <div className={`bill-page bg-white text-black ${cn}`} style={{ userSelect: 'text', padding: compact ? '3mm 4mm' : undefined }}>
@@ -145,6 +146,16 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
       )}
 
       {/* Compact: Delivery + Payment + Financials side-by-side */}
+      {extraItems.length > 0 && (
+        <div className={compact ? "mb-2" : "mb-4"}>
+          <p className={compact ? "mb-0.5 text-xs font-bold" : "mb-1 text-sm font-bold"}>Itemized Extra Charges</p>
+          <table className="w-full border-collapse border border-black text-xs">
+            <thead><tr className="bg-gray-100"><th className="border border-black px-2 py-1 text-left">Item / Description</th><th className="border border-black px-2 py-1 text-right">Qty</th><th className="border border-black px-2 py-1 text-right">Unit Rate</th><th className="border border-black px-2 py-1 text-right">Line Total</th></tr></thead>
+            <tbody>{extraItems.map((item, index) => <tr key={item.id || index}><td className="border border-black px-2 py-1">{item.name || 'Additional service'}</td><td className="border border-black px-2 py-1 text-right">{bookingNumber(item.qty) || 1}</td><td className="border border-black px-2 py-1 text-right">{formatINR(bookingNumber(item.rate))}</td><td className="border border-black px-2 py-1 text-right">{formatINR(bookingNumber(item.amount))}</td></tr>)}</tbody>
+          </table>
+        </div>
+      )}
+
       {compact ? (
         <div className="mb-2 flex justify-between gap-4">
           {delivList.length > 0 && (
@@ -162,13 +173,13 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
               <p className="mb-0.5 text-xs font-bold">Payment History:</p>
               <table className="w-full border-collapse border border-black text-xs">
                 <thead><tr className="bg-gray-100"><th className="border border-black px-1 py-0.5 text-left">Date</th><th className="border border-black px-1 py-0.5 text-left">Mode</th><th className="border border-black px-1 py-0.5 text-right">Amount</th></tr></thead>
-                <tbody>{paymentHistory.map((payment) => <tr key={payment.id}><td className="border border-black px-1 py-0.5">{formatDate(payment.payment_date)}</td><td className="border border-black px-1 py-0.5">{payment.payment_mode}</td><td className="border border-black px-1 py-0.5 text-right">{formatINR(bookingNumber(payment.paid_amount))}</td></tr>)}</tbody>
+                <tbody>{paymentHistory.map((payment) => <tr key={payment.id}><td className="border border-black px-1 py-0.5">{formatDateTime(payment.created_at || payment.payment_date)}</td><td className="border border-black px-1 py-0.5">{payment.payment_mode}</td><td className="border border-black px-1 py-0.5 text-right">{formatINR(bookingNumber(payment.paid_amount))}</td></tr>)}</tbody>
               </table>
             </div>
           )}
           <div className="w-44 space-y-0.5 text-xs">
             <div className="flex justify-between"><span>Base:</span><span>{formatINR(bookingNumber(booking.base_amount))}</span></div>
-            <div className="flex justify-between"><span>Total:</span><span>{formatINR(totalAmount)}</span></div>
+            <div className="flex justify-between"><span>Subtotal:</span><span>{formatINR(totalAmount)}</span></div>
             <div className="flex justify-between"><span>Discount:</span><span>- {formatINR(discount)}</span></div>
             <div className="flex justify-between"><span>Advance:</span><span>- {formatINR(advancePaid)}</span></div>
             <div className="flex justify-between border-t border-black pt-0.5 font-bold"><span>Balance:</span><span>{formatINR(netDue)}</span></div>
@@ -192,14 +203,14 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
               <p className="mb-1 text-sm font-bold">Payment History:</p>
               <table className="w-full border-collapse border border-black text-xs">
                 <thead><tr className="bg-gray-100"><th className="border border-black px-2 py-1 text-left">Date</th><th className="border border-black px-2 py-1 text-left">Mode</th><th className="border border-black px-2 py-1 text-left">Reason / Note</th><th className="border border-black px-2 py-1 text-right">Amount Paid</th></tr></thead>
-                <tbody>{paymentHistory.map((payment) => <tr key={payment.id}><td className="border border-black px-2 py-1">{formatDate(payment.payment_date)}</td><td className="border border-black px-2 py-1">{payment.payment_mode}</td><td className="border border-black px-2 py-1">{payment.custom_note || '—'}</td><td className="border border-black px-2 py-1 text-right">{formatINR(bookingNumber(payment.paid_amount))}</td></tr>)}</tbody>
+                <tbody>{paymentHistory.map((payment) => <tr key={payment.id}><td className="border border-black px-2 py-1">{formatDateTime(payment.created_at || payment.payment_date)}</td><td className="border border-black px-2 py-1">{payment.payment_mode}</td><td className="border border-black px-2 py-1">{payment.custom_note || '—'}</td><td className="border border-black px-2 py-1 text-right">{formatINR(bookingNumber(payment.paid_amount))}</td></tr>)}</tbody>
               </table>
             </div>
           )}
 
           <div className="ml-auto w-56 space-y-1 text-sm">
             <div className="flex justify-between"><span>Base Amount:</span><span>{formatINR(bookingNumber(booking.base_amount))}</span></div>
-            <div className="flex justify-between"><span>Total Package:</span><span>{formatINR(totalAmount)}</span></div>
+            <div className="flex justify-between"><span>Subtotal:</span><span>{formatINR(totalAmount)}</span></div>
             <div className="flex justify-between"><span>Discount:</span><span>- {formatINR(discount)}</span></div>
             <div className="flex justify-between"><span>Advance Paid:</span><span>- {formatINR(advancePaid)}</span></div>
             <div className="flex justify-between border-t-2 border-black pt-1 font-bold"><span>Balance Due:</span><span>{formatINR(netDue)}</span></div>

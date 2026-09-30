@@ -14,8 +14,6 @@ import {
   Images,
   Music2,
   Wallet,
-  TrendingUp,
-  TrendingDown,
   Package,
   CheckCircle2,
   Send,
@@ -31,7 +29,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import type { EventFunction, Partner, PromoAd, StudioLabOrder, ClientSelectionSession } from '@/lib/types';
 import { withPhotoSessionCounts } from '@/lib/types';
-import { formatDate, formatINR, formatPhone } from '@/lib/format';
+import { formatDate, formatDateTime, formatINR, formatPhone } from '@/lib/format';
 import { inputClass } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
 import { Field } from '@/components/ui/Field';
@@ -459,25 +457,6 @@ export function PartnerDashboardContent({
           </div>
         </header>
 
-        {/* Ledger Balance */}
-        <div className="my-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3.5 text-center">
-            <TrendingUp className="mx-auto mb-1 h-4 w-4 text-emerald-400" />
-            <p className="text-xs text-slate-400">Credit</p>
-            <p className="mt-0.5 text-sm font-bold text-emerald-400">{formatINR(balance.credit)}</p>
-          </div>
-          <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-3.5 text-center">
-            <TrendingDown className="mx-auto mb-1 h-4 w-4 text-rose-400" />
-            <p className="text-xs text-slate-400">Debit</p>
-            <p className="mt-0.5 text-sm font-bold text-rose-400">{formatINR(balance.debit)}</p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 text-center">
-            <Wallet className="mx-auto mb-1 h-4 w-4 text-slate-400" />
-            <p className="text-xs text-slate-400">Balance</p>
-            <p className={`mt-0.5 text-sm font-bold ${balance.balance > 0 ? 'text-emerald-400' : balance.balance < 0 ? 'text-rose-400' : 'text-slate-400'}`}>{formatINR(balance.balance)}</p>
-          </div>
-        </div>
-
         <div className="flex gap-1 overflow-x-auto border-b border-white/10 pb-1">
           {([
             ['orders', '📦 Lab Orders'],
@@ -540,13 +519,6 @@ export function PartnerDashboardContent({
                 const session = orderSessions[order.id];
                 const isExpanded = expandedOrders.has(order.id);
                 const hasPaymentInfo = Boolean(order.payment_mode || order.payment_date || order.payment_note || Number(order.advance_paid ?? 0) || Number(order.net_final_due ?? 0));
-                const financials = [
-                  { label: 'Current Bill', value: formatINR(Number(order.current_order_total ?? 0)) },
-                  { label: 'Total Bill', value: formatINR(Number(order.master_total ?? 0)) },
-                  { label: 'Advance Paid', value: formatINR(Number(order.advance_paid ?? 0)) },
-                  { label: 'Back Due', value: formatINR(Number(order.previous_back_due ?? 0)) },
-                  { label: 'Net Final Due', value: formatINR(Number(order.net_final_due ?? 0)) },
-                ];
                 return (
                   <div key={order.id} className="rounded-lg border border-white/10 bg-white/5 p-4">
                     <button onClick={() => setExpandedOrders((current) => { const next = new Set(current); if (next.has(order.id)) next.delete(order.id); else next.add(order.id); return next; })} className="flex w-full items-center justify-between gap-3 text-left">
@@ -560,9 +532,7 @@ export function PartnerDashboardContent({
                       <span className="flex shrink-0 items-center gap-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${order.order_status === 'Delivered' ? 'bg-emerald-500/10 text-emerald-400' : order.order_status === 'Ready' || order.order_status === 'Printed/Ready' ? 'bg-sky-500/10 text-sky-400' : 'bg-amber-500/10 text-amber-400'}`}>{order.order_status}</span><ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} /></span>
                     </button>
 
-                    <div className="mt-2 grid grid-cols-4 gap-1.5 text-center text-[10px]">
-                      {[['Total', order.master_total], ['Advance', order.advance_paid], ['Back Due', order.previous_back_due], ['Net Due', order.net_final_due]].map(([label, value]) => <div key={String(label)} className="rounded bg-slate-950/50 p-1.5"><p className="text-slate-500">{label}</p><p className="font-medium text-slate-200">{formatINR(Number(value ?? 0))}</p></div>)}
-                    </div>
+                    <div className="mt-2 text-right text-[11px] text-slate-400">Balance due <span className="font-semibold text-amber-300">{formatINR(Math.max(0, Number(order.master_total ?? 0) - Number(order.advance_paid ?? 0)))}</span></div>
 
                     {isExpanded && <>
 
@@ -594,13 +564,24 @@ export function PartnerDashboardContent({
                       })()}
                     </div>
 
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
-                      {financials.map((item) => (
-                        <div key={item.label} className="rounded-md border border-white/10 bg-slate-950/40 p-2">
-                          <p className="text-slate-500">{item.label}</p>
-                          <p className="mt-1 font-medium text-slate-200">{item.value}</p>
+                    <div className="mt-3 rounded-md border border-white/10 bg-slate-950/40 p-3 text-xs">
+                      <p className="mb-2 font-medium text-slate-200">Order billing · {order.order_no} · {order.project_name || order.work_type}</p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-400 sm:grid-cols-4">
+                        <span>Order subtotal: <b className="text-slate-200">{formatINR(Number(order.current_order_total ?? 0))}</b></span>
+                        <span>Previous balance: <b className="text-slate-200">{formatINR(Number(order.previous_back_due ?? 0))}</b></span>
+                        <span>Total bill: <b className="text-slate-200">{formatINR(Number(order.master_total ?? 0))}</b></span>
+                        <span>Paid: <b className="text-emerald-300">{formatINR(Number(order.advance_paid ?? 0))}</b></span>
+                      </div>
+                      {(order.clients ?? []).map((client, ci) => <div key={client.id || ci} className="mt-2 border-t border-white/10 pt-2">
+                        <p className="font-semibold text-cyan-200">Client: {client.client_name || `Client ${ci + 1}`}</p>
+                        <div className="mt-1 space-y-0.5 text-slate-400">
+                          {(client.video_rows ?? []).map((row, ri) => <p key={`v${ri}`}>Video · {row.video_type} / {row.quality} · {row.qty} × {formatINR(Number(row.rate))} = <b className="text-slate-200">{formatINR(Number(row.total ?? Number(row.qty) * Number(row.rate)))}</b></p>)}
+                          {(client.album_rows ?? []).map((row, ri) => <div key={`a${ri}`}><p>Album · {row.album_type} ({row.size}) · {formatINR(Number(row.total ?? 0))}</p>{row.mini_album && <p className="pl-3">Mini album · {row.mini_qty} × {formatINR(Number(row.mini_rate))} = {formatINR(Number(row.mini_total))}</p>}{(row.papers ?? []).filter((paper) => paper.paper_type).map((paper) => <p key={paper.id} className="pl-3">{paper.paper_type} paper · {paper.sheets} × {formatINR(Number(paper.rate))} = {formatINR(Number(paper.total))}</p>)}</div>)}
+                          {(order.extra_items ?? []).filter((item) => item.client_name === client.client_name).map((item) => <p key={item.id} className="text-amber-200">Extra · {item.description} · {item.quantity} × {formatINR(item.unit_rate)} = {formatINR(item.line_amount)}</p>)}
                         </div>
-                      ))}
+                      </div>)}
+                      {(order.extra_items ?? []).filter((item) => !item.client_name || !(order.clients ?? []).some((client) => client.client_name === item.client_name)).map((item) => <p key={item.id} className="mt-1 text-amber-200">Order extra · {item.description} · {item.quantity} × {formatINR(item.unit_rate)} = {formatINR(item.line_amount)}</p>)}
+                      {(order.payment_history ?? []).length > 0 && <div className="mt-2 overflow-x-auto border-t border-white/10 pt-2"><p className="mb-1 font-medium text-slate-200">Payments · order-level (not allocated to a client)</p><table className="w-full min-w-[500px] text-left text-[11px]"><thead className="text-slate-500"><tr><th className="py-1">Date &amp; time</th><th>Mode</th><th>Note</th><th className="text-right">Paid</th><th className="text-right">Remaining order balance</th></tr></thead><tbody>{(() => { let paid = 0; return (order.payment_history ?? []).map((payment) => { paid += Number(payment.amount ?? 0); return <tr key={payment.id} className="border-t border-white/5 text-slate-400"><td className="py-1">{formatDateTime(payment.created_at || payment.payment_date)}</td><td>{payment.payment_mode}</td><td>{payment.note || '—'}</td><td className="text-right text-emerald-300">{formatINR(Number(payment.amount))}</td><td className="text-right">{formatINR(Math.max(0, Number(order.master_total ?? 0) - paid))}</td></tr>; }); })()}</tbody></table></div>}
                     </div>
 
                     {hasPaymentInfo && (
@@ -721,13 +702,9 @@ export function PartnerDashboardContent({
           <h2 className="mb-3 text-sm font-semibold">Assigned Duties</h2>
           {bookings.length === 0 ? <p className="text-sm text-slate-400">No assigned duties yet.</p> : <div className="space-y-3">{bookings.map((booking) => { const events = booking.events ?? []; return <div key={booking.id} className="rounded-lg border border-white/10 bg-white/5 p-4"><p className="font-medium">{booking.client_name}</p><div className="mt-2 space-y-1 text-xs text-slate-300"><p className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5 text-amber-400" /> {formatDate(booking.shoot_date)} · {booking.event_function}</p><p className="flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 text-amber-400" /> {booking.venue || 'Venue to be confirmed'}</p></div><div className="mt-3 border-t border-white/10 pt-3 text-xs text-slate-400">{booking.assignments.map((assignment, index) => <p key={index} className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-amber-400" /> {assignment.function_name} · {assignment.role} · Report {assignment.reporting_time || 'time pending'}</p>)}{events.length > 0 && events.map((event, index) => <p key={`event-${index}`}>{event.name} · {event.date ? formatDate(event.date) : 'Date pending'} · {event.start_time ?? event.time ?? 'Time pending'}</p>)}</div></div>; })}</div>}
         </div>}
-        {activeTab === 'ledger' && <div className="rounded-xl border border-white/10 bg-slate-900 p-5">
-          <h2 className="mb-3 text-sm font-semibold">Ledger &amp; History</h2>
-          <div className="space-y-2">{[
-            ['Shoot duty credits', balance.credit, 'text-emerald-400'],
-            ['Lab work and settlements', balance.debit, 'text-rose-400'],
-            ['Current balance', balance.balance, balance.balance >= 0 ? 'text-emerald-400' : 'text-rose-400'],
-          ].map(([label, amount, color]) => <div key={String(label)} className="flex items-center justify-between border-b border-white/10 py-2 text-xs"><span className="text-slate-400">{label}</span><span className={`font-semibold ${color}`}>{formatINR(Number(amount))}</span></div>)}</div>
+        {activeTab === 'ledger' && <div className="space-y-3">
+          <div className="rounded-xl border border-white/10 bg-slate-900 p-4"><h2 className="mb-2 text-sm font-semibold">Partner Account Balance</h2><p className="mb-3 text-[11px] text-slate-400">This is the partner-level account ledger (shoot duties and direct settlements), separate from client/order balances below.</p><div className="grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-lg bg-slate-950/50 p-2"><p className="text-slate-500">Duty credits</p><b className="text-emerald-300">{formatINR(balance.credit)}</b></div><div className="rounded-lg bg-slate-950/50 p-2"><p className="text-slate-500">Partner debits</p><b className="text-rose-300">{formatINR(balance.debit)}</b></div><div className="rounded-lg bg-slate-950/50 p-2"><p className="text-slate-500">Account balance</p><b className={balance.balance < 0 ? 'text-rose-300' : 'text-cyan-200'}>{formatINR(balance.balance)}</b></div></div></div>
+          <div className="rounded-xl border border-white/10 bg-slate-900 p-4"><h2 className="mb-1 text-sm font-semibold">Client &amp; Lab Order Statement</h2><p className="mb-3 text-[11px] text-slate-400">Every balance is linked to its project and client; payment entries show the order, date, mode, and remaining balance.</p>{labOrders.length === 0 ? <p className="text-xs text-slate-400">No client or lab-order balances.</p> : <div className="space-y-3">{labOrders.map((order) => <div key={order.id} className="rounded-lg border border-white/10 bg-slate-950/50 p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold text-white">{order.order_no} · {order.project_name || order.work_type}</p><p className="text-xs text-slate-400">Work: {order.work_type} · Studio: {order.studio_name || '—'}</p></div><span className="text-xs font-semibold text-amber-300">Due {formatINR(Math.max(0, Number(order.master_total ?? 0) - Number(order.advance_paid ?? 0)))}</span></div><div className="mt-2 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4"><span className="text-slate-400">Current work <b className="text-slate-200">{formatINR(Number(order.current_order_total ?? 0))}</b></span><span className="text-slate-400">Previous balance <b className="text-slate-200">{formatINR(Number(order.previous_back_due ?? 0))}</b></span><span className="text-slate-400">Total bill <b className="text-slate-200">{formatINR(Number(order.master_total ?? 0))}</b></span><span className="text-slate-400">Paid <b className="text-emerald-300">{formatINR(Number(order.advance_paid ?? 0))}</b></span></div>{(order.clients ?? []).map((client, ci) => <div key={client.id || ci} className="mt-2 border-t border-white/10 pt-2"><p className="text-xs font-semibold text-cyan-200">Client: {client.client_name || `Client ${ci + 1}`}</p><div className="mt-1 space-y-0.5 text-[11px] text-slate-400">{(client.video_rows ?? []).map((row, ri) => <p key={`v${ri}`}>Video · {row.video_type} / {row.quality} · {row.qty} × {formatINR(Number(row.rate))} = {formatINR(Number(row.total ?? Number(row.qty) * Number(row.rate)))}</p>)}{(client.album_rows ?? []).map((row, ri) => <p key={`a${ri}`}>Album · {row.album_type} ({row.size}) · {formatINR(Number(row.total ?? 0))}</p>)}{(order.extra_items ?? []).filter((item) => item.client_name === client.client_name).map((item) => <p key={item.id} className="text-amber-200">Extra · {item.description} · {item.quantity} × {formatINR(item.unit_rate)} = {formatINR(item.line_amount)}</p>)}</div></div>)}{(order.extra_items ?? []).filter((item) => !item.client_name || !(order.clients ?? []).some((client) => client.client_name === item.client_name)).map((item) => <p key={item.id} className="mt-1 text-[11px] text-amber-200">Order extra · {item.description} · {item.quantity} × {formatINR(item.unit_rate)} = {formatINR(item.line_amount)}</p>)}{(order.payment_history ?? []).length > 0 && <div className="mt-2 overflow-x-auto border-t border-white/10 pt-2"><p className="mb-1 text-[11px] font-semibold text-slate-300">Payments · order-level, not assigned to an individual client</p><table className="w-full min-w-[500px] text-left text-[11px]"><thead className="text-slate-500"><tr><th className="py-1">Date &amp; time</th><th>Mode</th><th>Note</th><th className="text-right">Amount</th><th className="text-right">Remaining due</th></tr></thead><tbody>{(() => { let paid = 0; return (order.payment_history ?? []).map((payment) => { paid += Number(payment.amount ?? 0); return <tr key={payment.id} className="border-t border-white/5 text-slate-400"><td className="py-1">{formatDateTime(payment.created_at || payment.payment_date)}</td><td>{payment.payment_mode}</td><td>{payment.note || '—'}</td><td className="text-right text-emerald-300">{formatINR(Number(payment.amount))}</td><td className="text-right">{formatINR(Math.max(0, Number(order.master_total ?? 0) - paid))}</td></tr>; }); })()}</tbody></table></div>}</div>)}</div>}</div>
         </div>}
         <p className="flex items-center gap-1.5 text-xs text-slate-500"><Camera className="h-3.5 w-3.5" /> Operational schedule only. Client package amounts are private.</p>
       </div>

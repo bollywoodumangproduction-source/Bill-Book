@@ -125,6 +125,7 @@ export interface BookingPaymentInstallment {
   payment_mode: string;
   custom_note: string;
   paid_amount: string;
+  created_at?: string;
 }
 
 export interface BookingDeliverables {
@@ -279,6 +280,7 @@ export interface StudioLabOrder {
   project_name: string;
   work_type: string;
   clients: LabClientRow[];
+  extra_items?: LabExtraCharge[];
   total_album_bill: number;
   total_video_bill: number;
   current_order_total: number;
@@ -364,6 +366,7 @@ export interface Partner {
   mobile: string;
   studio_name: string;
   studio_address: string;
+  logo_url?: string;
   category: PartnerCategory;
   status: PartnerStatus;
   note: string;
@@ -393,6 +396,16 @@ export interface LabPaymentInstallment {
   payment_date: string;
   payment_mode: string;
   note: string;
+  created_at?: string;
+}
+
+export interface LabExtraCharge {
+  id: string;
+  client_name: string;
+  description: string;
+  quantity: number;
+  unit_rate: number;
+  line_amount: number;
 }
 
 export type DirectTxnType = 'Given' | 'Received';
@@ -571,6 +584,7 @@ export interface ClientSelectionSession {
   billId: string;
   clientName: string;
   partnerName?: string;
+  partnerId?: string;
   labOrderNo?: string;
   phone: string;
   pinCode: string;

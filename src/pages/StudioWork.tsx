@@ -2,8 +2,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { createPortal } from 'react-dom';
 import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, TriangleAlert as AlertTriangle, Zap, CalendarClock, Images, HardDrive, FolderOpen } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabClientDeliveryStatus, LabClientDispatchMode, StorageLocation } from '@/lib/types';
-import { formatINR, formatDate, todayISO, defaultPinFromPhone } from '@/lib/format';
+import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabExtraCharge, LabClientDeliveryStatus, LabClientDispatchMode, StorageLocation } from '@/lib/types';
+import { formatINR, formatDate, formatDateTime, todayISO, defaultPinFromPhone } from '@/lib/format';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useDraftState } from '@/lib/useDraftState';
@@ -133,11 +133,15 @@ function emptyClient(): LabClientRow {
 }
 
 function hasAlbumWork(order: Partial<StudioLabOrder>): boolean {
-  return toNum(order.total_album_bill) > 0 || (Array.isArray(order.album_rows) && order.album_rows.length > 0);
+  return toNum(order.total_album_bill) > 0
+    || (Array.isArray(order.album_rows) && order.album_rows.length > 0)
+    || (Array.isArray(order.clients) && order.clients.some((client) => Array.isArray(client.album_rows) && client.album_rows.length > 0));
 }
 
 function hasVideoWork(order: Partial<StudioLabOrder>): boolean {
-  return toNum(order.total_video_bill) > 0 || (Array.isArray(order.video_rows) && order.video_rows.length > 0);
+  return toNum(order.total_video_bill) > 0
+    || (Array.isArray(order.video_rows) && order.video_rows.length > 0)
+    || (Array.isArray(order.clients) && order.clients.some((client) => Array.isArray(client.video_rows) && client.video_rows.length > 0));
 }
 
 function isProductionComplete(order: Partial<StudioLabOrder>): boolean {
@@ -173,6 +177,7 @@ function normalizeLabOrder(raw: Partial<StudioLabOrder>): StudioLabOrder {
     project_name: raw.project_name ?? '',
     work_type: raw.work_type ?? '',
     clients,
+    extra_items: Array.isArray(raw.extra_items) ? raw.extra_items : [],
     total_album_bill: raw.total_album_bill ?? 0,
     total_video_bill: raw.total_video_bill ?? 0,
     current_order_total: raw.current_order_total ?? 0,
@@ -323,7 +328,9 @@ export function LabOrders() {
   const filtered = orders.filter((o) => {
     const q = search.toLowerCase();
     const matchSearch = (o.studio_name ?? '').toLowerCase().includes(q) || (o.project_name ?? '').toLowerCase().includes(q) || (o.order_no ?? '').toLowerCase().includes(q) || (o.partner_name ?? '').toLowerCase().includes(q) || (o.clients ?? []).some((client) => (client.client_name ?? '').toLowerCase().includes(q));
-    const matchStatus = statusFilter === 'all' || o.order_status === statusFilter;
+    const matchStatus = statusFilter === 'all' || (activeTab === 'station'
+      ? o.order_status === statusFilter || o.album_status === statusFilter || o.video_status === statusFilter
+      : o.order_status === statusFilter);
     const lifecycleMatch = view === 'recycle' ? !!o.deleted_at : view === 'archived' ? !!o.archived_at && !o.deleted_at : !o.archived_at && !o.deleted_at;
     return lifecycleMatch && matchSearch && matchStatus;
   });
@@ -403,10 +410,12 @@ export function LabOrders() {
     return alerts;
   }, [orders]);
 
-  const liveStationItems = sortOrdersByPriority(filtered, deadlineAlerts).flatMap((order) => [
-    ...(order.order_status !== 'Delivered' && hasAlbumWork(order) && order.album_status !== 'Pending' && order.album_status !== 'Complete' ? [{ order, workType: 'album' as const }] : []),
-    ...(order.order_status !== 'Delivered' && hasVideoWork(order) && order.video_status !== 'Pending' && order.video_status !== 'Complete' ? [{ order, workType: 'video' as const }] : []),
-  ]);
+  // Keep a single Live Station card for each bill, even when the bill has both Album and Video work.
+  const liveStationItems = sortOrdersByPriority(filtered, deadlineAlerts).filter((order) =>
+    order.order_status !== 'Delivered'
+    && ((hasAlbumWork(order) && order.album_status !== 'Pending' && order.album_status !== 'Complete')
+      || (hasVideoWork(order) && order.video_status !== 'Pending' && order.video_status !== 'Complete')),
+  );
 
   const handleArchiveOrder = async (orderIdOrNo: string) => {
     const targetKey = String(orderIdOrNo ?? '').trim();
@@ -607,12 +616,12 @@ export function LabOrders() {
     setActiveTab('partners');
   };
 
-  const renderOrderCard = (o: StudioLabOrder, stationWork?: 'album' | 'video') => {
+  const renderOrderCard = (o: StudioLabOrder, stationView = false) => {
     const clientCount = (o.clients ?? []).length;
     const totalVideo = toNum(o.total_video_bill);
     const totalAlbum = toNum(o.total_album_bill);
     return (
-      <div key={`${o.id}-${stationWork ?? 'order'}`} className={`rounded-xl border bg-white p-3 dark:bg-slate-900/50 ${o.is_emergency ? 'border-rose-300 dark:border-rose-500/40 ring-1 ring-rose-200 dark:ring-rose-500/20' : 'border-slate-200 dark:border-white/10'}`}>
+      <div key={`${o.id}-${stationView ? 'station' : 'order'}`} className={`rounded-xl border bg-white p-3 dark:bg-slate-900/50 ${o.is_emergency ? 'border-rose-300 dark:border-rose-500/40 ring-1 ring-rose-200 dark:ring-rose-500/20' : 'border-slate-200 dark:border-white/10'}`}>
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
@@ -626,7 +635,7 @@ export function LabOrders() {
             <button onClick={() => { setEditing(o); setShowForm(true); }} className="rounded-md p-2 text-slate-400 transition-colors hover:bg-zinc-700 hover:text-amber-400" title="Edit order">
               <Edit3 className="h-4 w-4" />
             </button>
-            {!stationWork && activeTab !== 'partners' && <>
+            {!stationView && activeTab !== 'partners' && <>
               <button onClick={() => handleArchiveOrder(getOrderKey(o))} className="rounded-md p-2 text-slate-400 transition-colors hover:bg-zinc-700 hover:text-amber-400" title="Archive order">
                 <Archive className="h-4 w-4" />
               </button>
@@ -637,7 +646,8 @@ export function LabOrders() {
           </div>
         </div>
         <div className="mb-3 flex flex-wrap gap-1.5">
-          {stationWork && <Badge color="amber">{stationWork === 'album' ? 'Album' : 'Video'} Live</Badge>}
+          {stationView && hasAlbumWork(o) && o.album_status !== 'Pending' && o.album_status !== 'Complete' && <Badge color="amber">Album · {o.album_status}</Badge>}
+          {stationView && hasVideoWork(o) && o.video_status !== 'Pending' && o.video_status !== 'Complete' && <Badge color="amber">Video · {o.video_status}</Badge>}
           <Badge color={STATUS_COLORS[o.order_status] ?? 'slate'}>{o.order_status}</Badge>
           <Badge color="slate">{o.delivery_mode}</Badge>
           {o.promised_delivery_date && (
@@ -708,8 +718,8 @@ export function LabOrders() {
           {clientCount > 0 && (
           <div className="mb-2 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
             <p>Users: {clientCount}</p>
-            {totalVideo > 0 && (!stationWork || stationWork === 'video') && <p>Video Bill: {formatINR(totalVideo)}</p>}
-            {totalAlbum > 0 && (!stationWork || stationWork === 'album') && <p>Album Bill: {formatINR(totalAlbum)}</p>}
+            {totalVideo > 0 && <p>Video Bill: {formatINR(totalVideo)}</p>}
+            {totalAlbum > 0 && <p>Album Bill: {formatINR(totalAlbum)}</p>}
           </div>
         )}
         <div className="border-t border-slate-100 pt-2 dark:border-white/5">
@@ -738,10 +748,10 @@ export function LabOrders() {
             {view === 'recycle' && <button onClick={() => { const key = getOrderKey(o); if (!key) return; setDeleteId(key); setPendingDelete('permanent'); setShowPin(true); }} className="rounded-lg border border-rose-500/30 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">Delete Forever</button>}
           </div>
         )}
-        {stationWork ? (
+        {stationView ? (
           <div className="mt-3 space-y-2 border-t border-slate-100 pt-3 dark:border-white/5">
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {hasAlbumWork(o) && (
+              {hasAlbumWork(o) && o.album_status !== 'Pending' && o.album_status !== 'Complete' && (
                 <label className="flex min-w-0 flex-col gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
                   Album Status
                   <select
@@ -755,7 +765,7 @@ export function LabOrders() {
                   </select>
                 </label>
               )}
-              {hasVideoWork(o) && (
+              {hasVideoWork(o) && o.video_status !== 'Pending' && o.video_status !== 'Complete' && (
                 <label className="flex min-w-0 flex-col gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
                   Video Status
                   <select
@@ -888,7 +898,7 @@ export function LabOrders() {
             </div>
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} sm:w-auto`}>
               <option value="all">All Statuses</option>
-              {LAB_ORDER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              {LAB_ORDER_STATUSES.filter((s) => s !== 'Pending').map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           {loading ? (
@@ -897,7 +907,7 @@ export function LabOrders() {
             <EmptyState icon={Clapperboard} title="No lab orders found" subtitle="Create a new lab order to get started" />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-2">
-              {liveStationItems.map(({ order, workType }) => renderOrderCard(order, workType))}
+              {liveStationItems.map((order) => renderOrderCard(order, true))}
             </div>
           )}
         </> : (
@@ -1173,10 +1183,11 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
   const recordPayment = async () => {
     const amount = toNum(paymentAmount);
     if (amount <= 0) return;
-    const payment: LabPaymentInstallment = { id: uid(), amount, payment_date: paymentDate, payment_mode: paymentMode, note: paymentNote };
+    const payment: LabPaymentInstallment = { id: uid(), amount, payment_date: paymentDate, payment_mode: paymentMode, note: paymentNote, created_at: new Date().toISOString() };
     const nextHistory = [...paymentHistory, payment];
     try {
-      const { error } = await supabase.from('studio_lab_orders').update({ payment_history: nextHistory, advance_paid: totalPaid + amount, net_final_due: toNum(order.master_total) - totalPaid - amount, payment_mode: paymentMode, payment_date: paymentDate, payment_note: paymentNote }).eq('id', order.id);
+      const nextDue = Math.max(0, toNum(order.master_total) - totalPaid - amount);
+      const { error } = await supabase.from('studio_lab_orders').update({ payment_history: nextHistory, advance_paid: totalPaid + amount, net_due: nextDue, net_final_due: nextDue, payment_mode: paymentMode, payment_date: paymentDate, payment_note: paymentNote }).eq('id', order.id);
       if (error) throw error;
       setPaymentHistory(nextHistory);
       setPaymentAmount('');
@@ -1327,6 +1338,13 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
           </div>
         ))}
 
+        {(order.extra_items ?? []).length > 0 && <div className="rounded-lg border border-amber-200 p-3 dark:border-amber-500/20">
+          <h3 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Itemized Extra Charges</h3>
+          <div className="space-y-1 text-xs">{(order.extra_items ?? []).map((item) => <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-3 border-b border-slate-100 py-1 last:border-0 dark:border-white/5">
+            <span>{item.client_name ? `${item.client_name} · ` : 'Order-level · '}{item.description}</span><span>×{item.quantity}</span><span>{formatINR(item.unit_rate)}</span><strong>{formatINR(item.line_amount)}</strong>
+          </div>)}</div>
+        </div>}
+
         {/* Summary */}
         <div className="rounded-lg bg-slate-50 p-3 dark:bg-white/5">
           <div className="space-y-1 text-sm">
@@ -1359,7 +1377,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
             <input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} className={inputClass} placeholder="Custom Note" />
           </div>
           <button onClick={recordPayment} className="mt-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-600">Record Installment</button>
-          {paymentHistory.length > 0 && <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[560px] text-xs"><thead><tr className="border-b border-slate-200 text-left text-slate-400 dark:border-white/10"><th className="px-2 py-1">Date</th><th className="px-2 py-1">Mode</th><th className="px-2 py-1">Note</th><th className="px-2 py-1 text-right">Amount</th><th className="px-2 py-1 text-right">Running Due</th></tr></thead><tbody>{(() => { let runningPaid = 0; return paymentHistory.map((payment) => { runningPaid += toNum(payment.amount); return <tr key={payment.id} className="border-b border-slate-100 dark:border-white/5"><td className="px-2 py-1">{formatDate(payment.payment_date)}</td><td className="px-2 py-1">{payment.payment_mode}</td><td className="px-2 py-1">{payment.note || '—'}</td><td className="px-2 py-1 text-right text-emerald-600">{formatINR(toNum(payment.amount))}</td><td className="px-2 py-1 text-right">{formatINR(toNum(order.master_total) - runningPaid)}</td></tr>; }); })()}</tbody></table></div>}
+          {paymentHistory.length > 0 && <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[560px] text-xs"><thead><tr className="border-b border-slate-200 text-left text-slate-400 dark:border-white/10"><th className="px-2 py-1">Date &amp; Time</th><th className="px-2 py-1">Mode</th><th className="px-2 py-1">Note</th><th className="px-2 py-1 text-right">Amount</th><th className="px-2 py-1 text-right">Running Due</th></tr></thead><tbody>{(() => { let runningPaid = 0; return paymentHistory.map((payment) => { runningPaid += toNum(payment.amount); return <tr key={payment.id} className="border-b border-slate-100 dark:border-white/5"><td className="px-2 py-1">{formatDateTime(payment.created_at || payment.payment_date)}</td><td className="px-2 py-1">{payment.payment_mode}</td><td className="px-2 py-1">{payment.note || '—'}</td><td className="px-2 py-1 text-right text-emerald-600">{formatINR(toNum(payment.amount))}</td><td className="px-2 py-1 text-right">{formatINR(Math.max(0, toNum(order.master_total) - runningPaid))}</td></tr>; }); })()}</tbody></table></div>}
         </div>
 
         <div className="border-t border-slate-200 pt-3 dark:border-white/10">
@@ -1529,10 +1547,11 @@ function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder
     setSaving(true);
     try {
       const nextAdvance = toNum(order.advance_paid) + value;
-      const paymentHistory: LabPaymentInstallment[] = [...(order.payment_history ?? []), { id: uid(), amount: value, payment_date: paymentDate, payment_mode: paymentMode, note: reference.trim() || 'Balance settlement' }];
+      const paymentHistory: LabPaymentInstallment[] = [...(order.payment_history ?? []), { id: uid(), amount: value, payment_date: paymentDate, payment_mode: paymentMode, note: reference.trim() || 'Balance settlement', created_at: new Date().toISOString() }];
       const { error } = await supabase.from('studio_lab_orders').update({
         advance_paid: nextAdvance,
-        net_final_due: toNum(order.master_total) - nextAdvance,
+        net_due: Math.max(0, toNum(order.master_total) - nextAdvance),
+        net_final_due: Math.max(0, toNum(order.master_total) - nextAdvance),
         payment_mode: paymentMode,
         payment_date: paymentDate,
         payment_note: reference.trim(),
@@ -1543,7 +1562,8 @@ function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder
       onSaved({
         ...order,
         advance_paid: nextAdvance,
-        net_final_due: toNum(order.master_total) - nextAdvance,
+        net_due: Math.max(0, toNum(order.master_total) - nextAdvance),
+        net_final_due: Math.max(0, toNum(order.master_total) - nextAdvance),
         payment_mode: paymentMode,
         payment_date: paymentDate,
         payment_note: reference.trim(),
@@ -1598,7 +1618,8 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
     const trimmedNote = paymentNote.trim();
     setSaving(true);
     try {
-      const currentNetDue = Number(currentOrder.net_due ?? currentOrder.net_final_due ?? netDue ?? 0);
+      const currentNetDue = Math.max(0, Number(currentOrder.master_total ?? orderTotal + previousBackDue) - Number(currentOrder.advance_paid ?? 0));
+      if (value > currentNetDue) { toast('Payment is greater than the remaining order balance', 'error'); return; }
       const nextAdvance = Number(currentOrder.advance_paid || 0) + value;
       const nextNetDue = Math.max(0, currentNetDue - value);
       const nextHistory: LabPaymentInstallment[] = [...(currentOrder.payment_history ?? []), {
@@ -1607,6 +1628,7 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
         payment_date: paymentDate,
         payment_mode: selectedMode,
         note: trimmedNote || '',
+        created_at: new Date().toISOString(),
       }];
 
       const nextOrder: StudioLabOrder = {
@@ -1772,6 +1794,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
   const [deliveryMode, setDeliveryMode] = useDraftState<string>(`${draftKey}-deliveryMode`, 'By Hand');
   const [parcelTracking, setParcelTracking] = useDraftState<string>(`${draftKey}-parcelTracking`, '');
   const [clients, setClients] = useDraftState<LabClientRow[]>(`${draftKey}-clients`, []);
+  const [extraItems, setExtraItems] = useDraftState<LabExtraCharge[]>(`${draftKey}-extraItems`, []);
   const [advancePaid, setAdvancePaid] = useDraftState<string>(`${draftKey}-advancePaid`, '');
   const [paymentMode, setPaymentMode] = useDraftState<string>(`${draftKey}-paymentMode`, '');
   const [paymentDate, setPaymentDate] = useDraftState<string>(`${draftKey}-paymentDate`, '');
@@ -1796,6 +1819,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
     setDeliveryMode('By Hand');
     setParcelTracking('');
     setClients([]);
+    setExtraItems([]);
     setAdvancePaid('');
     setPaymentMode('');
     setPaymentDate('');
@@ -1854,6 +1878,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
       setDeliveryMode(editing?.delivery_mode ?? 'By Hand');
       setParcelTracking(editing?.parcel_tracking_details ?? '');
       setClients(editing?.clients ?? [emptyClient()]);
+      setExtraItems(editing?.extra_items ?? []);
       setAdvancePaid(editing && toNum(editing.advance_paid) ? String(editing.advance_paid) : '');
       setPaymentMode(editing?.payment_mode ?? '');
       setPaymentDate(editing?.payment_date ?? '');
@@ -1984,7 +2009,8 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
 
   const totalVideoBill = useMemo(() => clients.reduce((s, c) => s + computeClientVideoTotal(c.video_rows), 0), [clients]);
   const totalAlbumBill = useMemo(() => clients.reduce((s, c) => s + computeClientAlbumTotal(c.album_rows), 0), [clients]);
-  const currentOrderTotal = totalVideoBill + totalAlbumBill;
+  const extraItemsTotal = useMemo(() => extraItems.reduce((sum, item) => sum + Number(item.line_amount || 0), 0), [extraItems]);
+  const currentOrderTotal = totalVideoBill + totalAlbumBill + extraItemsTotal;
   const masterTotal = currentOrderTotal + toNum(backDue);
   const netFinalDue = masterTotal - toNum(advancePaid);
 
@@ -2006,6 +2032,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
         project_name: projectName,
         work_type: allVideoRows.length > 0 ? 'Video Mixing' : allAlbumRows.length > 0 ? 'Album Design' : 'Other',
         clients,
+        extra_items: extraItems,
         is_demo: editing?.is_demo ?? false,
         isDemo: false,
         total_album_bill: totalAlbumBill,
@@ -2290,6 +2317,24 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
               )}
             </div>
           ))}
+        </div>
+
+        {/* Itemized extra charges */}
+        <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div><h3 className="text-sm font-semibold text-slate-900 dark:text-white">Extra Charges / Services</h3><p className="text-xs text-slate-500 dark:text-slate-400">Each charge is listed separately on the lab bill.</p></div>
+            <button type="button" onClick={() => setExtraItems((items) => [...items, { id: uid(), client_name: clients[0]?.client_name ?? '', description: '', quantity: 1, unit_rate: 0, line_amount: 0 }])} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950"><Plus className="mr-1 inline h-3.5 w-3.5" />Add Charge</button>
+          </div>
+          {extraItems.length === 0 ? <p className="text-xs text-slate-400">No additional charges.</p> : <div className="space-y-2">
+            {extraItems.map((item, index) => <div key={item.id} className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 p-2 dark:border-white/10 sm:grid-cols-6">
+              <select value={item.client_name} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => rowIndex === index ? { ...row, client_name: event.target.value } : row))} className={`${selectClass} text-xs`}><option value="">All / Order-level</option>{clients.map((client, clientIndex) => <option key={`${client.id}-${clientIndex}`} value={client.client_name}>{client.client_name || `Client ${clientIndex + 1}`}</option>)}</select>
+              <input value={item.description} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => rowIndex === index ? { ...row, description: event.target.value } : row))} className={`${inputClass} text-xs`} placeholder="Charge / service description" />
+              <input type="number" min="0" value={item.quantity} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: Number(event.target.value), line_amount: Number(event.target.value) * row.unit_rate } : row))} className={`${inputClass} text-xs`} placeholder="Qty" />
+              <input type="number" min="0" value={item.unit_rate} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => rowIndex === index ? { ...row, unit_rate: Number(event.target.value), line_amount: row.quantity * Number(event.target.value) } : row))} className={`${inputClass} text-xs`} placeholder="Unit rate ₹" />
+              <div className="flex items-center rounded-lg border border-slate-200 px-2 text-xs font-semibold dark:border-white/10">{formatINR(item.line_amount)}</div>
+              <button type="button" onClick={() => setExtraItems((items) => items.filter((_, rowIndex) => rowIndex !== index))} className="rounded-lg border border-rose-500/20 px-2 text-xs text-rose-500">Remove</button>
+            </div>)}
+          </div>}
         </div>
 
         {/* Master Billing */}
@@ -2632,6 +2677,22 @@ function LabOrderPrintTemplate({ order, settings, compact = false, termsText }: 
           )}
         </div>
       ))}
+
+      {(order.extra_items ?? []).length > 0 && <div className={compact ? 'mb-2' : 'mb-4'}>
+        <h3 className={compact ? 'mb-0.5 text-xs font-bold' : 'mb-1 text-sm font-bold'}>Itemized Extra Charges</h3>
+        <table className={compact ? 'w-full border-collapse border border-black text-xs' : 'w-full border-collapse border border-black text-sm'}>
+          <thead><tr className="bg-gray-100"><th className="border border-black px-2 py-1 text-left">Client / Description</th><th className="border border-black px-2 py-1 text-right">Qty</th><th className="border border-black px-2 py-1 text-right">Unit Rate</th><th className="border border-black px-2 py-1 text-right">Line Total</th></tr></thead>
+          <tbody>{(order.extra_items ?? []).map((item) => <tr key={item.id}><td className="border border-black px-2 py-1">{item.client_name ? `${item.client_name} · ` : ''}{item.description}</td><td className="border border-black px-2 py-1 text-right">{item.quantity}</td><td className="border border-black px-2 py-1 text-right">{formatINR(toNum(item.unit_rate))}</td><td className="border border-black px-2 py-1 text-right">{formatINR(toNum(item.line_amount))}</td></tr>)}</tbody>
+        </table>
+      </div>}
+
+      {(order.payment_history ?? []).length > 0 && <div className={compact ? 'mb-2' : 'mb-4'}>
+        <h3 className={compact ? 'mb-0.5 text-xs font-bold' : 'mb-1 text-sm font-bold'}>Payment History</h3>
+        <table className={compact ? 'w-full border-collapse border border-black text-xs' : 'w-full border-collapse border border-black text-sm'}>
+          <thead><tr className="bg-gray-100"><th className="border border-black px-2 py-1 text-left">Date &amp; Time</th><th className="border border-black px-2 py-1 text-left">Mode</th><th className="border border-black px-2 py-1 text-left">Note</th><th className="border border-black px-2 py-1 text-right">Amount</th></tr></thead>
+          <tbody>{(order.payment_history ?? []).map((payment) => <tr key={payment.id}><td className="border border-black px-2 py-1">{formatDateTime(payment.created_at || payment.payment_date)}</td><td className="border border-black px-2 py-1">{payment.payment_mode || '—'}</td><td className="border border-black px-2 py-1">{payment.note || '—'}</td><td className="border border-black px-2 py-1 text-right">{formatINR(toNum(payment.amount))}</td></tr>)}</tbody>
+        </table>
+      </div>}
 
       {/* Compact: Financial summary + Payment info side-by-side */}
       {compact ? (

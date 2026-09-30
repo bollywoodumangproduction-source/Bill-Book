@@ -135,16 +135,32 @@ async function syncPhotoSelectionBilling(session: BillingSession, extraSheets: n
       : orderQuery.eq('order_no', reference).maybeSingle());
     if (!order) return;
     const currentOrderTotal = Number(order.current_order_total ?? 0);
-    const previousExtraAmount = Number(session.extra_amount ?? 0);
-    const basePayable = Math.max(0, currentOrderTotal - previousExtraAmount);
+    const extraItems = Array.isArray(order.extra_items) ? order.extra_items : [];
+    const photoItemId = `photo-selection-${session.id}`;
+    const matchingPhotoItem = extraItems.find((item: any) => item.id === photoItemId);
+    const legacyExtra = matchingPhotoItem ? Number(matchingPhotoItem.line_amount ?? 0) : Number(session.extra_amount ?? 0);
+    const existingExtraTotal = extraItems.reduce((sum: number, item: any) => sum + Number(item.line_amount ?? 0), 0);
+    const basePayable = Math.max(0, currentOrderTotal - existingExtraTotal - (extraItems.length === 0 ? legacyExtra : 0));
+    const nextExtraItems = extraItems.filter((item: any) => item.id !== photoItemId);
+    if (extraSheets > 0 && extraAmount > 0) nextExtraItems.push({
+      id: photoItemId,
+      client_name: session.clientName,
+      description: `Extra Sheets (+${extraSheets} Sheets)`,
+      quantity: extraSheets,
+      unit_rate: session.extraSheetRate,
+      line_amount: extraAmount,
+    });
+    const nextExtraTotal = nextExtraItems.reduce((sum: number, item: any) => sum + Number(item.line_amount ?? 0), 0);
     const previousBackDue = Number(order.previous_back_due ?? order.back_due ?? 0);
     const advancePaid = Number(order.advance_paid ?? 0);
-    const nextCurrentTotal = basePayable + extraAmount;
+    const nextCurrentTotal = basePayable + nextExtraTotal;
     const nextMasterTotal = nextCurrentTotal + previousBackDue;
     await supabase.from('studio_lab_orders').update({
       current_order_total: nextCurrentTotal,
+      extra_items: nextExtraItems,
       master_total: nextMasterTotal,
-      net_final_due: nextMasterTotal - advancePaid,
+      net_final_due: Math.max(0, nextMasterTotal - advancePaid),
+      net_due: Math.max(0, nextMasterTotal - advancePaid),
     }).eq('id', order.id);
     return;
   }
@@ -158,12 +174,13 @@ async function syncPhotoSelectionBilling(session: BillingSession, extraSheets: n
 
   const deliverables = (booking.deliverables_data ?? {}) as Record<string, unknown>;
   const customItems = Array.isArray(deliverables.custom_items) ? deliverables.custom_items as Array<Record<string, unknown>> : [];
-  const baseCustomItems = customItems.filter((item) => !String(item.name ?? '').startsWith('Extra Sheets ('));
+  const photoItemId = `photo-selection-extra-${session.id}`;
+  const baseCustomItems = customItems.filter((item) => item.id !== photoItemId);
   const previousExtraAmount = customItems
-    .filter((item) => String(item.name ?? '').startsWith('Extra Sheets ('))
+    .filter((item) => item.id === photoItemId)
     .reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
   const nextCustomItems = extraSheets > 0
-    ? [...baseCustomItems, { id: `photo-selection-extra-${session.id}`, name: `Extra Sheets (${extraSheets} sheets)`, qty: extraSheets, rate: session.extraSheetRate, amount: extraAmount }]
+    ? [...baseCustomItems, { id: photoItemId, name: `Extra Sheets (+${extraSheets} Sheets)`, qty: extraSheets, rate: session.extraSheetRate, amount: extraAmount }]
     : baseCustomItems;
   const baseTotal = Number(booking.total_amount ?? 0) - previousExtraAmount;
   const nextTotal = baseTotal + extraAmount;
@@ -240,6 +257,10 @@ export function PhotoSelection() {
       billId: data.billId,
       clientName: data.clientName,
       ...(data.partnerName ? { partnerName: data.partnerName } : {}),
+      ...(isLabSession(data.clientType) ? {
+        partnerId: labOrders.find((order) => order.order_no === data.labOrderNo || order.order_no === data.billId)?.partner_id
+          || partners.find((partner) => partner.name === data.partnerName || partner.studio_name === data.partnerName)?.id,
+      } : {}),
       ...(data.labOrderNo ? { labOrderNo: data.labOrderNo } : {}),
       phone: data.phone,
       pinCode: genPin(),

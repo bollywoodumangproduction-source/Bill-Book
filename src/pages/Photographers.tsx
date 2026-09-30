@@ -24,6 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { ImageUpload } from '@/components/ui/ImageUpload';
 import type {
   Booking,
   PhotographerLedgerEntry,
@@ -1046,6 +1047,7 @@ function PartnerForm({
   const [studioName, setStudioName] = useState('');
   const [mobile, setMobile] = useState('');
   const [studioAddress, setStudioAddress] = useState('');
+  const [logoUrl, setLogoUrl] = useState('');
   const [category, setCategory] = useState<PartnerCategory>('Studio Freelancer');
   const [status, setStatus] = useState<PartnerStatus>('Active');
   const [leaveStart, setLeaveStart] = useState('');
@@ -1060,6 +1062,7 @@ function PartnerForm({
       setStudioName(editing.studio_name ?? '');
       setMobile(editing.mobile);
       setStudioAddress(editing.studio_address ?? '');
+      setLogoUrl(editing.logo_url ?? '');
       setCategory(editing.category);
       setStatus(editing.status);
       setLeaveStart(editing.leave_start ?? '');
@@ -1070,6 +1073,7 @@ function PartnerForm({
       setStudioName('');
       setMobile('');
       setStudioAddress('');
+      setLogoUrl('');
       setCategory('Studio Freelancer');
       setStatus('Active');
       setLeaveStart('');
@@ -1110,6 +1114,7 @@ function PartnerForm({
           mobile: cleanMobile,
           studio_name: studioName.trim(),
           studio_address: studioAddress.trim(),
+          logo_url: logoUrl,
           category,
           status,
           leave_start: status === 'On Leave' ? (leaveStart || null) : null,
@@ -1125,6 +1130,7 @@ function PartnerForm({
           mobile: cleanMobile,
           studio_name: studioName.trim(),
           studio_address: studioAddress.trim(),
+          logo_url: logoUrl,
           category,
           status,
           leave_start: status === 'On Leave' ? (leaveStart || null) : null,
@@ -1160,6 +1166,13 @@ function PartnerForm({
         <Field label="Studio Address">
           <input value={studioAddress} onChange={(e) => setStudioAddress(e.target.value)} className={inputClass} placeholder="Studio address" />
         </Field>
+        <ImageUpload
+          value={logoUrl}
+          onChange={setLogoUrl}
+          label="Partner Logo"
+          description="Shown on this partner’s B2B photo-selection link. You can replace or remove it anytime."
+          maxMb={1}
+        />
         <div className="grid grid-cols-2 gap-4">
           <Field label="Category">
             <select value={category} onChange={(e) => setCategory(e.target.value as PartnerCategory)} className={selectClass}>
