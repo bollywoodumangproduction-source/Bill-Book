@@ -53,6 +53,22 @@ export function PublicPhotoSelection() {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Keep an already-open client gallery in sync with admin Lock, PDF, and session updates.
+  useEffect(() => {
+    if (!sessionId) return;
+    const channel = supabase
+      .channel(`public-photo-session-${sessionId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'photo_selection_sessions', filter: `id=eq.${sessionId}` }, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          setSession(null);
+          return;
+        }
+        setSession(withPhotoSessionCounts(payload.new as ClientSelectionSession));
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [sessionId]);
+
   // PIN check from sessionStorage
   useEffect(() => {
     if (!sessionId) return;
@@ -172,7 +188,10 @@ export function PublicPhotoSelection() {
     toast('Proofing PDF downloaded', 'success');
   };
 
-  const studioName = settings?.studio_name ?? settings?.films_title ?? 'Bollywood Umang Films';
+  const isProductionSession = session?.clientType === 'B2B' || session?.clientType === 'Lab Order';
+  const studioName = isProductionSession
+    ? settings?.production_title || 'Bollywood Umang Production'
+    : settings?.films_title || 'Bollywood Umang Films';
 
   if (loading) {
     return (
@@ -286,7 +305,9 @@ export function PublicPhotoSelection() {
         <div className="w-full px-4 pt-4">
           <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-300">
             <ShieldCheck className="h-4 w-4 shrink-0" />
-            Your selection has been submitted and the gallery is locked. Contact the studio if you need changes.
+            {session.submitted_at
+              ? 'Your selection has been submitted and the gallery is locked. Contact the studio if you need changes.'
+              : 'The gallery is locked by the studio. Contact the studio if you need changes.'}
           </div>
         </div>
       )}
@@ -368,7 +389,7 @@ export function PublicPhotoSelection() {
               </button>
             ) : (
               <div className="flex items-center gap-1.5 text-xs text-emerald-400">
-                <Lock className="h-3.5 w-3.5" /> Submitted & Locked
+                <Lock className="h-3.5 w-3.5" /> {session.submitted_at ? 'Submitted & Locked' : 'Gallery Locked'}
               </div>
             )}
           </div>

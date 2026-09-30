@@ -42,6 +42,11 @@ class MockQueryBuilder {
     return this;
   }
 
+  is(column: string, value: any): this {
+    this.state.filters.push({ column, op: 'is', value });
+    return this;
+  }
+
   in(column: string, values: any[]): this {
     this.state.filters.push({ column, op: 'in', value: values });
     return this;
@@ -67,6 +72,8 @@ class MockQueryBuilder {
             return val === f.value;
           case 'neq':
             return val !== f.value;
+          case 'is':
+            return val === f.value;
           case 'in':
             return Array.isArray(f.value) && f.value.includes(val);
           default:

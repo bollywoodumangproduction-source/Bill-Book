@@ -664,7 +664,7 @@ export function PartnerDashboardContent({
                     {session ? (
                       <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
                         <div className="flex flex-wrap items-center gap-2 text-xs text-amber-400">
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${session.isLocked ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>{session.isLocked ? 'Completed' : 'Pending'} · {session.selectedCount ?? 0} Selected</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${session.submitted_at ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>{session.submitted_at ? 'Completed' : 'Pending'} · {session.selectedCount ?? 0} Selected</span>
                           <span className="flex items-center gap-1"><Images className="h-3.5 w-3.5" /> Photo Selection: {session.selectedCount ?? 0}/{session.totalPhotos ?? 0}</span>
                           <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-300">Inner Sheets: {sessionInnerSheetCount(session)}</span>
                           {sessionInnerSheetCount(session) > Number(session.packageSheets ?? 0) && <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] text-rose-300">Lab Extra: {formatINR(Math.max(0, sessionInnerSheetCount(session) - Number(session.packageSheets ?? 0)) * Number(session.extraSheetRate ?? 0))}</span>}
@@ -686,7 +686,7 @@ export function PartnerDashboardContent({
                         </div>
                         <div className="rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 text-xs font-semibold text-slate-200"><span>📖 Digital Album Suite</span><span className={`rounded-full px-2 py-0.5 text-[10px] ${session.isLocked ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>{session.isLocked ? 'Ready' : 'In Design'}</span></div>
+                            <div className="flex items-center gap-2 text-xs font-semibold text-slate-200"><span>📖 Digital Album Suite</span><span className={`rounded-full px-2 py-0.5 text-[10px] ${session.submitted_at ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>{session.submitted_at ? 'Ready' : 'In Design'}</span></div>
                             {session.shareableUrl && <a href={session.shareableUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded bg-cyan-500 px-2 py-1 text-[10px] font-semibold text-slate-950"><ExternalLink className="h-3 w-3" /> View Album</a>}
                           </div>
                           {session.shareableUrl ? <>

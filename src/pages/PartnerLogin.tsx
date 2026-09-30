@@ -24,17 +24,17 @@ export function PartnerLogin() {
 
     setLoading(true);
     setError('');
-    const registeredPartners = (settings as any)?.partners || [];
     const clean = (num: string) => (num || '').replace(/\D/g, '').slice(-10);
     const enteredPhoneClean = clean(mobile);
-    let matchedPartner = registeredPartners.find((candidate: any) =>
-      clean(candidate.phone || candidate.mobile) === enteredPhoneClean,
-    ) as Partner | undefined;
-
-    if (!matchedPartner) {
-      const { data: partnerData } = await supabase.from('partners').select('*');
-      matchedPartner = ((partnerData ?? []) as Partner[]).find((candidate) => enteredPhoneClean === cleanPartnerPhone(candidate.mobile));
+    const { data: partnerData, error: partnerError } = await supabase.from('partners').select('*');
+    if (partnerError) {
+      setError('Could not check login access. Please try again.');
+      setLoading(false);
+      return;
     }
+    const matchedPartner = ((partnerData ?? []) as Partner[]).find((candidate) =>
+      enteredPhoneClean === cleanPartnerPhone(candidate.mobile || (candidate as Partner & { phone?: string }).phone || ''),
+    );
 
     if (!matchedPartner) {
       setError('No staff profile found for this mobile number.');
@@ -44,6 +44,11 @@ export function PartnerLogin() {
 
     const partner = matchedPartner;
     if (partner.status && partner.status !== 'Active') {
+      setError('Login access is currently disabled for this partner. Please contact studio admin.');
+      setLoading(false);
+      return;
+    }
+    if (!partner.is_login_allowed) {
       setError('Login access is currently disabled for this partner. Please contact studio admin.');
       setLoading(false);
       return;

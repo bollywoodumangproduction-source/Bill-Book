@@ -322,6 +322,7 @@ export type LedgerEntryType = 'LAB_WORK_DEBIT' | 'SHOOT_DUTY_CREDIT' | 'PAYMENT_
 
 export interface PhotographerLedgerEntry {
   id: string;
+  partner_id?: string | null;
   photographer_name: string;
   mobile: string;
   entry_type: LedgerEntryType;
@@ -440,7 +441,7 @@ export interface DairyOpeningBalance {
   updated_at: string;
 }
 
-export type PageKey = 'dashboard' | 'bookings' | 'lab' | 'ledger' | 'payments' | 'dairy' | 'settings' | 'promo' | 'music' | 'teaser' | 'invitation' | 'photo-selection';
+export type PageKey = 'dashboard' | 'bookings' | 'lab' | 'partners' | 'ledger' | 'payments' | 'dairy' | 'settings' | 'promo' | 'music' | 'teaser' | 'invitation' | 'photo-selection';
 
 export type TeaserStatus = 'editing' | 'complete' | 'delivered';
 

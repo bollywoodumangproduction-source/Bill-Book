@@ -1647,7 +1647,7 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
           if (ledgerError) throw ledgerError;
         } catch {
           try {
-            const { error: fallbackError } = await supabase.from('photographer_ledger').insert([{ photographer_name: currentOrder.partner_name || currentOrder.studio_name, mobile: currentOrder.studio_mobile, entry_type: 'PAYMENT_SETTLED', description: ledgerDescription, amount: value, created_at: new Date().toISOString() }]);
+            const { error: fallbackError } = await supabase.from('photographer_ledger').insert([{ partner_id: currentOrder.partner_id, photographer_name: currentOrder.partner_name || currentOrder.studio_name, mobile: currentOrder.studio_mobile, entry_type: 'PAYMENT_SETTLED', description: ledgerDescription, amount: value, created_at: new Date().toISOString() }]);
             if (fallbackError) throw fallbackError;
           } catch (ledgerError) {
             toast(getDatabaseErrorMessage(ledgerError), 'error');

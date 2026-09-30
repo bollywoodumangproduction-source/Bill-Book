@@ -1522,8 +1522,13 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
 
   const toggleLoginAccess = async () => {
     const newVal = !loginAllowed;
-    setLoginAllowed(newVal);
-    await supabase.from('bookings').update({ is_login_allowed: newVal }).eq('id', booking.id);
+    const { data, error } = await supabase.from('bookings').update({ is_login_allowed: newVal }).eq('id', booking.id).select().single();
+    if (error || !data) {
+      toast('Failed to update client portal access', 'error');
+      return;
+    }
+    setLoginAllowed(Boolean(data.is_login_allowed));
+    onUpdated(data as Booking);
     triggerRefresh();
     toast(newVal ? 'Portal login enabled for this client' : 'Portal login disabled for this client', 'success');
   };
@@ -1930,13 +1935,20 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
         <div className="flex flex-wrap items-center gap-4">
           <button
             onClick={toggleLoginAccess}
-            className="flex items-center gap-2.5"
+            type="button"
+            role="switch"
+            aria-checked={loginAllowed}
+            aria-label={`Client portal login ${loginAllowed ? 'On' : 'Off'}`}
+            className="flex items-center gap-2.5 rounded-lg px-2 py-1 hover:bg-slate-100 dark:hover:bg-white/5"
           >
             <span className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${loginAllowed ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}`}>
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${loginAllowed ? 'translate-x-6' : 'translate-x-1'}`} />
             </span>
             <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              {loginAllowed ? 'Portal Login Enabled' : 'Allow Portal Login'}
+              Portal Login
+            </span>
+            <span className={`text-xs font-semibold ${loginAllowed ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
+              {loginAllowed ? 'On' : 'Off'}
             </span>
             {loginAllowed ? (
               <Unlock className="h-3.5 w-3.5 text-emerald-500" />

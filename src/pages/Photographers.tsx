@@ -131,7 +131,7 @@ interface PartnerBalance {
   balance: number;
 }
 
-export function Ledger() {
+export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
   const { toast } = useToast();
   const { settings } = useSettings();
   const { refreshToken } = useRefresh();
@@ -143,7 +143,7 @@ export function Ledger() {
   const [clientLedgerEntries, setClientLedgerEntries] = useState<BookingClientLedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<LedgerTab>('partners');
+  const [activeTab, setActiveTab] = useState<LedgerTab>(mode === 'partners' ? 'partners' : 'clients');
   const [view, setView] = useState<LedgerView>('main');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -172,7 +172,7 @@ export function Ledger() {
     if (expired.length > 0) {
       for (const partner of expired) {
         await supabase.from('direct_transactions').delete().eq('partner_id', partner.id);
-        await supabase.from('photographer_ledger').delete().eq('mobile', partner.mobile);
+        await supabase.from('photographer_ledger').delete().eq('partner_id', partner.id);
         await supabase.from('partners').delete().eq('id', partner.id);
       }
     }
@@ -191,7 +191,7 @@ export function Ledger() {
   const balances = useMemo<PartnerBalance[]>(() => {
     return partners.map((partner) => {
       const mobile = partner.mobile;
-      const pLedger = ledgerEntries.filter((e) => e.mobile === mobile);
+      const pLedger = ledgerEntries.filter((e) => e.partner_id ? e.partner_id === partner.id : e.mobile === mobile);
       const pDirect = directTxns.filter((d) => d.partner_id === partner.id);
       const partnerName = (partner.name ?? '').trim().toLowerCase();
       const activeLabOrders = (labOrders ?? []).filter((order) => {
@@ -373,7 +373,7 @@ export function Ledger() {
     const partner = partners.find((p) => p.id === permanentDeleteId);
     if (partner) {
       await supabase.from('direct_transactions').delete().eq('partner_id', permanentDeleteId);
-      await supabase.from('photographer_ledger').delete().eq('mobile', partner.mobile);
+      await supabase.from('photographer_ledger').delete().eq('partner_id', partner.id);
     }
     await supabase.from('partners').delete().eq('id', permanentDeleteId);
     toast('Partner permanently deleted', 'success');
@@ -382,7 +382,7 @@ export function Ledger() {
   };
 
   const partnerDirectTxns = (pid: string) => directTxns.filter((d) => d.partner_id === pid);
-  const partnerLedger = (mobile: string) => ledgerEntries.filter((e) => e.mobile === mobile);
+  const partnerLedger = (partnerId: string, mobile: string) => ledgerEntries.filter((e) => e.partner_id ? e.partner_id === partnerId : e.mobile === mobile);
 
   const setLedgerTab = (tab: LedgerTab) => {
     setActiveTab(tab);
@@ -398,11 +398,11 @@ export function Ledger() {
     <div className="relative flex w-full flex-col space-y-2">
       <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-2 py-2 shadow-md backdrop-blur-md sm:px-4">
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">Ledger</h1>
-          <p className="hidden truncate text-xs text-slate-400 sm:block">Partner ledger — credits, debits & direct transactions</p>
+          <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">{mode === 'partners' ? 'Partners' : 'Ledger'}</h1>
+          <p className="hidden truncate text-xs text-slate-400 sm:block">{mode === 'partners' ? 'Partner profiles, access and assignments' : 'Partner and booking client accounts — credits, debits & transactions'}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-          <button
+          {mode === 'partners' && <button
             type="button"
             onClick={() => {
               setEditingPartner(null);
@@ -413,8 +413,8 @@ export function Ledger() {
             className="flex shrink-0 items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20 sm:px-3 sm:text-xs"
           >
             <Plus className="h-4 w-4" /><span className="hidden sm:inline">Add Partner</span>
-          </button>
-          <button
+          </button>}
+          {mode === 'ledger' && <button
             type="button"
             onClick={() => setShowDirectTxn(true)}
             aria-label="Quick Entry"
@@ -422,17 +422,21 @@ export function Ledger() {
             className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-white/5 sm:px-3 sm:text-xs"
           >
             <Wallet className="h-4 w-4" /><span className="hidden sm:inline">Quick Entry</span>
-          </button>
+          </button>}
         </div>
       </div>
 
       <div className="w-full space-y-2 px-2 sm:px-3 md:px-4">
       {/* View tabs */}
       <div className="flex flex-wrap gap-1.5">
-        <TabButton active={activeTab === 'partners'} onClick={() => setLedgerTab('partners')} icon={Users} label="Partners" count={balances.filter((b) => b.partner.status === 'Active' || b.partner.status === 'Inactive').length} />
-        <TabButton active={activeTab === 'clients'} onClick={() => setLedgerTab('clients')} icon={Wallet} label="Booking Clients" count={bookingClientSummaries.length} />
-        <TabButton active={activeTab === 'archived'} onClick={() => setLedgerTab('archived')} icon={FolderArchive} label="Archived" count={balances.filter((b) => b.partner.status === 'Archived').length} />
-        <TabButton active={activeTab === 'recycle_bin'} onClick={() => setLedgerTab('recycle_bin')} icon={Trash2} label="Recycle Bin" count={balances.filter((b) => b.partner.status === 'Trash').length} />
+        {mode === 'partners' ? <>
+          <TabButton active={activeTab === 'partners'} onClick={() => setLedgerTab('partners')} icon={Users} label="Partners" count={balances.filter((b) => b.partner.status === 'Active' || b.partner.status === 'Inactive' || b.partner.status === 'On Leave').length} />
+          <TabButton active={activeTab === 'archived'} onClick={() => setLedgerTab('archived')} icon={FolderArchive} label="Archived" count={balances.filter((b) => b.partner.status === 'Archived').length} />
+          <TabButton active={activeTab === 'recycle_bin'} onClick={() => setLedgerTab('recycle_bin')} icon={Trash2} label="Recycle Bin" count={balances.filter((b) => b.partner.status === 'Trash').length} />
+        </> : <>
+          <TabButton active={activeTab === 'partners'} onClick={() => setLedgerTab('partners')} icon={Users} label="Partner Ledger" count={balances.filter((b) => b.partner.status === 'Active' || b.partner.status === 'Inactive' || b.partner.status === 'On Leave').length} />
+          <TabButton active={activeTab === 'clients'} onClick={() => setLedgerTab('clients')} icon={Wallet} label="Booking Clients" count={bookingClientSummaries.length} />
+        </>}
       </div>
 
       {/* Filters */}
@@ -465,8 +469,9 @@ export function Ledger() {
           active={activePartners}
           inactive={inactivePartners}
           onOpen={(p) => setDetailPartner(p)}
-          onEdit={(p) => { setEditingPartner(p); setShowPartnerForm(true); }}
-          onArchive={(id) => setArchiveId(id)}
+          onEdit={mode === 'partners' ? (p) => { setEditingPartner(p); setShowPartnerForm(true); } : undefined}
+          onArchive={mode === 'partners' ? (id) => setArchiveId(id) : undefined}
+          showFinancials={mode === 'ledger'}
         />
       ) : view === 'archived' ? (
         <ArchivedView
@@ -474,6 +479,7 @@ export function Ledger() {
           onOpen={(p) => setDetailPartner(p)}
           onRestore={(id) => { updatePartnerStatus(id, 'Active', { trashed_at: null }); toast('Partner restored to Active', 'success'); }}
           onTrash={(id) => setTrashId(id)}
+          showFinancials={false}
         />
       ) : (
         <TrashView
@@ -481,6 +487,7 @@ export function Ledger() {
           onOpen={(p) => setDetailPartner(p)}
           onRestore={(id) => { updatePartnerStatus(id, 'Active'); toast('Partner restored from Recycle Bin', 'success'); }}
           onPermanentDelete={(id) => setPermanentDeleteId(id)}
+          showFinancials={false}
         />
       )}
 
@@ -521,7 +528,8 @@ export function Ledger() {
         <PartnerDetailModal
           partner={detailPartner}
           directTxns={partnerDirectTxns(detailPartner.id)}
-          ledgerEntries={partnerLedger(detailPartner.mobile)}
+          ledgerEntries={partnerLedger(detailPartner.id, detailPartner.mobile)}
+          profileOnly={mode === 'partners'}
           onClose={() => setDetailPartner(null)}
           onSettle={() => setSettlePartner(detailPartner)}
           onUpdated={(p) => { setDetailPartner(p); load(); }}
@@ -817,6 +825,7 @@ function PartnerCard({
   onRestore,
   onTrash,
   onPermanentDelete,
+  showFinancials = true,
 }: {
   b: PartnerBalance;
   onOpen: (p: Partner) => void;
@@ -828,6 +837,7 @@ function PartnerCard({
   onRestore?: (id: string) => void;
   onTrash?: (id: string) => void;
   onPermanentDelete?: (id: string) => void;
+  showFinancials?: boolean;
 }) {
   const CatIcon = CATEGORY_ICON[b.partner.category];
   return (
@@ -847,6 +857,15 @@ function PartnerCard({
         <Badge color={CATEGORY_COLORS[b.partner.category]}>{b.partner.category}</Badge>
       </div>
 
+      {!showFinancials && (
+        <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
+          {b.partner.studio_name && b.partner.studio_name !== b.partner.name && <p className="truncate">{b.partner.studio_name}</p>}
+          {b.partner.studio_address && <p className="truncate">{b.partner.studio_address}</p>}
+          <p>{b.partner.status === 'Inactive' ? 'Left Studio / Inactive' : b.partner.status}</p>
+        </div>
+      )}
+
+      {showFinancials && <>
       <div className="grid grid-cols-3 gap-2 text-center">
         <div>
           <p className="text-xs text-slate-500 dark:text-slate-400">Credit</p>
@@ -865,6 +884,7 @@ function PartnerCard({
       </div>
 
       <BalanceBadge balance={b.balance} />
+      </>}
 
       {b.partner.status === 'Trash' && (
         <div className={`mt-2 rounded-lg px-3 py-1.5 text-center text-xs font-medium ${
@@ -878,7 +898,7 @@ function PartnerCard({
 
       <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3 dark:border-white/5">
         <button onClick={() => onOpen(b.partner)} className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-white/5 dark:hover:text-slate-200">
-          <CatIcon className="h-3.5 w-3.5" /> Ledger
+          <CatIcon className="h-3.5 w-3.5" /> {showFinancials ? 'Ledger' : 'Profile'}
         </button>
         {onEdit && (
           <button onClick={() => onEdit(b.partner)} className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-white/5 dark:hover:text-slate-200">
@@ -916,12 +936,14 @@ function MainView({
   onOpen,
   onEdit,
   onArchive,
+  showFinancials = true,
 }: {
   active: PartnerBalance[];
   inactive: PartnerBalance[];
   onOpen: (p: Partner) => void;
-  onEdit: (p: Partner) => void;
-  onArchive: (id: string) => void;
+  onEdit?: (p: Partner) => void;
+  onArchive?: (id: string) => void;
+  showFinancials?: boolean;
 }) {
   if (active.length === 0 && inactive.length === 0) {
     return <EmptyState icon={Users} title="No partners found" subtitle="Add a partner or adjust your filters" />;
@@ -935,7 +957,7 @@ function MainView({
           </h3>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {active.map((b) => (
-              <PartnerCard key={b.partner.id} b={b} onOpen={onOpen} onEdit={onEdit} onArchive={onArchive} showArchive />
+              <PartnerCard key={b.partner.id} b={b} onOpen={onOpen} onEdit={onEdit} onArchive={onArchive} showArchive={Boolean(onArchive)} showFinancials={showFinancials} />
             ))}
           </div>
         </div>
@@ -947,7 +969,7 @@ function MainView({
           </h3>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {inactive.map((b) => (
-              <PartnerCard key={b.partner.id} b={b} onOpen={onOpen} onEdit={onEdit} onArchive={onArchive} showArchive />
+              <PartnerCard key={b.partner.id} b={b} onOpen={onOpen} onEdit={onEdit} onArchive={onArchive} showArchive={Boolean(onArchive)} showFinancials={showFinancials} />
             ))}
           </div>
         </div>
@@ -961,11 +983,13 @@ function ArchivedView({
   onOpen,
   onRestore,
   onTrash,
+  showFinancials = true,
 }: {
   items: PartnerBalance[];
   onOpen: (p: Partner) => void;
   onRestore: (id: string) => void;
   onTrash: (id: string) => void;
+  showFinancials?: boolean;
 }) {
   if (items.length === 0) {
     return <EmptyState icon={FolderArchive} title="No archived partners" subtitle="Archived partners will appear here" />;
@@ -973,7 +997,7 @@ function ArchivedView({
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {items.map((b) => (
-        <PartnerCard key={b.partner.id} b={b} onOpen={onOpen} showRestore onRestore={onRestore} showTrash onTrash={onTrash} />
+        <PartnerCard key={b.partner.id} b={b} onOpen={onOpen} showRestore onRestore={onRestore} showTrash onTrash={onTrash} showFinancials={showFinancials} />
       ))}
     </div>
   );
@@ -984,11 +1008,13 @@ function TrashView({
   onOpen,
   onRestore,
   onPermanentDelete,
+  showFinancials = true,
 }: {
   items: PartnerBalance[];
   onOpen: (p: Partner) => void;
   onRestore: (id: string) => void;
   onPermanentDelete: (id: string) => void;
+  showFinancials?: boolean;
 }) {
   if (items.length === 0) {
     return <EmptyState icon={Trash2} title="Recycle Bin is empty" subtitle={`Deleted partners are retained for ${TRASH_RETENTION_DAYS} days, then permanently purged`} />;
@@ -996,7 +1022,7 @@ function TrashView({
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {items.map((b) => (
-        <PartnerCard key={b.partner.id} b={b} onOpen={onOpen} showRestore onRestore={onRestore} onPermanentDelete={onPermanentDelete} />
+        <PartnerCard key={b.partner.id} b={b} onOpen={onOpen} showRestore onRestore={onRestore} onPermanentDelete={onPermanentDelete} showFinancials={showFinancials} />
       ))}
     </div>
   );
@@ -1064,9 +1090,21 @@ function PartnerForm({
       return;
     }
 
+    if (editing && cleanMobile !== editing.mobile && existing.some((p) => p.id !== editing.id && p.mobile === editing.mobile)) {
+      toast('This old mobile number belongs to another partner profile too. Resolve the duplicate profile before changing it, so ledger history is not linked to the wrong partner.', 'error');
+      return;
+    }
+
     setSaving(true);
     try {
       if (editing) {
+        if (cleanMobile !== editing.mobile) {
+          const { error: linkError } = await supabase.from('photographer_ledger')
+            .update({ partner_id: editing.id })
+            .eq('mobile', editing.mobile)
+            .is('partner_id', null);
+          if (linkError) throw new Error('Apply the partner ledger migration before changing this mobile number.');
+        }
         const { error } = await supabase.from('partners').update({
           name: name.trim(),
           mobile: cleanMobile,
@@ -1099,7 +1137,9 @@ function PartnerForm({
       }
       onSaved();
     } catch (err) {
-      toast('Failed to save partner. Please try again.', 'error');
+      toast(err instanceof Error && err.message.startsWith('Apply the partner ledger migration')
+        ? err.message
+        : 'Failed to save partner. Please try again.', 'error');
     } finally {
       setSaving(false);
     }
@@ -1114,7 +1154,7 @@ function PartnerForm({
         <Field label="Studio Name">
           <input value={studioName} onChange={(e) => setStudioName(e.target.value)} className={inputClass} placeholder="Studio / business name" />
         </Field>
-        <Field label="Mobile Number (Primary Key)">
+        <Field label="Mobile Number (Login & Contact)">
           <input value={mobile} onChange={(e) => setMobile(e.target.value)} className={inputClass} placeholder="+91 98765 43210" />
         </Field>
         <Field label="Studio Address">
@@ -1280,6 +1320,7 @@ function PartnerDetailModal({
   partner,
   directTxns,
   ledgerEntries,
+  profileOnly,
   onClose,
   onSettle,
   onUpdated,
@@ -1287,6 +1328,7 @@ function PartnerDetailModal({
   partner: Partner;
   directTxns: DirectTransaction[];
   ledgerEntries: PhotographerLedgerEntry[];
+  profileOnly: boolean;
   onClose: () => void;
   onSettle: () => void;
   onUpdated: (p: Partner) => void;
@@ -1365,28 +1407,42 @@ function PartnerDetailModal({
   let runningBalance = 0;
 
   return (
-    <Modal open={true} onClose={onClose} title={partner.name} size="lg">
+    <Modal open={true} onClose={onClose} title={profileOnly ? `${partner.name} — Profile` : partner.name} size="lg">
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           <Badge color={CATEGORY_COLORS[partner.category]}>{partner.category}</Badge>
           <Badge color={partner.status === 'Active' ? 'emerald' : partner.status === 'On Leave' ? 'amber' : partner.status === 'Inactive' ? 'slate' : 'amber'}>{partner.status === 'Inactive' ? 'Left Studio / Inactive' : partner.status}</Badge>
           <span className="text-xs text-slate-500 dark:text-slate-400">{partner.mobile}</span>
         </div>
+        {profileOnly && <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-white/10 dark:bg-white/5 sm:grid-cols-2">
+          <p><span className="text-slate-500 dark:text-slate-400">Partner / Studio:</span> <strong>{partner.studio_name || partner.name}</strong></p>
+          {partner.studio_address && <p><span className="text-slate-500 dark:text-slate-400">Address:</span> {partner.studio_address}</p>}
+          {(partner.leave_start || partner.leave_end) && <p><span className="text-slate-500 dark:text-slate-400">Leave dates:</span> {partner.leave_start ? formatDate(partner.leave_start) : '—'} to {partner.leave_end ? formatDate(partner.leave_end) : '—'}</p>}
+          {partner.note && <p className="sm:col-span-2"><span className="text-slate-500 dark:text-slate-400">Notes:</span> {partner.note}</p>}
+        </div>}
         <div className="flex flex-wrap items-center gap-2">
-          <button onClick={onSettle} className="flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-600">
+          {!profileOnly && <button onClick={onSettle} className="flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-600">
             <Wallet className="h-3.5 w-3.5" /> Direct Settle
-          </button>
-          <button
+          </button>}
+          {profileOnly && <button
             onClick={handleToggleLogin}
             disabled={togglingLogin}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${partner.is_login_allowed ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5'}`}
+            type="button"
+            role="switch"
+            aria-checked={Boolean(partner.is_login_allowed)}
+            aria-label={`Partner login ${partner.is_login_allowed ? 'On' : 'Off'}`}
+            className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
           >
-            <KeyRound className="h-3.5 w-3.5" /> {partner.is_login_allowed ? 'Login Enabled' : 'Login Disabled'}
-          </button>
+            <KeyRound className="h-3.5 w-3.5" /> Portal Login
+            <span>{partner.is_login_allowed ? 'On' : 'Off'}</span>
+            <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${partner.is_login_allowed ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}`}>
+              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${partner.is_login_allowed ? 'translate-x-[18px]' : 'translate-x-1'}`} />
+            </span>
+          </button>}
         </div>
 
         {/* Portal Access / PIN Management */}
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/5">
+        {profileOnly && <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <KeyRound className="h-4 w-4 text-amber-500" />
@@ -1425,9 +1481,9 @@ function PartnerDetailModal({
               </div>
             )}
           </div>
-        </div>
+        </div>}
 
-        <div className="grid grid-cols-3 gap-3">
+        {!profileOnly && <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg border border-slate-200 p-3 text-center dark:border-white/10">
             <p className="text-xs text-slate-500 dark:text-slate-400">Total Credit</p>
             <p className="text-sm font-semibold text-emerald-500 dark:text-emerald-400">{formatINR(totalCredit)}</p>
@@ -1442,9 +1498,9 @@ function PartnerDetailModal({
               {formatINR(balance)}
             </p>
           </div>
-        </div>
+        </div>}
 
-        <div className="border-t border-slate-200 pt-3 dark:border-white/10">
+        {!profileOnly && <div className="border-t border-slate-200 pt-3 dark:border-white/10">
           <h4 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Lifetime Ledger</h4>
           <div className="max-h-[40vh] overflow-auto">
             {entries.length === 0 ? (
@@ -1462,7 +1518,7 @@ function PartnerDetailModal({
               </table>
             )}
           </div>
-        </div>
+        </div>}
       </div>
     </Modal>
   );
@@ -1481,6 +1537,7 @@ function SettlementModal({ partner, onClose, onSaved }: { partner: Partner; onCl
     if (!Number.isFinite(value) || value <= 0) { toast('Enter a valid settlement amount', 'error'); return; }
     setSaving(true);
     const { error } = await supabase.from('photographer_ledger').insert({
+      partner_id: partner.id,
       photographer_name: partner.name,
       mobile: partner.mobile,
       entry_type: 'PAYMENT_SETTLED',

@@ -471,10 +471,10 @@ export function ClientDashboard() {
               <CreativePortalCard
                 icon={Images}
                 title="Photo Selection"
-                description={photoSession ? `${photoSession.isLocked ? 'Completed' : 'Pending'} · ${photoSession.selectedCount ?? 0} of ${photoSession.totalPhotos ?? 0} selected` : 'Select your favorite photos'}
+                description={photoSession ? `${photoSession.submitted_at ? 'Completed' : 'Pending'} · ${photoSession.selectedCount ?? 0} of ${photoSession.totalPhotos ?? 0} selected` : 'Select your favorite photos'}
                 href={photoSession ? `/select/${photoSession.id}` : null}
-                badgeColor={photoSession?.isLocked ? 'emerald' : photoSession ? 'amber' : undefined}
-                badgeText={photoSession?.isLocked ? 'Completed' : photoSession ? 'Pending' : undefined}
+                badgeColor={photoSession?.submitted_at ? 'emerald' : photoSession ? 'amber' : undefined}
+                badgeText={photoSession?.submitted_at ? 'Completed' : photoSession ? 'Pending' : undefined}
               />
             </div>
             {photoSession && (() => {
@@ -852,7 +852,7 @@ function LabOrderDashboard({
                   <p className="text-sm font-medium text-slate-900 dark:text-white">{labPhotoSession.clientName}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     {labPhotoSession.photos.filter((p) => p.selected).length} of {labPhotoSession.photos.length} selected
-                    {labPhotoSession.isLocked ? ' · Submitted' : ''}
+                    {labPhotoSession.submitted_at ? ' · Submitted' : ''}
                   </p>
                 </div>
                 <Badge color={labPhotoSession.isLocked ? 'emerald' : 'amber'}>

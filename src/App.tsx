@@ -51,7 +51,8 @@ function DesktopPage({ page, onNavigate }: { page: PageKey; onNavigate: (page: P
   if (page === 'teaser') return <TeaserPreview />;
   if (page === 'invitation') return <InvitationHub />;
   if (page === 'photo-selection') return <PhotoSelection />;
-  if (page === 'ledger') return <Ledger />;
+  if (page === 'partners') return <Ledger key="partners" mode="partners" />;
+  if (page === 'ledger') return <Ledger key="ledger" mode="ledger" />;
   if (page === 'payments') return <Payments />;
 
   return (

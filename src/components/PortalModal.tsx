@@ -425,10 +425,10 @@ function ClientDetailView({ booking, settings, ads, photoSession }: { booking: B
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">Photo Selection</p>
-              <p className="mt-1 text-sm font-medium text-slate-900 dark:text-white">{photoSession.isLocked ? 'Completed' : 'Pending'} · {photoSession.selectedCount ?? 0} of {photoSession.totalPhotos ?? 0} selected</p>
+              <p className="mt-1 text-sm font-medium text-slate-900 dark:text-white">{photoSession.submitted_at ? 'Completed' : 'Pending'} · {photoSession.selectedCount ?? 0} of {photoSession.totalPhotos ?? 0} selected</p>
             </div>
-            <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${photoSession.isLocked ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-700 dark:text-amber-400'}`}>
-              {photoSession.isLocked ? 'Completed' : 'Pending'}
+            <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${photoSession.submitted_at ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-700 dark:text-amber-400'}`}>
+              {photoSession.submitted_at ? 'Completed' : 'Pending'}
             </span>
           </div>
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600 dark:text-slate-300">
