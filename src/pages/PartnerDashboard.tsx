@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Calendar,
   Camera,
@@ -25,7 +25,7 @@ import {
   ExternalLink,
   Search,
 } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import type { EventFunction, Partner, PromoAd, StudioLabOrder, ClientSelectionSession } from '@/lib/types';
 import { withPhotoSessionCounts } from '@/lib/types';
@@ -253,7 +253,9 @@ export function PartnerDashboardContent({
   const [activeTab, setActiveTab] = useState<'orders' | 'ledger' | 'duties' | 'offers'>('orders');
   const [orderSearch, setOrderSearch] = useState('');
   const [orderFilter, setOrderFilter] = useState('All');
-  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedOrderId = searchParams.get('order');
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [revealedAlbumPins, setRevealedAlbumPins] = useState<Set<string>>(new Set());
   const [copiedAlbumId, setCopiedAlbumId] = useState<string | null>(null);
 
@@ -432,30 +434,52 @@ export function PartnerDashboardContent({
       if (!aDeadline && bDeadline) return 1;
       return 0;
     });
+  const selectedOrder = selectedOrderId ? labOrders.find((order) => order.id === selectedOrderId) ?? null : null;
+  const visibleLabOrders = selectedOrder ? [selectedOrder] : filteredLabOrders;
+  const returnToOrderList = () => setSearchParams((current) => {
+    const next = new URLSearchParams(current);
+    next.delete('order');
+    return next;
+  }, { replace: true });
 
   return (
-    <div className="min-h-screen w-full bg-slate-950 px-2.5 pb-4 pt-16 text-white sm:px-4 sm:pt-20">
+    <div
+      className="min-h-screen w-full bg-slate-950 px-1 pb-4 pt-16 text-white sm:px-4 sm:pt-20"
+      onTouchStart={(event) => {
+        const touch = event.touches[0];
+        touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+      }}
+      onTouchEnd={(event) => {
+        const start = touchStartRef.current;
+        touchStartRef.current = null;
+        if (!selectedOrderId || !start) return;
+        const touch = event.changedTouches[0];
+        const swipedLeftFromRightEdge = start.x >= window.innerWidth - 44 && start.x - touch.clientX >= 80;
+        const mostlyHorizontal = Math.abs(start.y - touch.clientY) < 70;
+        if (swipedLeftFromRightEdge && mostlyHorizontal) returnToOrderList();
+      }}
+    >
       <div className="mx-auto max-w-5xl space-y-3 sm:space-y-5">
-        <header className="fixed left-0 right-0 top-0 z-50 flex h-14 w-full items-center justify-between gap-4 border-b border-slate-800/80 bg-slate-950/95 px-4 backdrop-blur-md lg:px-8">
-          <div className="flex min-w-0 items-center gap-2.5">
+        <header className="fixed left-0 right-0 top-0 z-50 flex h-14 w-full items-center justify-between gap-2 border-b border-slate-800/80 bg-slate-950/95 px-2 backdrop-blur-md sm:gap-4 sm:px-4 lg:px-8">
+          <div className="flex min-w-0 max-w-[44%] items-center gap-1.5 sm:max-w-none sm:gap-2.5">
             <img
               src={settingsData?.studioLogo || settingsData?.logo || settings?.production_logo_url || settings?.films_logo_url || '/logo.png'}
               alt="Studio logo"
-              className="h-11 w-11 rounded-lg border border-slate-700/70 bg-slate-900 p-1 object-contain"
+              className="h-8 w-8 shrink-0 rounded-lg border border-slate-700/70 bg-slate-900 p-1 object-contain sm:h-11 sm:w-11"
             />
             <div className="flex min-w-0 flex-col">
-              <span className="mb-0.5 text-[10px] font-bold uppercase leading-none tracking-widest text-cyan-400">Partner Portal</span>
-              <span className="whitespace-nowrap text-sm font-extrabold uppercase leading-tight tracking-wide text-white">Bollywood Umang</span>
-              <span className="mt-0.5 text-[11px] font-medium uppercase leading-none tracking-wider text-slate-300">Production</span>
+              <span className="mb-0.5 truncate text-[9px] font-bold uppercase leading-none tracking-widest text-cyan-400 sm:text-[10px]">Partner Portal</span>
+              <span className="max-w-full truncate whitespace-nowrap text-[11px] font-extrabold uppercase leading-tight tracking-wide text-white sm:text-sm">Bollywood Umang</span>
+              <span className="mt-0.5 truncate text-[9px] font-medium uppercase leading-none tracking-wider text-slate-300 sm:text-[11px]">Production</span>
             </div>
           </div>
 
-          <div className="flex flex-col items-center justify-center text-center leading-none">
-            <span className="block whitespace-nowrap text-sm font-extrabold uppercase tracking-wide text-amber-400 text-center md:text-base">{partner.name || 'SHARMA STUDIO'}</span>
-            <span className="mt-1 block whitespace-nowrap font-mono text-[11px] font-medium tracking-wider text-emerald-400 text-center">{partnerPhone ? `+91 ${partnerPhone.replace(/\D/g, '').slice(-10)}` : ''}</span>
+          <div className="mx-1 flex min-w-0 flex-1 flex-col items-center justify-center text-center leading-none sm:flex-none">
+            <span className="block max-w-full truncate whitespace-nowrap text-[11px] font-extrabold uppercase tracking-wide text-amber-400 sm:text-sm md:text-base">{partner.name || 'SHARMA STUDIO'}</span>
+            <span className="mt-1 block max-w-full truncate whitespace-nowrap font-mono text-[9px] font-medium tracking-wider text-emerald-400 sm:text-[11px]">{partnerPhone ? `+91 ${partnerPhone.replace(/\D/g, '').slice(-10)}` : ''}</span>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <button onClick={() => setShowPasswordModal(true)} className="flex items-center gap-1.5 rounded border border-slate-700/50 px-2.5 py-1 text-xs font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white">
               <KeyRound className="h-3.5 w-3.5" /> <span className="hidden md:inline">Change Password</span>
             </button>
@@ -467,15 +491,16 @@ export function PartnerDashboardContent({
           </div>
         </header>
 
-        <div className="sticky top-14 z-40 -mx-2.5 flex gap-1 overflow-x-auto border-b border-white/10 bg-slate-950/95 px-2.5 pb-1 pt-1 backdrop-blur-md sm:-mx-4 sm:px-4">
+        <div className="sticky top-14 z-40 -mx-1 flex gap-1 overflow-x-auto border-b border-white/10 bg-slate-950/95 px-1 pb-1 pt-1 backdrop-blur-md sm:-mx-4 sm:px-4">
           {([
-            ['orders', '📦 Lab Orders'],
-            ['ledger', '📑 Ledger & History'],
-            ['duties', '🎬 Assigned Duties'],
-            ['offers', '🎉 Studio Offers'],
-          ] as const).map(([tab, label]) => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className={`whitespace-nowrap rounded-t-lg px-2.5 py-2 text-[11px] font-semibold transition sm:px-3 sm:text-xs ${activeTab === tab ? 'border-b-2 border-cyan-400 bg-cyan-500/10 text-cyan-300' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-              {label}
+            ['orders', 'Orders', '📦 Lab Orders'],
+            ['ledger', 'Ledger', '📑 Ledger'],
+            ['duties', 'Duties', '🎬 Assigned Duties'],
+            ['offers', 'Offers', '🎉 Studio Offers'],
+          ] as const).map(([tab, mobileLabel, desktopLabel]) => (
+            <button key={tab} onClick={() => { setActiveTab(tab); if (selectedOrderId) returnToOrderList(); }} className={`flex min-w-0 flex-1 items-center justify-center whitespace-nowrap rounded-t-lg px-1.5 py-2 text-[10px] font-semibold transition sm:flex-none sm:px-3 sm:text-xs ${activeTab === tab ? 'border-b-2 border-cyan-400 bg-cyan-500/10 text-cyan-300' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+              <span className="sm:hidden">{mobileLabel}</span>
+              <span className="hidden sm:inline">{desktopLabel}</span>
             </button>
           ))}
         </div>
@@ -517,21 +542,22 @@ export function PartnerDashboardContent({
 
         {/* Lab Orders */}
         {activeTab === 'orders' && <>
-        <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-slate-900 p-2.5 sm:flex-row sm:items-center sm:p-3">
+        {!selectedOrder && <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-slate-900 p-2.5 sm:flex-row sm:items-center sm:p-3">
           <div className="relative min-w-0 flex-1"><Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" /><input value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder="Search project, order ID (e.g. BUP-001), client..." className="w-full rounded-md border border-white/10 bg-slate-950 px-8 py-2 text-xs text-white outline-none placeholder:text-slate-500 focus:border-cyan-500/50" /></div>
           <div className="flex gap-1 overflow-x-auto">{['All', 'Processing', 'Ready', 'Delivered'].map((filter) => <button key={filter} onClick={() => setOrderFilter(filter)} className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium ${orderFilter === filter ? 'bg-cyan-500 text-slate-950' : 'bg-white/5 text-slate-400 hover:text-white'}`}>{filter}</button>)}</div>
-        </div>
-        {filteredLabOrders.length > 0 ? (
+        </div>}
+        {visibleLabOrders.length > 0 ? (
           <div className="rounded-xl border border-white/10 bg-slate-900 p-3 sm:p-5">
-            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold sm:mb-3"><Package className="h-4 w-4 text-amber-400" /> Lab Orders</h2>
+            {selectedOrder && <button onClick={returnToOrderList} className="mb-3 inline-flex items-center gap-1 rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/5">← Back to orders</button>}
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold sm:mb-3"><Package className="h-4 w-4 text-amber-400" /> {selectedOrder ? 'Order Details' : 'Lab Orders'}</h2>
             <div className="space-y-3">
-              {filteredLabOrders.map((order) => {
+              {visibleLabOrders.map((order) => {
                 const session = orderSessions[order.id];
-                const isExpanded = expandedOrders.has(order.id);
+                const isExpanded = selectedOrder?.id === order.id;
                 const overviewStatus = labOrderOverviewStatus(order);
                 return (
                   <div key={order.id} className="rounded-lg border border-white/10 bg-white/5 p-3 sm:p-4">
-                    <button onClick={() => setExpandedOrders((current) => { const next = new Set(current); if (next.has(order.id)) next.delete(order.id); else next.add(order.id); return next; })} className="flex w-full items-center justify-between gap-3 text-left">
+                    <button onClick={() => { if (!isExpanded) setSearchParams((current) => { const next = new URLSearchParams(current); next.set('order', order.id); return next; }); }} className="flex w-full items-center justify-between gap-3 text-left">
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
                           {order.is_emergency && <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white"><Zap className="h-2.5 w-2.5" />EMERGENCY</span>}

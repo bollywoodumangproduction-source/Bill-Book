@@ -85,7 +85,7 @@ export function Payments() {
 
   return (
     <div className="relative flex w-full flex-col space-y-2">
-      <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-2 py-2 shadow-md backdrop-blur-md sm:px-4">
+      <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-0 py-2 shadow-md backdrop-blur-md sm:px-4">
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">Payments</h1>
           <p className="hidden truncate text-xs text-slate-400 sm:block">Transaction log — all incoming payments</p>
@@ -99,7 +99,7 @@ export function Payments() {
           <Plus className="h-4 w-4" /><span className="hidden sm:inline">Record Payment</span>
         </button>
       </div>
-      <div className="w-full space-y-2 px-2 sm:px-3 md:px-4">
+      <div className="w-full space-y-2 px-0 sm:px-3 md:px-4">
       <div className="flex gap-2"><button onClick={() => setView('active')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'active' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Active</button><button onClick={() => setView('recycle')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'recycle' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Recycle Bin</button></div>
 
       {/* Summary cards */}
@@ -163,8 +163,28 @@ export function Payments() {
       ) : filtered.length === 0 ? (
         <EmptyState icon={IndianRupee} title="No payments found" subtitle="Record a payment to get started" />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-white/10">
-          <table className="w-full text-sm">
+        <>
+        <div className="space-y-2 md:hidden">
+          {filtered.map((p) => (
+            <div key={p.id} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900/60">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="break-all text-xs font-semibold text-slate-900 dark:text-white">{p.receipt_no ?? ''}</p>
+                  <p className="mt-0.5 break-words text-sm font-medium text-slate-700 dark:text-slate-200">{p.party_name ?? ''}</p>
+                </div>
+                <p className="shrink-0 text-right text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatINR(Number(p.amount ?? 0))}</p>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                <Badge color={SOURCE_COLORS[p.source] ?? 'slate'}>{p.source ?? ''}</Badge>
+                <Badge color={MODE_COLORS[p.mode] ?? 'slate'}>{p.mode ?? ''}</Badge>
+                <span className="text-slate-500 dark:text-slate-400">{formatDate(p.date)}</span>
+                {view === 'active' ? <button onClick={() => { setDeleteId(p.id); setPendingDelete('soft'); setShowPin(true); }} aria-label="Delete payment" className="ml-auto p-1 text-slate-400 hover:text-rose-500"><Trash2 className="h-4 w-4" /></button> : <div className="ml-auto flex gap-2"><button onClick={() => restorePayment(p.id)} className="text-xs text-emerald-600 hover:text-emerald-500">Restore</button><button onClick={() => { setDeleteId(p.id); setPendingDelete('permanent'); setShowPin(true); }} className="text-xs text-rose-500 hover:text-rose-400">Delete</button></div>}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="hidden overflow-x-auto rounded-xl border border-slate-200 dark:border-white/10 md:block">
+          <table className="w-full min-w-[760px] text-sm">
             <thead className="bg-slate-50 dark:bg-slate-800/50">
               <tr className="text-left text-xs text-slate-500 dark:text-slate-400">
                 <th className="px-3 py-2.5">Receipt</th>
@@ -193,6 +213,7 @@ export function Payments() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <PaymentForm open={showForm} onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); load(); }} existing={payments} />

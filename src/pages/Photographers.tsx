@@ -397,7 +397,7 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
 
   return (
     <div className="relative flex w-full flex-col space-y-2">
-      <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-2 py-2 shadow-md backdrop-blur-md sm:px-4">
+      <div className="flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-0 py-2 sm:px-4">
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">{mode === 'partners' ? 'Partners' : 'Ledger'}</h1>
           <p className="hidden truncate text-xs text-slate-400 sm:block">{mode === 'partners' ? 'Partner profiles, access and assignments' : 'Partner and booking client accounts — credits, debits & transactions'}</p>
@@ -427,9 +427,10 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
         </div>
       </div>
 
-      <div className="w-full space-y-2 px-2 sm:px-3 md:px-4">
+      <div className="w-full space-y-2 px-0 sm:px-3 md:px-4">
+      <div className="sticky top-14 z-30 space-y-1 border-b border-white/10 bg-[#0B1121]/95 pb-1 pt-0.5 shadow-md backdrop-blur-md md:top-0">
       {/* View tabs */}
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-nowrap gap-1 overflow-x-auto">
         {mode === 'partners' ? <>
           <TabButton active={activeTab === 'partners'} onClick={() => setLedgerTab('partners')} icon={Users} label="Partners" count={balances.filter((b) => b.partner.status === 'Active' || b.partner.status === 'Inactive' || b.partner.status === 'On Leave').length} />
           <TabButton active={activeTab === 'archived'} onClick={() => setLedgerTab('archived')} icon={FolderArchive} label="Archived" count={balances.filter((b) => b.partner.status === 'Archived').length} />
@@ -441,20 +442,22 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-2">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <div className="flex flex-nowrap gap-1.5">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name or mobile..."
-            className={`${inputClass} pl-10`}
+            className={`${inputClass} !h-8 !py-1.5 !text-xs`}
+            style={{ paddingLeft: '3rem' }}
           />
         </div>
-        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className={`${selectClass} w-48`}>
+        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className={`${selectClass} h-8 !w-32 shrink-0 !py-1.5 !text-xs sm:!w-48`}>
           <option value="all">All Categories</option>
           {PARTNER_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
+      </div>
       </div>
 
       {loading ? (
@@ -580,13 +583,13 @@ function TabButton({ active, onClick, icon: Icon, label, count }: { active: bool
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+      className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-xs ${
         active
           ? 'bg-amber-500 text-slate-900'
           : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-white/5'
       }`}
     >
-      <Icon className="h-4 w-4" />
+      <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
       {label}
       {count > 0 && (
         <span className={`rounded-full px-1.5 py-0.5 text-xs ${active ? 'bg-slate-900/15' : 'bg-slate-100 dark:bg-white/10'}`}>{count}</span>

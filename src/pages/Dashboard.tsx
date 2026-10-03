@@ -83,29 +83,29 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       </div>
 
       {/* Portal Buttons */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3">
         <button
           onClick={() => setShowClientPortal(true)}
-          className="flex items-center gap-3 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-4 text-left transition-all hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/10 dark:border-amber-500/20 dark:from-amber-500/10 dark:to-orange-500/5 dark:hover:border-amber-500/40"
+          className="flex min-w-0 items-center gap-2 rounded-lg border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-2 text-left transition-all hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/10 sm:gap-3 sm:rounded-xl sm:p-4 dark:border-amber-500/20 dark:from-amber-500/10 dark:to-orange-500/5 dark:hover:border-amber-500/40"
         >
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-orange-500">
-            <Camera className="h-5 w-5 text-slate-900" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 sm:h-11 sm:w-11">
+            <Camera className="h-4 w-4 text-slate-900 sm:h-5 sm:w-5" />
           </div>
-          <div>
-            <p className="text-sm font-bold text-slate-900 dark:text-white">Client Portal</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">View booking details &amp; dues</p>
+          <div className="min-w-0">
+            <p className="whitespace-nowrap text-[11px] font-bold leading-tight text-slate-900 sm:text-sm dark:text-white">Client Portal</p>
+            <p className="hidden text-xs text-slate-500 sm:block dark:text-slate-400">View booking details &amp; dues</p>
           </div>
         </button>
         <button
           onClick={() => setShowPartnerPortal(true)}
-          className="flex items-center gap-3 rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 to-blue-50 p-4 text-left transition-all hover:border-sky-400 hover:shadow-lg hover:shadow-sky-500/10 dark:border-sky-500/20 dark:from-sky-500/10 dark:to-blue-500/5 dark:hover:border-sky-500/40"
+          className="flex min-w-0 items-center gap-2 rounded-lg border border-sky-200 bg-gradient-to-br from-sky-50 to-blue-50 p-2 text-left transition-all hover:border-sky-400 hover:shadow-lg hover:shadow-sky-500/10 sm:gap-3 sm:rounded-xl sm:p-4 dark:border-sky-500/20 dark:from-sky-500/10 dark:to-blue-500/5 dark:hover:border-sky-500/40"
         >
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-sky-400 to-blue-600">
-            <Users className="h-5 w-5 text-white" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-sky-400 to-blue-600 sm:h-11 sm:w-11">
+            <Users className="h-4 w-4 text-white sm:h-5 sm:w-5" />
           </div>
-          <div>
-            <p className="text-sm font-bold text-slate-900 dark:text-white">Lab / Partner Portal</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">View jobs &amp; ledger balance</p>
+          <div className="min-w-0">
+            <p className="whitespace-nowrap text-[11px] font-bold leading-tight text-slate-900 sm:text-sm dark:text-white">Lab / Partner Portal</p>
+            <p className="hidden text-xs text-slate-500 sm:block dark:text-slate-400">View jobs &amp; ledger balance</p>
           </div>
         </button>
       </div>

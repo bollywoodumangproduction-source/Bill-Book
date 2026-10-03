@@ -168,7 +168,7 @@ export function Layout({ current, onNavigate, children }: LayoutProps) {
 
       {/* Main content */}
       <main className="min-h-screen pb-20 pt-14 md:ml-60 md:pb-0 md:pt-0">
-        <div className={['lab', 'bookings', 'dairy', 'promo', 'music', 'teaser', 'invitation', 'photo-selection', 'ledger', 'payments'].includes(current) ? 'w-full' : 'w-full p-4 sm:p-6 lg:p-8'}>{children}</div>
+        <div className={['lab', 'bookings', 'partners', 'dairy', 'promo', 'music', 'teaser', 'invitation', 'photo-selection', 'ledger', 'payments'].includes(current) ? 'w-full px-1 md:px-0' : 'w-full p-1 sm:p-6 lg:p-8'}>{children}</div>
       </main>
 
       {/* Mobile bottom nav */}

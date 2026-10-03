@@ -159,7 +159,7 @@ export function DairyBook() {
   return (
     <div className="relative flex w-full flex-col space-y-2">
       {/* Header */}
-      <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-2 py-2 shadow-md backdrop-blur-md sm:px-4 md:gap-0 md:py-2">
+      <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-0 py-2 shadow-md backdrop-blur-md sm:px-4 md:gap-0 md:py-2">
         <div className="min-w-0 flex-1 md:w-auto md:flex-none">
           <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">Dairy Book</h1>
           <p className="hidden truncate text-xs text-slate-400 sm:block">Daily cash-flow ledger — auto-synced + manual entries</p>
@@ -184,7 +184,7 @@ export function DairyBook() {
         </div>
       </div>
 
-      <div className="w-full space-y-3 px-2 sm:px-3 md:px-4">
+      <div className="w-full space-y-3 px-0 sm:px-3 md:px-4">
       {/* Opening Balance Card */}
       <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-3 dark:border-white/10 dark:from-slate-900/50 dark:to-slate-900/30">
         <div className="flex items-center gap-3">
@@ -338,9 +338,34 @@ export function DairyBook() {
       ) : filtered.length === 0 ? (
         <EmptyState icon={BookOpen} title="No entries found" subtitle="Add an expense or income, or change filters" />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-white/10">
+        <>
+        <div className="space-y-2 md:hidden">
+          {filtered.map((e) => {
+            const isIn = e.entry_type === 'B2C_CASH_IN' || e.entry_type === 'MANUAL_INCOME';
+            return (
+              <div key={e.id} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900/60">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="break-words font-medium text-slate-900 dark:text-white">{e.party_name || '—'}</p>
+                    {e.note && <p className="mt-0.5 break-words text-xs text-slate-500 dark:text-slate-400">{e.note}</p>}
+                    {e.source_ref && <p className="mt-0.5 break-all text-[10px] text-slate-400">Ref: {e.source_ref}</p>}
+                  </div>
+                  <p className={`shrink-0 text-right text-sm font-bold ${isIn ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{isIn ? '+' : '-'}{formatINR(Number(e.amount ?? 0))}</p>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                  <Badge color={ENTRY_TYPE_COLORS[e.entry_type]} size="sm">{ENTRY_TYPE_LABELS[e.entry_type]}</Badge>
+                  <span className="text-slate-500 dark:text-slate-400">{e.category || '—'}</span>
+                  <Badge color="slate" size="sm">{e.payment_mode}</Badge>
+                  <span className="ml-auto text-slate-500 dark:text-slate-400">{formatDate(e.entry_date)}</span>
+                  {!e.is_auto && <button onClick={() => setDeleteId(e.id)} aria-label="Delete entry" className="p-1 text-slate-400 hover:text-rose-500"><Trash2 className="h-4 w-4" /></button>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="hidden overflow-x-auto rounded-xl border border-slate-200 dark:border-white/10 md:block">
           <div className="max-h-[600px] overflow-y-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[900px] text-sm">
               <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800/50">
                 <tr className="text-left text-xs text-slate-500 dark:text-slate-400">
                   <th className="px-2.5 py-2">Type</th>
@@ -395,6 +420,7 @@ export function DairyBook() {
             </table>
           </div>
         </div>
+        </>
       )}
 
       {/* Manual Entry Forms */}

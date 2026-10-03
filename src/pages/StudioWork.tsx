@@ -257,6 +257,7 @@ export function LabOrders() {
   const [selectedDeliveryYear, setSelectedDeliveryYear] = useState<string | null>(null);
   const [showReadyDeliveries, setShowReadyDeliveries] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<StudioLabOrder | null>(null);
+  const orderDetailTouchStart = useRef<{ x: number; y: number } | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<StudioLabOrder | null>(null);
@@ -801,8 +802,25 @@ export function LabOrders() {
   };
 
   return (
-    <div className="w-full flex flex-col relative">
-      <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-2 py-2 shadow-md backdrop-blur-md sm:px-4 md:gap-0 md:py-2">
+    <div
+      className="w-full flex flex-col relative"
+      onTouchStart={(event) => {
+        if (!selectedOrder || activeTab !== 'partners') return;
+        const touch = event.touches[0];
+        orderDetailTouchStart.current = { x: touch.clientX, y: touch.clientY };
+      }}
+      onTouchEnd={(event) => {
+        const start = orderDetailTouchStart.current;
+        orderDetailTouchStart.current = null;
+        if (!selectedOrder || activeTab !== 'partners' || !start) return;
+        const touch = event.changedTouches[0];
+        const swipedLeftFromRightEdge = start.x >= window.innerWidth - 44 && start.x - touch.clientX >= 80;
+        const mostlyHorizontal = Math.abs(start.y - touch.clientY) < 70;
+        if (swipedLeftFromRightEdge && mostlyHorizontal) setSelectedOrder(null);
+      }}
+    >
+      <div className="sticky top-14 z-30 w-full bg-[#0B1121]/95 shadow-md backdrop-blur-md md:top-0">
+      <div className="hidden w-full items-center justify-between gap-2 px-2 py-2 sm:px-4 md:flex md:gap-0">
         <div className="min-w-0 flex-1 md:w-auto md:flex-none">
           <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">{activeTab === 'partners' && selectedOrder ? labOrderTitle(selectedOrder) : activeTab === 'partners' && showReadyDeliveries ? 'Ready for Delivery' : activeTab === 'partners' && selectedDeliveryYear ? `Delivered Orders · ${selectedDeliveryYear}` : activeTab === 'partners' && selectedPartnerGroup ? selectedPartnerGroup.partnerName : 'Lab Order Form'}</h1>
           <p className="hidden truncate text-xs text-slate-400 sm:block">{activeTab === 'partners' && selectedOrder ? `${selectedOrder.order_no} · ${selectedOrder.partner_name}` : activeTab === 'partners' && showReadyDeliveries ? `${selectedPartnerGroup?.partnerName ?? 'Partner'} · ${readyDeliveryOrders.length} completed bills awaiting handover` : activeTab === 'partners' && selectedDeliveryYear ? `${selectedPartnerGroup?.partnerName ?? 'Partner'} · ${deliveredYearGroups.find(([year]) => year === selectedDeliveryYear)?.[1].length ?? 0} delivered bills` : activeTab === 'partners' && selectedPartnerGroup ? `${selectedPartnerGroup.studioName} · Partner dashboard` : 'Photolab & Media Production Order Sheet'}</p>
@@ -834,24 +852,42 @@ export function LabOrders() {
           </button>
         </div>
       </div>
-
-      <div className="mt-0 w-full space-y-2 rounded-xl border border-gray-800 p-1 sm:p-2 md:-mt-2 md:space-y-3 md:p-3">
+      <div className="flex items-center gap-1.5 px-2 py-1.5 md:hidden">
         {activeTab === 'station' ? <>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by studio, partner, project, or order no..."
-                className={`${inputClass} pl-10`}
-              />
-            </div>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} sm:w-auto`}>
-              <option value="all">All Statuses</option>
-              {LIVE_STATION_FILTER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+          <div className="relative min-w-0 flex-1">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search studio, project, order..." className={`${inputClass} py-1.5 pl-8 pr-2 text-xs`} />
           </div>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} w-[104px] shrink-0 px-1.5 py-1.5 text-[10px]`}>
+            <option value="all">All Statuses</option>
+            {LIVE_STATION_FILTER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </> : <p className="min-w-0 flex-1 truncate text-xs font-bold text-white">{selectedOrder ? labOrderTitle(selectedOrder) : showReadyDeliveries ? 'Ready for Delivery' : selectedDeliveryYear ? `Delivered Orders · ${selectedDeliveryYear}` : selectedPartnerGroup?.partnerName || 'Lab Order Form'}</p>}
+        <div className="flex shrink-0 items-center gap-1">
+          <button onClick={() => setActiveTab('station')} aria-label="On Live Station" title="On Live Station" className={`flex h-8 w-8 items-center justify-center rounded-lg text-[11px] ${activeTab === 'station' ? 'bg-amber-500 text-slate-900' : 'border border-white/10 text-slate-300'}`}>🛠️</button>
+          <button onClick={() => setActiveTab('partners')} aria-label="Partner Folders" title="Partner Folders" className={`flex h-8 w-8 items-center justify-center rounded-lg text-[11px] ${activeTab === 'partners' ? 'bg-amber-500 text-slate-900' : 'border border-white/10 text-slate-300'}`}>👥</button>
+          <button onClick={() => { setEditing(null); setShowForm(true); }} aria-label="New Order" title="New Order" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-slate-900"><Plus className="h-4 w-4" /></button>
+        </div>
+      </div>
+      {activeTab === 'station' && <div className="hidden flex-row gap-3 px-4 pb-2 md:flex">
+        <div className="relative min-w-0 flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search studio, partner, project, order..."
+            className={`${inputClass} pl-10`}
+          />
+        </div>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} shrink-0 md:w-44`}>
+          <option value="all">All Statuses</option>
+          {LIVE_STATION_FILTER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>}
+      </div>
+
+      <div className="mt-0 w-full space-y-2 rounded-xl border border-gray-800 px-0 py-1 sm:p-2 md:-mt-2 md:space-y-3 md:p-3">
+        {activeTab === 'station' ? <>
           {loading ? (
             <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
           ) : liveStationItems.length === 0 ? (

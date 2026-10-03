@@ -222,12 +222,12 @@ export function PromoManagement() {
 
   return (
     <div className="relative flex w-full flex-col space-y-2">
-      <div className="sticky top-0 z-30 w-full bg-[#0B1121]/90 px-2 py-2 shadow-md backdrop-blur-md sm:px-4">
+      <div className="sticky top-0 z-30 w-full bg-[#0B1121]/90 px-0 py-2 shadow-md backdrop-blur-md sm:px-4">
         <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">Promo &amp; Marketing</h1>
         <p className="hidden truncate text-xs text-slate-400 sm:block">Manage banners, popups, coupons, broadcasts, and promo ads</p>
       </div>
 
-      <div className="w-full space-y-2 px-2 sm:px-3 md:px-4">
+      <div className="w-full space-y-2 px-0 sm:px-3 md:px-4">
       {/* Section tabs */}
       <div className="flex flex-wrap gap-2">
         {sections.map((s) => {

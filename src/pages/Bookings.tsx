@@ -264,7 +264,7 @@ export function Bookings() {
         </div>
       </div>
 
-      <div className="mt-2 w-full space-y-3 md:-mt-2 md:rounded-xl md:border md:border-gray-800 md:p-3">
+      <div className="mt-2 w-full space-y-3 md:-mt-2 md:rounded-xl md:border md:border-gray-800 md:p-3 md:px-3">
         <div className="hidden space-y-3 md:block">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -2039,7 +2039,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
 
   return (
     <>
-      <Modal open={true} onClose={onClose} title={`${booking.booking_no} — ${booking.client_name}`} size="lg">
+      <Modal open={true} onClose={onClose} onBackSwipe={onClose} title={`${booking.booking_no} — ${booking.client_name}`} size="lg">
         {modalBody}
       </Modal>
       <BillPreviewModal booking={booking} settings={settings} open={isBillPreviewOpen} onClose={() => setIsBillPreviewOpen(false)} onDualPrint={() => { setIsDualPrintOpen(true); setTimeout(() => { window.print(); setIsDualPrintOpen(false); }, 100); }} />

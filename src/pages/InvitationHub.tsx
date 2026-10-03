@@ -125,7 +125,7 @@ export function InvitationHub() {
 
   return (
     <div className="relative flex w-full flex-col space-y-2">
-      <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-2 py-2 shadow-md backdrop-blur-md sm:px-4">
+      <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-0 py-2 shadow-md backdrop-blur-md sm:px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400 sm:h-9 sm:w-9"><Mail className="h-4 w-4 sm:h-5 sm:w-5" /></div>
           <div className="min-w-0">
@@ -136,7 +136,7 @@ export function InvitationHub() {
         <button onClick={() => setShowCreate(true)} aria-label="New Invitation" title="New Invitation" className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-500 px-2 py-1.5 text-[11px] font-medium text-slate-900 transition hover:bg-amber-400 sm:px-3 sm:text-xs"><Plus className="h-4 w-4" /><span className="hidden sm:inline">New Invitation</span></button>
       </div>
 
-      <div className="w-full space-y-2 px-2 sm:px-3 md:px-4">
+      <div className="w-full space-y-2 px-0 sm:px-3 md:px-4">
       <div className="grid gap-3 lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="space-y-3">
           <input value={search} onChange={(event) => setSearch(event.target.value)} className={inputClass} placeholder="Search by name..." />
