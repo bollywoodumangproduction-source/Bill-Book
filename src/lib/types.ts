@@ -256,7 +256,7 @@ export interface LabClientRow {
   delivered_at?: string;
 }
 
-export type LabClientDeliveryStatus = 'In Design' | 'Ready' | 'Delivered';
+export type LabClientDeliveryStatus = 'Pending' | 'In Design' | 'Ready' | 'Delivered';
 export type LabClientDispatchMode = 'By Hand' | 'Courier' | 'Drive';
 
 export interface StorageLocation {
@@ -397,10 +397,13 @@ export interface LabPaymentInstallment {
   payment_mode: string;
   note: string;
   created_at?: string;
+  client_id?: string;
+  client_name?: string;
 }
 
 export interface LabExtraCharge {
   id: string;
+  client_id?: string;
   client_name: string;
   description: string;
   quantity: number;

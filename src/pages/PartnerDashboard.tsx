@@ -37,6 +37,8 @@ import { useToast } from '@/context/ToastContext';
 import { copyToClipboard } from '@/lib/clipboard';
 import { getVisiblePromoAds } from '@/lib/promo';
 import { useSettings } from '@/context/SettingsContext';
+import { hasLabAlbumWork, hasLabVideoWork, labOrderOverviewStatus, visibleLabOrderDates } from '@/lib/labOrderStatus';
+import { clientPaidTotal, clientWorkTotal, labOrderPayments, unallocatedPaidTotal } from '@/lib/labBilling';
 
 const PARTNER_SESSION_KEY = 'buf_partner_session';
 const LEGACY_PARTNER_SESSION_KEY = 'bup_partner_session';
@@ -47,6 +49,15 @@ export function cleanPartnerPhone(num: string): string {
 
 function sessionInnerSheetCount(session: ClientSelectionSession): number {
   return (session.proofSheets ?? []).filter((sheet) => Number(sheet.sheetNumber) > 0).length;
+}
+
+function partnerOrderTitle(order: StudioLabOrder): string {
+  const title = order.project_name?.trim();
+  return title || order.order_no;
+}
+
+function partnerOrderClientLabels(order: StudioLabOrder): string {
+  return (order.clients ?? []).map((client, index) => `Client ${index + 1}: ${client.client_name || 'Unnamed'}`).join(' · ');
 }
 
 export function setPartnerSession(partner: Partner) {
@@ -402,21 +413,20 @@ export function PartnerDashboardContent({
       const query = orderSearch.trim().toLowerCase();
       const matchesSearch = !query || [order.order_no, order.project_name, order.partner_name, ...(order.clients ?? []).map((client) => client.client_name)]
         .some((value) => String(value || '').toLowerCase().includes(query));
-      const status = order.order_status || 'Pending';
-      const workStatuses = [order.album_status, order.video_status].filter(Boolean);
+      const status = labOrderOverviewStatus(order);
       const matchesFilter = orderFilter === 'All'
-        || (orderFilter === 'Processing' && status !== 'Delivered' && workStatuses.some((workStatus) => ['Processing', 'Edit', 'Print', 'In Studio'].includes(String(workStatus))))
-        || (orderFilter === 'Ready' && status !== 'Delivered' && workStatuses.some((workStatus) => ['Ready', 'Complete'].includes(String(workStatus))))
+        || (orderFilter === 'Processing' && status === 'In Progress')
+        || (orderFilter === 'Ready' && status === 'Ready for Delivery')
         || status === orderFilter;
       return matchesSearch && matchesFilter;
     })
     .sort((a, b) => {
-      const aDelivered = a.order_status === 'Delivered';
-      const bDelivered = b.order_status === 'Delivered';
+      const aDelivered = labOrderOverviewStatus(a) === 'Delivered';
+      const bDelivered = labOrderOverviewStatus(b) === 'Delivered';
       if (aDelivered !== bDelivered) return aDelivered ? 1 : -1;
       if (a.is_emergency !== b.is_emergency) return a.is_emergency ? -1 : 1;
-      const aDeadline = a.date_pending ? null : [a.album_required_date, a.video_delivery_date].filter(Boolean).sort()[0] ?? null;
-      const bDeadline = b.date_pending ? null : [b.album_required_date, b.video_delivery_date].filter(Boolean).sort()[0] ?? null;
+      const aDeadline = visibleLabOrderDates(a).map(({ date }) => date).sort()[0] ?? null;
+      const bDeadline = visibleLabOrderDates(b).map(({ date }) => date).sort()[0] ?? null;
       if (aDeadline && bDeadline) return aDeadline.localeCompare(bDeadline);
       if (aDeadline && !bDeadline) return -1;
       if (!aDeadline && bDeadline) return 1;
@@ -424,8 +434,8 @@ export function PartnerDashboardContent({
     });
 
   return (
-    <div className="min-h-screen w-full bg-slate-950 px-4 pb-6 pt-20 text-white">
-      <div className="mx-auto max-w-5xl space-y-5">
+    <div className="min-h-screen w-full bg-slate-950 px-2.5 pb-4 pt-16 text-white sm:px-4 sm:pt-20">
+      <div className="mx-auto max-w-5xl space-y-3 sm:space-y-5">
         <header className="fixed left-0 right-0 top-0 z-50 flex h-14 w-full items-center justify-between gap-4 border-b border-slate-800/80 bg-slate-950/95 px-4 backdrop-blur-md lg:px-8">
           <div className="flex min-w-0 items-center gap-2.5">
             <img
@@ -457,14 +467,14 @@ export function PartnerDashboardContent({
           </div>
         </header>
 
-        <div className="flex gap-1 overflow-x-auto border-b border-white/10 pb-1">
+        <div className="sticky top-14 z-40 -mx-2.5 flex gap-1 overflow-x-auto border-b border-white/10 bg-slate-950/95 px-2.5 pb-1 pt-1 backdrop-blur-md sm:-mx-4 sm:px-4">
           {([
             ['orders', '📦 Lab Orders'],
             ['ledger', '📑 Ledger & History'],
             ['duties', '🎬 Assigned Duties'],
             ['offers', '🎉 Studio Offers'],
           ] as const).map(([tab, label]) => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className={`whitespace-nowrap rounded-t-lg px-3 py-2 text-xs font-semibold transition ${activeTab === tab ? 'border-b-2 border-cyan-400 bg-cyan-500/10 text-cyan-300' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+            <button key={tab} onClick={() => setActiveTab(tab)} className={`whitespace-nowrap rounded-t-lg px-2.5 py-2 text-[11px] font-semibold transition sm:px-3 sm:text-xs ${activeTab === tab ? 'border-b-2 border-cyan-400 bg-cyan-500/10 text-cyan-300' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
               {label}
             </button>
           ))}
@@ -507,40 +517,41 @@ export function PartnerDashboardContent({
 
         {/* Lab Orders */}
         {activeTab === 'orders' && <>
-        <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-slate-900 p-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-slate-900 p-2.5 sm:flex-row sm:items-center sm:p-3">
           <div className="relative min-w-0 flex-1"><Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" /><input value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder="Search project, order ID (e.g. BUP-001), client..." className="w-full rounded-md border border-white/10 bg-slate-950 px-8 py-2 text-xs text-white outline-none placeholder:text-slate-500 focus:border-cyan-500/50" /></div>
           <div className="flex gap-1 overflow-x-auto">{['All', 'Processing', 'Ready', 'Delivered'].map((filter) => <button key={filter} onClick={() => setOrderFilter(filter)} className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium ${orderFilter === filter ? 'bg-cyan-500 text-slate-950' : 'bg-white/5 text-slate-400 hover:text-white'}`}>{filter}</button>)}</div>
         </div>
         {filteredLabOrders.length > 0 ? (
-          <div className="rounded-xl border border-white/10 bg-slate-900 p-5">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Package className="h-4 w-4 text-amber-400" /> Lab Orders</h2>
+          <div className="rounded-xl border border-white/10 bg-slate-900 p-3 sm:p-5">
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold sm:mb-3"><Package className="h-4 w-4 text-amber-400" /> Lab Orders</h2>
             <div className="space-y-3">
               {filteredLabOrders.map((order) => {
                 const session = orderSessions[order.id];
                 const isExpanded = expandedOrders.has(order.id);
-                const hasPaymentInfo = Boolean(order.payment_mode || order.payment_date || order.payment_note || Number(order.advance_paid ?? 0) || Number(order.net_final_due ?? 0));
+                const overviewStatus = labOrderOverviewStatus(order);
                 return (
-                  <div key={order.id} className="rounded-lg border border-white/10 bg-white/5 p-4">
+                  <div key={order.id} className="rounded-lg border border-white/10 bg-white/5 p-3 sm:p-4">
                     <button onClick={() => setExpandedOrders((current) => { const next = new Set(current); if (next.has(order.id)) next.delete(order.id); else next.add(order.id); return next; })} className="flex w-full items-center justify-between gap-3 text-left">
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
                           {order.is_emergency && <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white"><Zap className="h-2.5 w-2.5" />EMERGENCY</span>}
-                          <p className="truncate font-medium">{order.project_name || order.order_no}</p>
+                          <p className="truncate font-medium">{partnerOrderTitle(order)}</p>
                         </div>
                         <p className="mt-0.5 text-xs text-slate-400">{order.order_no} · {order.studio_name || partner.studio_name || 'Studio'} · {order.work_type}</p>
+                        <p className="mt-0.5 text-[11px] text-cyan-200">{partnerOrderClientLabels(order) || 'No client listed'}</p>
                       </div>
-                      <span className="flex shrink-0 items-center gap-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${order.order_status === 'Delivered' ? 'bg-emerald-500/10 text-emerald-400' : order.order_status === 'Ready' || order.order_status === 'Printed/Ready' ? 'bg-sky-500/10 text-sky-400' : 'bg-amber-500/10 text-amber-400'}`}>{order.order_status}</span><ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} /></span>
+                      <span className="flex shrink-0 items-center gap-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${overviewStatus === 'Delivered' ? 'bg-emerald-500/10 text-emerald-400' : overviewStatus === 'Ready for Delivery' ? 'bg-sky-500/10 text-sky-400' : overviewStatus === 'Pending' ? 'bg-amber-500/10 text-amber-400' : 'bg-cyan-500/10 text-cyan-300'}`}>{overviewStatus}</span><ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} /></span>
                     </button>
 
                     <div className="mt-2 text-right text-[11px] text-slate-400">Balance due <span className="font-semibold text-amber-300">{formatINR(Math.max(0, Number(order.master_total ?? 0) - Number(order.advance_paid ?? 0)))}</span></div>
 
                     {isExpanded && <>
 
-                    <div className="mt-3 rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs">
+                    <div className="mt-2 rounded-md border border-cyan-500/20 bg-cyan-500/5 p-2.5 text-xs sm:mt-3 sm:p-3">
                       <p className="mb-2 font-medium text-slate-200">Production Progress</p>
                       <div className="flex flex-wrap gap-2">
-                        {Number(order.total_album_bill ?? 0) > 0 && <span className="rounded-full bg-white/5 px-2 py-1 text-slate-300">Album: {order.album_status || 'Pending'}</span>}
-                        {Number(order.total_video_bill ?? 0) > 0 && <span className="rounded-full bg-white/5 px-2 py-1 text-slate-300">Video: {order.video_status || 'Pending'}</span>}
+                        {hasLabAlbumWork(order) && <span className="rounded-full bg-white/5 px-2 py-1 text-slate-300">Album: {order.album_status || 'Pending'}</span>}
+                        {hasLabVideoWork(order) && <span className="rounded-full bg-white/5 px-2 py-1 text-slate-300">Video: {order.video_status || 'Pending'}</span>}
                       </div>
                       {(order.album_started_at || order.video_started_at || order.album_completed_at || order.video_completed_at) && (
                         <div className="mt-2 space-y-1 text-[10px] text-slate-400">
@@ -557,77 +568,38 @@ export function PartnerDashboardContent({
                       {order.is_emergency && <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white"><Zap className="h-2.5 w-2.5" />EMERGENCY</span>}
                       {order.date_pending ? (
                         <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-400"><CalendarClock className="h-3 w-3" /> Date Pending</span>
-                      ) : (() => {
-                        const dates = [order.album_required_date, order.video_delivery_date].filter(Boolean).sort() as string[];
-                        if (dates.length === 0) return null;
-                        return <span className="inline-flex items-center gap-0.5 text-xs text-slate-400"><CalendarClock className="h-3 w-3 text-amber-400" /> Due: {formatDate(dates[0])}</span>;
-                      })()}
+                      ) : visibleLabOrderDates(order).map(({ label, date }) => <span key={label} className="inline-flex items-center gap-0.5 text-xs text-slate-400"><CalendarClock className="h-3 w-3 text-amber-400" /> {label}: {formatDate(date)}</span>)}
                     </div>
 
-                    <div className="mt-3 rounded-md border border-white/10 bg-slate-950/40 p-3 text-xs">
-                      <p className="mb-2 font-medium text-slate-200">Order billing · {order.order_no} · {order.project_name || order.work_type}</p>
+                    <div className="mt-2 rounded-md border border-white/10 bg-slate-950/40 p-2.5 text-xs sm:mt-3 sm:p-3">
+                      <p className="mb-2 font-medium text-slate-200">Order bill · {order.order_no} · {partnerOrderTitle(order)}</p>
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-400 sm:grid-cols-4">
-                        <span>Order subtotal: <b className="text-slate-200">{formatINR(Number(order.current_order_total ?? 0))}</b></span>
+                        <span>Order total: <b className="text-slate-200">{formatINR(Number(order.current_order_total ?? 0))}</b></span>
                         <span>Previous balance: <b className="text-slate-200">{formatINR(Number(order.previous_back_due ?? 0))}</b></span>
                         <span>Total bill: <b className="text-slate-200">{formatINR(Number(order.master_total ?? 0))}</b></span>
                         <span>Paid: <b className="text-emerald-300">{formatINR(Number(order.advance_paid ?? 0))}</b></span>
                       </div>
                       {(order.clients ?? []).map((client, ci) => <div key={client.id || ci} className="mt-2 border-t border-white/10 pt-2">
-                        <p className="font-semibold text-cyan-200">Client: {client.client_name || `Client ${ci + 1}`}</p>
+                        <p className="font-semibold text-cyan-200">Client {ci + 1}: {client.client_name || `Client ${ci + 1}`}</p>
                         <div className="mt-1 space-y-0.5 text-slate-400">
                           {(client.video_rows ?? []).map((row, ri) => <p key={`v${ri}`}>Video · {row.video_type} / {row.quality} · {row.qty} × {formatINR(Number(row.rate))} = <b className="text-slate-200">{formatINR(Number(row.total ?? Number(row.qty) * Number(row.rate)))}</b></p>)}
-                          {(client.album_rows ?? []).map((row, ri) => <div key={`a${ri}`}><p>Album · {row.album_type} ({row.size}) · {formatINR(Number(row.total ?? 0))}</p>{row.mini_album && <p className="pl-3">Mini album · {row.mini_qty} × {formatINR(Number(row.mini_rate))} = {formatINR(Number(row.mini_total))}</p>}{(row.papers ?? []).filter((paper) => paper.paper_type).map((paper) => <p key={paper.id} className="pl-3">{paper.paper_type} paper · {paper.sheets} × {formatINR(Number(paper.rate))} = {formatINR(Number(paper.total))}</p>)}</div>)}
+                          {(client.album_rows ?? []).map((row, ri) => <div key={`a${ri}`}><p>Album · {row.album_type} ({row.size})</p><p className="pl-3">{row.packaging} packaging · {formatINR(Number(row.packaging_total ?? 0))}</p>{row.mini_album && <p className="pl-3">Mini album · {row.mini_qty} × {formatINR(Number(row.mini_rate))} = {formatINR(Number(row.mini_total))}</p>}{(row.papers ?? []).filter((paper) => paper.paper_type).map((paper) => <p key={paper.id} className="pl-3">{paper.paper_type} paper · {paper.sheets} × {formatINR(Number(paper.rate))} = {formatINR(Number(paper.total))}</p>)}</div>)}
                           {(order.extra_items ?? []).filter((item) => item.client_name === client.client_name).map((item) => <p key={item.id} className="text-amber-200">Extra · {item.description} · {item.quantity} × {formatINR(item.unit_rate)} = {formatINR(item.line_amount)}</p>)}
                         </div>
+                        <div className="mt-1 grid grid-cols-3 gap-2 border-t border-white/10 pt-1 text-right">
+                          <span className="text-slate-400">Client {ci + 1} total <b className="block text-slate-200">{formatINR(clientWorkTotal(client, order.extra_items ?? [], order.clients))}</b></span>
+                          <span className="text-slate-400">Paid <b className="block text-emerald-300">{formatINR(clientPaidTotal(client, labOrderPayments(order), order.clients))}</b></span>
+                          <span className="text-slate-400">Due <b className="block text-rose-300">{formatINR(Math.max(0, clientWorkTotal(client, order.extra_items ?? [], order.clients) - clientPaidTotal(client, labOrderPayments(order), order.clients)))}</b></span>
+                        </div>
+                        {labOrderPayments(order).filter((payment) => payment.client_id === client.id || (!payment.client_id && payment.client_name === client.client_name)).map((payment) => <p key={payment.id} className="mt-1 text-[10px] text-slate-500">Payment · {formatDateTime(payment.created_at || payment.payment_date)} · {payment.payment_mode} · {formatINR(Number(payment.amount))}{payment.note ? ` · ${payment.note}` : ''}</p>)}
                       </div>)}
                       {(order.extra_items ?? []).filter((item) => !item.client_name || !(order.clients ?? []).some((client) => client.client_name === item.client_name)).map((item) => <p key={item.id} className="mt-1 text-amber-200">Order extra · {item.description} · {item.quantity} × {formatINR(item.unit_rate)} = {formatINR(item.line_amount)}</p>)}
-                      {(order.payment_history ?? []).length > 0 && <div className="mt-2 overflow-x-auto border-t border-white/10 pt-2"><p className="mb-1 font-medium text-slate-200">Payments · order-level (not allocated to a client)</p><table className="w-full min-w-[500px] text-left text-[11px]"><thead className="text-slate-500"><tr><th className="py-1">Date &amp; time</th><th>Mode</th><th>Note</th><th className="text-right">Paid</th><th className="text-right">Remaining order balance</th></tr></thead><tbody>{(() => { let paid = 0; return (order.payment_history ?? []).map((payment) => { paid += Number(payment.amount ?? 0); return <tr key={payment.id} className="border-t border-white/5 text-slate-400"><td className="py-1">{formatDateTime(payment.created_at || payment.payment_date)}</td><td>{payment.payment_mode}</td><td>{payment.note || '—'}</td><td className="text-right text-emerald-300">{formatINR(Number(payment.amount))}</td><td className="text-right">{formatINR(Math.max(0, Number(order.master_total ?? 0) - paid))}</td></tr>; }); })()}</tbody></table></div>}
+                      {unallocatedPaidTotal(labOrderPayments(order)) > 0 && <div className="mt-2 overflow-x-auto border-t border-white/10 pt-2"><p className="mb-1 font-medium text-slate-200">Unassigned / legacy order payments</p><table className="w-full min-w-[500px] text-left text-[11px]"><thead className="text-slate-500"><tr><th className="py-1">Date &amp; time</th><th>Mode</th><th>Note</th><th className="text-right">Paid</th></tr></thead><tbody>{labOrderPayments(order).filter((payment) => !payment.client_id && !payment.client_name).map((payment) => <tr key={payment.id} className="border-t border-white/5 text-slate-400"><td className="py-1">{formatDateTime(payment.created_at || payment.payment_date)}</td><td>{payment.payment_mode}</td><td>{payment.note || '—'}</td><td className="text-right text-emerald-300">{formatINR(Number(payment.amount))}</td></tr>)}</tbody></table></div>}
                     </div>
 
-                    {hasPaymentInfo && (
-                      <div className="mt-3 rounded-md border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-slate-200">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="font-medium text-amber-300">Payment</span>
-                          <button className="rounded bg-amber-500 px-2 py-1 text-[10px] font-bold text-slate-900">Pay Now</button>
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-3 text-slate-300">
-                          {order.payment_mode && <span>Mode: {order.payment_mode}</span>}
-                          {order.payment_date && <span>Date: {formatDate(order.payment_date)}</span>}
-                          {order.payment_note && <span>Note: {order.payment_note}</span>}
-                        </div>
-                      </div>
-                    )}
-
-                    {order.clients && order.clients.length > 0 && (
-                      <div className="mt-3 border-t border-white/10 pt-3 text-xs text-slate-300">
-                        <p className="mb-2 font-medium text-slate-200">Client Details & Work Status</p>
-                        <div className="space-y-2">
-                          {order.clients.map((client, idx) => (
-                            <div key={client.id || idx} className="rounded-md border border-white/10 bg-slate-950/40 p-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="font-medium text-slate-200">{client.client_name || `Client ${idx + 1}`}</p>
-                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${client.delivery_status === 'Delivered' ? 'bg-emerald-500/10 text-emerald-400' : client.delivery_status === 'Ready' ? 'bg-sky-500/10 text-sky-400' : 'bg-amber-500/10 text-amber-400'}`}>
-                                  {client.delivery_status || 'In Design'}
-                                </span>
-                              </div>
-                              <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-slate-400">
-                                {client.dispatch_mode && <span>Dispatch: {client.dispatch_mode}</span>}
-                                {client.video_rows?.length > 0 && <span>Videos: {client.video_rows.length}</span>}
-                                {client.album_rows?.length > 0 && <span>Albums: {client.album_rows.length}</span>}
-                                {client.album_rows?.length > 0 && <span>Album work: {order.album_status || 'Pending'}</span>}
-                                {client.video_rows?.length > 0 && <span>Video work: {order.video_status || 'Pending'}</span>}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {(order.promised_delivery_date || order.storage_locations?.length || order.album_required_date || order.video_delivery_date) && (
+                    {(visibleLabOrderDates(order).length > 0 || order.date_pending || order.storage_locations?.length) && (
                       <div className="mt-3 space-y-2 border-t border-white/10 pt-3 text-xs text-slate-300">
-                        {order.promised_delivery_date && <div className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5 text-amber-400" /> Promised Delivery: {formatDate(order.promised_delivery_date)}</div>}
-                        {order.album_required_date && <div className="flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-amber-400" /> Album Due: {formatDate(order.album_required_date)}</div>}
-                        {order.video_delivery_date && <div className="flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-amber-400" /> Video Due: {formatDate(order.video_delivery_date)}</div>}
+                        {order.date_pending ? <div className="flex items-center gap-1.5 text-amber-300"><CalendarClock className="h-3.5 w-3.5" /> Delivery date pending confirmation</div> : visibleLabOrderDates(order).map(({ label, date }) => <div key={label} className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5 text-amber-400" /> {label}: {formatDate(date)}</div>)}
                         {order.storage_locations && order.storage_locations.length > 0 && (
                           <div className="space-y-1">
                             <p className="font-medium text-slate-200">Storage Location</p>
@@ -690,7 +662,7 @@ export function PartnerDashboardContent({
             </div>
           </div>
         ) : (
-          <div className="rounded-xl border border-white/10 bg-slate-900 p-5">
+          <div className="rounded-xl border border-white/10 bg-slate-900 p-3 sm:p-5">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Package className="h-4 w-4 text-amber-400" /> Lab Orders</h2>
             <p className="py-4 text-center text-sm text-slate-400">No lab orders available yet. Waiting for Studio.</p>
           </div>
@@ -704,7 +676,7 @@ export function PartnerDashboardContent({
         </div>}
         {activeTab === 'ledger' && <div className="space-y-3">
           <div className="rounded-xl border border-white/10 bg-slate-900 p-4"><h2 className="mb-2 text-sm font-semibold">Partner Account Balance</h2><p className="mb-3 text-[11px] text-slate-400">This is the partner-level account ledger (shoot duties and direct settlements), separate from client/order balances below.</p><div className="grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-lg bg-slate-950/50 p-2"><p className="text-slate-500">Duty credits</p><b className="text-emerald-300">{formatINR(balance.credit)}</b></div><div className="rounded-lg bg-slate-950/50 p-2"><p className="text-slate-500">Partner debits</p><b className="text-rose-300">{formatINR(balance.debit)}</b></div><div className="rounded-lg bg-slate-950/50 p-2"><p className="text-slate-500">Account balance</p><b className={balance.balance < 0 ? 'text-rose-300' : 'text-cyan-200'}>{formatINR(balance.balance)}</b></div></div></div>
-          <div className="rounded-xl border border-white/10 bg-slate-900 p-4"><h2 className="mb-1 text-sm font-semibold">Client &amp; Lab Order Statement</h2><p className="mb-3 text-[11px] text-slate-400">Every balance is linked to its project and client; payment entries show the order, date, mode, and remaining balance.</p>{labOrders.length === 0 ? <p className="text-xs text-slate-400">No client or lab-order balances.</p> : <div className="space-y-3">{labOrders.map((order) => <div key={order.id} className="rounded-lg border border-white/10 bg-slate-950/50 p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold text-white">{order.order_no} · {order.project_name || order.work_type}</p><p className="text-xs text-slate-400">Work: {order.work_type} · Studio: {order.studio_name || '—'}</p></div><span className="text-xs font-semibold text-amber-300">Due {formatINR(Math.max(0, Number(order.master_total ?? 0) - Number(order.advance_paid ?? 0)))}</span></div><div className="mt-2 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4"><span className="text-slate-400">Current work <b className="text-slate-200">{formatINR(Number(order.current_order_total ?? 0))}</b></span><span className="text-slate-400">Previous balance <b className="text-slate-200">{formatINR(Number(order.previous_back_due ?? 0))}</b></span><span className="text-slate-400">Total bill <b className="text-slate-200">{formatINR(Number(order.master_total ?? 0))}</b></span><span className="text-slate-400">Paid <b className="text-emerald-300">{formatINR(Number(order.advance_paid ?? 0))}</b></span></div>{(order.clients ?? []).map((client, ci) => <div key={client.id || ci} className="mt-2 border-t border-white/10 pt-2"><p className="text-xs font-semibold text-cyan-200">Client: {client.client_name || `Client ${ci + 1}`}</p><div className="mt-1 space-y-0.5 text-[11px] text-slate-400">{(client.video_rows ?? []).map((row, ri) => <p key={`v${ri}`}>Video · {row.video_type} / {row.quality} · {row.qty} × {formatINR(Number(row.rate))} = {formatINR(Number(row.total ?? Number(row.qty) * Number(row.rate)))}</p>)}{(client.album_rows ?? []).map((row, ri) => <p key={`a${ri}`}>Album · {row.album_type} ({row.size}) · {formatINR(Number(row.total ?? 0))}</p>)}{(order.extra_items ?? []).filter((item) => item.client_name === client.client_name).map((item) => <p key={item.id} className="text-amber-200">Extra · {item.description} · {item.quantity} × {formatINR(item.unit_rate)} = {formatINR(item.line_amount)}</p>)}</div></div>)}{(order.extra_items ?? []).filter((item) => !item.client_name || !(order.clients ?? []).some((client) => client.client_name === item.client_name)).map((item) => <p key={item.id} className="mt-1 text-[11px] text-amber-200">Order extra · {item.description} · {item.quantity} × {formatINR(item.unit_rate)} = {formatINR(item.line_amount)}</p>)}{(order.payment_history ?? []).length > 0 && <div className="mt-2 overflow-x-auto border-t border-white/10 pt-2"><p className="mb-1 text-[11px] font-semibold text-slate-300">Payments · order-level, not assigned to an individual client</p><table className="w-full min-w-[500px] text-left text-[11px]"><thead className="text-slate-500"><tr><th className="py-1">Date &amp; time</th><th>Mode</th><th>Note</th><th className="text-right">Amount</th><th className="text-right">Remaining due</th></tr></thead><tbody>{(() => { let paid = 0; return (order.payment_history ?? []).map((payment) => { paid += Number(payment.amount ?? 0); return <tr key={payment.id} className="border-t border-white/5 text-slate-400"><td className="py-1">{formatDateTime(payment.created_at || payment.payment_date)}</td><td>{payment.payment_mode}</td><td>{payment.note || '—'}</td><td className="text-right text-emerald-300">{formatINR(Number(payment.amount))}</td><td className="text-right">{formatINR(Math.max(0, Number(order.master_total ?? 0) - paid))}</td></tr>; }); })()}</tbody></table></div>}</div>)}</div>}</div>
+          <div className="rounded-xl border border-white/10 bg-slate-900 p-4"><h2 className="mb-1 text-sm font-semibold">Client &amp; Lab Order Statement</h2><p className="mb-3 text-[11px] text-slate-400">Each client has a separate work total and balance within the same combined bill number.</p>{labOrders.length === 0 ? <p className="text-xs text-slate-400">No client or lab-order balances.</p> : <div className="space-y-3">{labOrders.map((order) => { const payments = labOrderPayments(order); return <div key={order.id} className="rounded-lg border border-white/10 bg-slate-950/50 p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold text-white">{order.order_no} · {order.project_name || order.work_type}</p><p className="text-xs text-slate-400">Work: {order.work_type} · Studio: {order.studio_name || '—'}</p></div><span className="text-xs font-semibold text-amber-300">Combined due {formatINR(Math.max(0, Number(order.master_total ?? 0) - Number(order.advance_paid ?? 0)))}</span></div><div className="mt-2 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4"><span className="text-slate-400">Combined work <b className="text-slate-200">{formatINR(Number(order.current_order_total ?? 0))}</b></span><span className="text-slate-400">Previous balance <b className="text-slate-200">{formatINR(Number(order.previous_back_due ?? 0))}</b></span><span className="text-slate-400">Combined bill <b className="text-slate-200">{formatINR(Number(order.master_total ?? 0))}</b></span><span className="text-slate-400">Combined paid <b className="text-emerald-300">{formatINR(Number(order.advance_paid ?? 0))}</b></span></div>{(order.clients ?? []).map((client, ci) => { const total = clientWorkTotal(client, order.extra_items ?? [], order.clients ?? []); const paid = clientPaidTotal(client, payments, order.clients ?? []); return <div key={client.id || ci} className="mt-2 border-t border-white/10 pt-2"><div className="flex flex-wrap justify-between gap-2"><p className="text-xs font-semibold text-cyan-200">Client {ci + 1}: {client.client_name || `Client ${ci + 1}`}</p><p className="text-[11px] text-slate-400">Work {formatINR(total)} · Paid {formatINR(paid)} · Due <b className="text-rose-300">{formatINR(Math.max(0, total - paid))}</b></p></div><div className="mt-1 space-y-0.5 text-[11px] text-slate-400">{(client.video_rows ?? []).map((row, ri) => <p key={`v${ri}`}>Video · {row.video_type} / {row.quality} · {row.qty} × {formatINR(Number(row.rate))} = {formatINR(Number(row.total ?? Number(row.qty) * Number(row.rate)))}</p>)}{(client.album_rows ?? []).map((row, ri) => <p key={`a${ri}`}>Album · {row.album_type} ({row.size}) · {formatINR(Number(row.total ?? 0))}</p>)}{(order.extra_items ?? []).filter((item) => item.client_id ? item.client_id === client.id : item.client_name === client.client_name).map((item) => <p key={item.id} className="text-amber-200">Extra · {item.description} · {item.quantity} × {formatINR(item.unit_rate)} = {formatINR(item.line_amount)}</p>)}</div>{payments.filter((payment) => payment.client_id === client.id || (!payment.client_id && payment.client_name === client.client_name)).map((payment) => <p key={payment.id} className="mt-1 text-[10px] text-slate-500">Payment · {formatDateTime(payment.created_at || payment.payment_date)} · {payment.payment_mode} · {formatINR(Number(payment.amount))}{payment.note ? ` · ${payment.note}` : ''}</p>)}</div>; })}{unallocatedPaidTotal(payments) > 0 && <div className="mt-2 border-t border-amber-500/20 pt-2 text-[11px] text-amber-200">Unassigned/legacy payment: {formatINR(unallocatedPaidTotal(payments))} · this historical payment is not attributed to a specific client.</div>}</div>; })}</div>}</div>
         </div>}
         <p className="flex items-center gap-1.5 text-xs text-slate-500"><Camera className="h-3.5 w-3.5" /> Operational schedule only. Client package amounts are private.</p>
       </div>

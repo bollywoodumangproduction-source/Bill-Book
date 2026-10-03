@@ -13,7 +13,6 @@ import {
   ArrowLeft,
   Sparkles,
   Phone,
-  Package,
   Truck,
   FileText,
   Megaphone,
@@ -28,9 +27,10 @@ import {
   QrCode,
   HelpCircle,
   Copy,
+  Zap,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { Booking, PromoAd, StudioLabOrder, LabClientRow, TeaserProject, InvitationProject, MusicProject, ClientSelectionSession, BookingPaymentInstallment } from '@/lib/types';
+import type { Booking, PromoAd, StudioLabOrder, TeaserProject, InvitationProject, MusicProject, ClientSelectionSession, BookingPaymentInstallment } from '@/lib/types';
 import { withPhotoSessionCounts } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
@@ -59,6 +59,7 @@ function selectionExtra(session: ClientSelectionSession): { sheets: number; amou
 }
 import { ProjectTimeline } from '@/components/ProjectTimeline';
 import { getVisiblePromoAds } from '@/lib/promo';
+import { hasLabAlbumWork, hasLabVideoWork, labOrderOverviewStatus, visibleLabOrderDates } from '@/lib/labOrderStatus';
 
 const DEFAULT_DELIVERABLES = {
   raw_video: false,
@@ -70,14 +71,10 @@ const DEFAULT_DELIVERABLES = {
 const LAB_STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Pending: 'slate',
   'In Design': 'amber',
+  'In Progress': 'amber',
+  'Ready for Delivery': 'sky',
   'Printed/Ready': 'sky',
   Processing: 'amber',
-  Ready: 'sky',
-  Delivered: 'emerald',
-};
-
-const LAB_DELIVERY_STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'sky'> = {
-  'In Design': 'amber',
   Ready: 'sky',
   Delivered: 'emerald',
 };
@@ -275,6 +272,9 @@ export function ClientDashboard() {
               <div className="flex items-center gap-2 self-start">
                 <Badge color={booking.booking_status === 'CONFIRMED' ? 'amber' : booking.booking_status === 'COMPLETED' ? 'emerald' : 'sky'}>
                   {booking.booking_status}
+                </Badge>
+                <Badge color={booking.work_status === 'delivered' ? 'emerald' : booking.work_status === 'pending' ? 'slate' : 'amber'}>
+                  Work: {booking.work_status || 'pending'}
                 </Badge>
               </div>
             </div>
@@ -646,7 +646,6 @@ function LabOrderDashboard({
   const totalPaid = Number(order.advance_paid ?? 0);
   const masterTotal = Number(order.master_total ?? 0);
   const netDue = Math.max(0, masterTotal - totalPaid);
-  const safeClients: LabClientRow[] = order.clients ?? [];
   const [labPhotoSession, setLabPhotoSession] = useState<ClientSelectionSession | null>(null);
 
   useEffect(() => {
@@ -709,14 +708,19 @@ function LabOrderDashboard({
               <h1 className="mt-0.5 text-xl font-bold text-slate-900 dark:text-white">{order.project_name || order.studio_name}</h1>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Order {order.order_no}</p>
             </div>
-            <Badge color={LAB_STATUS_COLORS[order.order_status] ?? 'slate'}>
-              {order.order_status}
+            <Badge color={LAB_STATUS_COLORS[labOrderOverviewStatus(order)] ?? 'slate'}>
+              {labOrderOverviewStatus(order)}
             </Badge>
           </div>
           <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-600 dark:text-slate-300">
             <span className="flex items-center gap-1.5"><Phone className="h-4 w-4 text-slate-400" /> +91 {formatPhone(order.studio_mobile)}</span>
             {order.partner_name && <span className="flex items-center gap-1.5"><FileText className="h-4 w-4 text-slate-400" /> Partner: {order.partner_name}</span>}
             {order.studio_address && <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4 text-slate-400" /> {order.studio_address}</span>}
+          </div>
+          {order.is_emergency && <p className="mt-3 inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-500"><Zap className="h-3.5 w-3.5" /> Emergency priority</p>}
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            {hasLabAlbumWork(order) && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700 dark:bg-white/5 dark:text-slate-300">Album: {order.album_status || 'Pending'}</span>}
+            {hasLabVideoWork(order) && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700 dark:bg-white/5 dark:text-slate-300">Video: {order.video_status || 'Pending'}</span>}
           </div>
           <button
             onClick={() => setShowPinModal(true)}
@@ -736,10 +740,7 @@ function LabOrderDashboard({
               <p className="text-xs text-slate-500 dark:text-slate-400">Delivery Mode</p>
               <p className="mt-0.5 text-sm font-medium text-slate-900 dark:text-white">{order.delivery_mode || '—'}</p>
             </div>
-            <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5">
-              <p className="text-xs text-slate-500 dark:text-slate-400">Promised Delivery</p>
-              <p className="mt-0.5 text-sm font-medium text-slate-900 dark:text-white">{formatDate(order.promised_delivery_date ?? null)}</p>
-            </div>
+            {order.date_pending ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-500/20 dark:bg-amber-500/5"><p className="text-xs text-amber-700 dark:text-amber-300">Delivery date pending confirmation</p></div> : visibleLabOrderDates(order).map(({ label, date }) => <div key={label} className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5"><p className="text-xs text-slate-500 dark:text-slate-400">{label}</p><p className="mt-0.5 text-sm font-medium text-slate-900 dark:text-white">{formatDate(date)}</p></div>)}
             {order.parcel_tracking_details && (
               <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 sm:col-span-2 dark:border-white/5 dark:bg-white/5">
                 <p className="text-xs text-slate-500 dark:text-slate-400">Tracking Details</p>
@@ -748,36 +749,6 @@ function LabOrderDashboard({
             )}
           </div>
         </div>
-
-        {/* Per-client delivery status */}
-        {safeClients.length > 0 && (
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-              <Package className="h-4 w-4 text-amber-500" /> Client Delivery Status
-            </h2>
-            <div className="space-y-3">
-              {safeClients.map((c, i) => (
-                <div key={c.id || i} className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-medium text-slate-900 dark:text-white">{c.client_name || `Client ${i + 1}`}</p>
-                      {c.event_address && <p className="mt-0.5 text-xs text-slate-400">{c.event_address}</p>}
-                    </div>
-                    <Badge color={LAB_DELIVERY_STATUS_COLORS[c.delivery_status] ?? 'slate'}>
-                      {c.delivery_status}
-                    </Badge>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
-                    <span>Dispatch: {c.dispatch_mode || '—'}</span>
-                    {c.delivered_at && <span>Delivered: {formatDate(c.delivered_at)}</span>}
-                    {c.video_rows.length > 0 && <span>Videos: {c.video_rows.length}</span>}
-                    {c.album_rows.length > 0 && <span>Albums: {c.album_rows.length}</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Bill Summary */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">

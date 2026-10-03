@@ -102,6 +102,7 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
         <div className="text-right">
           {booking.venue && <p><strong>Venue:</strong> {booking.venue}</p>}
           <p><strong>Status:</strong> {booking.booking_status}</p>
+          <p><strong>Work Status:</strong> {booking.work_status || 'pending'}</p>
         </div>
       </div>
 

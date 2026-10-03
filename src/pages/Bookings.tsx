@@ -309,6 +309,7 @@ export function Bookings() {
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{b.client_name}</p>
                   <Badge color={STATUS_COLORS[b.booking_status] ?? 'slate'}>{b.booking_status}</Badge>
+                  <Badge color={b.work_status === 'delivered' ? 'emerald' : b.work_status === 'pending' ? 'slate' : 'amber'}>Work: {b.work_status || 'pending'}</Badge>
                 </div>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   {b.booking_no} · {b.event_function} · {formatDate(b.shoot_date)} {b.venue && `· ${b.venue}`}

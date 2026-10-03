@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { createPortal } from 'react-dom';
 import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, TriangleAlert as AlertTriangle, Zap, CalendarClock, Images, HardDrive, FolderOpen } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabExtraCharge, LabClientDeliveryStatus, LabClientDispatchMode, StorageLocation } from '@/lib/types';
+import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabExtraCharge, LabClientDeliveryStatus, StorageLocation } from '@/lib/types';
 import { formatINR, formatDate, formatDateTime, todayISO, defaultPinFromPhone } from '@/lib/format';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -14,7 +14,6 @@ import {
   LAB_ALBUM_SIZES,
   LAB_ALBUM_PAPERS,
   LAB_ALBUM_COVERS,
-  LAB_ORDER_STATUSES,
   DELIVERY_MODES,
   LAB_PAYMENT_MODES,
   STORAGE_DEVICES,
@@ -32,6 +31,8 @@ import { MasterPinDialog } from '@/components/ui/MasterPinDialog';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { useRefresh } from '@/context/RefreshContext';
 import { buildPdfFilename, downloadA4Pdf, PrintableDualCopies } from '@/lib/pdf';
+import { hasLabAlbumWork, hasLabVideoWork, labOrderOverviewStatus, visibleLabOrderDates } from '@/lib/labOrderStatus';
+import { clientPaidTotal, clientWorkTotal, labOrderPayments } from '@/lib/labBilling';
 
 const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Pending: 'slate',
@@ -41,10 +42,13 @@ const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Ready: 'sky',
   Delivered: 'emerald',
   Complete: 'emerald',
+  'In Progress': 'amber',
+  'Ready for Delivery': 'sky',
 };
 
 const LIVE_VIDEO_STATUSES = ['Processing', 'Edit', 'Ready', 'Complete'];
 const LIVE_ALBUM_STATUSES = ['Processing', 'Edit', 'Print', 'In Studio', 'Complete'];
+const LIVE_STATION_FILTER_STATUSES = ['Processing', 'Edit', 'Ready', 'Print', 'In Studio'];
 
 const DEFAULT_PRODUCTION_TERMS = `1. रॉ डाटा बैकअप व सुरक्षा (Raw Data Backup): जब तक तैयार प्रोजेक्ट/डाटा आपको नहीं मिल जाता, तब तक रॉ फुटेज की एक बैकअप कॉपी अपने पास सुरक्षित रखें।
 2. एल्बम डिजाइन व प्रिंट अप्रूवल (Album Approval): एल्बम प्रिंटिंग से पूर्व डिजाइन अप्रूवल अनिवार्य है। शीट प्रिंट होने के बाद किसी भी प्रकार का स्पेलिंग या फोटो बदलाव नहीं होगा।
@@ -80,15 +84,19 @@ function getOrderKey(order: Partial<StudioLabOrder> | null | undefined): string 
   return String(order?.id ?? order?.order_no ?? (order as any)?.bup_no ?? '').trim();
 }
 
+function labOrderTitle(order: StudioLabOrder): string {
+  return order.project_name || `Bill ${order.order_no}`;
+}
+
+function labOrderClientLabels(order: StudioLabOrder): string {
+  return (order.clients ?? []).map((client, index) => `Client ${index + 1}: ${client.client_name || 'Unnamed'}`).join(' · ');
+}
+
 function getDeliveryYear(order: StudioLabOrder): string {
   const rawDate = order.delivered_at || order.archived_at || order.created_at;
   if (!rawDate) return 'Unknown year';
   const date = new Date(rawDate);
   return Number.isNaN(date.getTime()) ? 'Unknown year' : String(date.getUTCFullYear());
-}
-
-function getLabClientKey(client: LabClientRow): string {
-  return `${String(client.client_name ?? '').trim().toLocaleLowerCase()}|${String(client.event_address ?? '').trim().toLocaleLowerCase()}`;
 }
 
 function nextOrderNo(existing: StudioLabOrder[]): string {
@@ -129,19 +137,15 @@ function buildStoragePath(loc: StorageLocation, studioOrProject: string): string
 }
 
 function emptyClient(): LabClientRow {
-  return { id: uid(), client_name: '', event_address: '', video_rows: [], album_rows: [], video_total: 0, album_total: 0, delivery_status: 'In Design', dispatch_mode: 'By Hand' };
+  return { id: uid(), client_name: '', event_address: '', video_rows: [], album_rows: [], video_total: 0, album_total: 0, delivery_status: 'Pending', dispatch_mode: 'By Hand' };
 }
 
 function hasAlbumWork(order: Partial<StudioLabOrder>): boolean {
-  return toNum(order.total_album_bill) > 0
-    || (Array.isArray(order.album_rows) && order.album_rows.length > 0)
-    || (Array.isArray(order.clients) && order.clients.some((client) => Array.isArray(client.album_rows) && client.album_rows.length > 0));
+  return hasLabAlbumWork(order);
 }
 
 function hasVideoWork(order: Partial<StudioLabOrder>): boolean {
-  return toNum(order.total_video_bill) > 0
-    || (Array.isArray(order.video_rows) && order.video_rows.length > 0)
-    || (Array.isArray(order.clients) && order.clients.some((client) => Array.isArray(client.video_rows) && client.video_rows.length > 0));
+  return hasLabVideoWork(order);
 }
 
 function isProductionComplete(order: Partial<StudioLabOrder>): boolean {
@@ -156,7 +160,7 @@ function normalizeLabOrder(raw: Partial<StudioLabOrder>): StudioLabOrder {
   const clients = (Array.isArray(raw.clients) ? raw.clients : []).map((client) => ({
     ...emptyClient(),
     ...client,
-    delivery_status: client.delivery_status ?? 'In Design',
+    delivery_status: client.delivery_status ?? 'Pending',
     dispatch_mode: client.dispatch_mode ?? 'By Hand',
     video_rows: Array.isArray(client.video_rows) ? client.video_rows : [],
     album_rows: (Array.isArray(client.album_rows) ? client.album_rows : []).map((album) => ({
@@ -213,21 +217,18 @@ function normalizeLabOrder(raw: Partial<StudioLabOrder>): StudioLabOrder {
 }
 
 function getEarliestDeadline(o: StudioLabOrder): string | null {
-  if (o.date_pending) return null;
-  const dates: string[] = [];
-  if (o.album_required_date) dates.push(o.album_required_date);
-  if (o.video_delivery_date) dates.push(o.video_delivery_date);
+  const dates = visibleLabOrderDates(o).map(({ date }) => date);
   if (dates.length === 0) return null;
   return dates.sort()[0];
 }
 
-function isDeadlineUrgent(o: StudioLabOrder, deadlineAlerts: Array<{ type: 'album' | 'video'; severity: 'overdue' | 'today' | 'soon'; order: StudioLabOrder }>): boolean {
+function isDeadlineUrgent(o: StudioLabOrder, deadlineAlerts: Array<{ type: 'album' | 'video' | 'promised'; severity: 'overdue' | 'today' | 'soon'; order: StudioLabOrder }>): boolean {
   return deadlineAlerts.some(a => a.order.id === o.id && (a.severity === 'overdue' || a.severity === 'today'));
 }
 
 const DELIVERED_STATUSES = ['Delivered'];
 
-function sortOrdersByPriority(orders: StudioLabOrder[], deadlineAlerts: Array<{ type: 'album' | 'video'; severity: 'overdue' | 'today' | 'soon'; order: StudioLabOrder }>): StudioLabOrder[] {
+function sortOrdersByPriority(orders: StudioLabOrder[], deadlineAlerts: Array<{ type: 'album' | 'video' | 'promised'; severity: 'overdue' | 'today' | 'soon'; order: StudioLabOrder }>): StudioLabOrder[] {
   return [...orders].sort((a, b) => {
     const aDelivered = DELIVERED_STATUSES.includes(a.order_status);
     const bDelivered = DELIVERED_STATUSES.includes(b.order_status);
@@ -253,7 +254,6 @@ export function LabOrders() {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'station' | 'partners'>('station');
   const [selectedPartner, setSelectedPartner] = useState<string | null>(null);
-  const [selectedClientKey, setSelectedClientKey] = useState<string | null>(null);
   const [selectedDeliveryYear, setSelectedDeliveryYear] = useState<string | null>(null);
   const [showReadyDeliveries, setShowReadyDeliveries] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<StudioLabOrder | null>(null);
@@ -264,7 +264,6 @@ export function LabOrders() {
   const [viewBillOrder, setViewBillOrder] = useState<StudioLabOrder | null>(null);
   const [printOrder, setPrintOrder] = useState<StudioLabOrder | null>(null);
   const [successOrder, setSuccessOrder] = useState<StudioLabOrder | null>(null);
-  const [settleOrder, setSettleOrder] = useState<StudioLabOrder | null>(null);
   const [viewSlipOrder, setViewSlipOrder] = useState<StudioLabOrder | null>(null);
   const [dualPrintOrder, setDualPrintOrder] = useState<StudioLabOrder | null>(null);
   const [quickPayOrder, setQuickPayOrder] = useState<StudioLabOrder | null>(null);
@@ -349,20 +348,7 @@ export function LabOrders() {
   }, [orders]);
 
   const selectedPartnerGroup = selectedPartner ? ordersByPartner.find(([key]) => key === selectedPartner)?.[1] : null;
-  const selectedClient = (selectedPartnerGroup?.orders ?? []).flatMap((order) => order.clients ?? []).find((client) => getLabClientKey(client) === selectedClientKey) ?? null;
-  const partnerClientGroups = useMemo(() => {
-    const groups = new Map<string, { client: LabClientRow; orders: StudioLabOrder[] }>();
-    for (const order of selectedPartnerGroup?.orders ?? []) {
-      if (order.deleted_at || order.archived_at || order.order_status === 'Delivered') continue;
-      for (const client of order.clients ?? []) {
-        const key = getLabClientKey(client);
-        const group = groups.get(key) ?? { client, orders: [] };
-        if (!group.orders.some((item) => getOrderKey(item) === getOrderKey(order))) group.orders.push(order);
-        groups.set(key, group);
-      }
-    }
-    return Array.from(groups.entries()).sort(([, a], [, b]) => a.client.client_name.localeCompare(b.client.client_name));
-  }, [selectedPartnerGroup]);
+  const partnerActiveOrders = (selectedPartnerGroup?.orders ?? []).filter((order) => !order.deleted_at && !order.archived_at && order.order_status !== 'Delivered');
   const deliveredYearGroups = useMemo(() => {
     const groups = new Map<string, StudioLabOrder[]>();
     for (const order of selectedPartnerGroup?.orders ?? []) {
@@ -372,9 +358,6 @@ export function LabOrders() {
     }
     return Array.from(groups.entries()).sort(([a], [b]) => b.localeCompare(a));
   }, [selectedPartnerGroup]);
-  const selectedClientOrders = (selectedPartnerGroup?.orders ?? []).filter((order) =>
-    order.order_status !== 'Delivered' && !order.archived_at && !order.deleted_at
-    && (order.clients ?? []).some((client) => getLabClientKey(client) === selectedClientKey));
   const readyDeliveryOrders = (selectedPartnerGroup?.orders ?? []).filter((order) =>
     order.order_status !== 'Delivered' && !order.archived_at && !order.deleted_at && isProductionComplete(order));
 
@@ -383,22 +366,17 @@ export function LabOrders() {
     const today = todayISO();
     const todayMs = new Date(today + 'T00:00:00').getTime();
     const fiveDayMs = 5 * 24 * 60 * 60 * 1000;
-    const alerts: Array<{ type: 'album' | 'video'; severity: 'overdue' | 'today' | 'soon'; order: StudioLabOrder; date: string }> = [];
+    const alerts: Array<{ type: 'album' | 'video' | 'promised'; severity: 'overdue' | 'today' | 'soon'; order: StudioLabOrder; date: string }> = [];
     for (const o of orders) {
       if (o.archived_at || o.deleted_at || o.order_status === 'Delivered') continue;
-      if (o.album_required_date) {
-        const dMs = new Date(o.album_required_date + 'T00:00:00').getTime();
+      if (o.date_pending) continue;
+      for (const { label, date } of visibleLabOrderDates(o)) {
+        const type = label === 'Album Due' ? 'album' : label === 'Video Due' ? 'video' : 'promised';
+        const dMs = new Date(date + 'T00:00:00').getTime();
         const diff = dMs - todayMs;
-        if (diff < 0) alerts.push({ type: 'album', severity: 'overdue', order: o, date: o.album_required_date });
-        else if (diff === 0) alerts.push({ type: 'album', severity: 'today', order: o, date: o.album_required_date });
-        else if (diff <= fiveDayMs) alerts.push({ type: 'album', severity: 'soon', order: o, date: o.album_required_date });
-      }
-      if (o.video_delivery_date) {
-        const dMs = new Date(o.video_delivery_date + 'T00:00:00').getTime();
-        const diff = dMs - todayMs;
-        if (diff < 0) alerts.push({ type: 'video', severity: 'overdue', order: o, date: o.video_delivery_date });
-        else if (diff === 0) alerts.push({ type: 'video', severity: 'today', order: o, date: o.video_delivery_date });
-        else if (diff <= fiveDayMs) alerts.push({ type: 'video', severity: 'soon', order: o, date: o.video_delivery_date });
+        if (diff < 0) alerts.push({ type, severity: 'overdue', order: o, date });
+        else if (diff === 0) alerts.push({ type, severity: 'today', order: o, date });
+        else if (diff <= fiveDayMs) alerts.push({ type, severity: 'soon', order: o, date });
       }
     }
     // Sort: emergency first, then overdue, today, soon
@@ -573,25 +551,21 @@ export function LabOrders() {
     }
   };
 
-  const handleDeliveryAction = async (order: StudioLabOrder, action: 'deliver' | 're-edit') => {
-    if (action === 'deliver' && !hasAlbumWork(order) && !hasVideoWork(order)) {
-      toast('Add Album or Video work before final delivery.', 'error');
+  const handleOrderDelivery = async (order: StudioLabOrder, action: 'deliver' | 'reopen') => {
+    if (action === 'deliver' && !isProductionComplete(order)) {
+      toast('Add Album/Video work and complete all applicable work before delivery.', 'error');
       return;
     }
-    const albumComplete = !hasAlbumWork(order) || order.album_status === 'Complete';
-    const videoComplete = !hasVideoWork(order) || order.video_status === 'Complete';
-    if (action === 'deliver' && (!albumComplete || !videoComplete)) {
-      toast('Complete all Album and Video work before final delivery.', 'error');
-      return;
-    }
-    const deliveredAt = action === 'deliver' ? new Date().toISOString() : null;
-    const patch = action === 'deliver'
-      ? { order_status: 'Delivered', delivered_at: deliveredAt, archived_at: null }
-      : {
-          order_status: 'Pending', delivered_at: null, archived_at: null,
-          ...(hasAlbumWork(order) ? { album_status: 'Edit' } : {}),
-          ...(hasVideoWork(order) ? { video_status: 'Edit' } : {}),
-        };
+    const now = new Date().toISOString();
+    const clients = (order.clients ?? []).map((client) => action === 'deliver'
+      ? { ...client, delivery_status: 'Delivered', delivered_at: now }
+      : client.delivery_status === 'Delivered' ? { ...client, delivery_status: 'Ready', delivered_at: undefined } : client);
+    const patch = {
+      clients,
+      order_status: action === 'deliver' ? 'Delivered' : 'Pending',
+      delivered_at: action === 'deliver' ? now : null,
+      archived_at: null,
+    };
     try {
       const isDemo = !order.id || String(order.id).startsWith('DEMO-') || String(order.id).startsWith('demo-');
       const result = isDemo
@@ -601,7 +575,7 @@ export function LabOrders() {
       const updated = { ...order, ...patch } as StudioLabOrder;
       setOrders((current) => current.map((item) => getOrderKey(item) === getOrderKey(order) ? updated : item));
       setSelectedOrder(updated);
-      toast(action === 'deliver' ? 'Order delivered and filed by delivery year.' : 'Order sent back to Live Station for re-edit.', 'success');
+      toast(action === 'deliver' ? 'Order delivered and filed.' : 'Order reopened for re-edit.', 'success');
     } catch (error) {
       toast(getDatabaseErrorMessage(error), 'error');
     }
@@ -610,7 +584,6 @@ export function LabOrders() {
   const openPartnerLocation = (order: StudioLabOrder) => {
     const partnerKey = String(order.partner_id ?? order.partner_name ?? order.studio_name ?? 'unassigned').trim() || 'unassigned';
     setSelectedPartner(partnerKey);
-    setSelectedClientKey(order.clients?.[0] ? getLabClientKey(order.clients[0]) : null);
     setSelectedDeliveryYear(null);
     setSelectedOrder(order);
     setActiveTab('partners');
@@ -626,7 +599,7 @@ export function LabOrders() {
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               {o.is_emergency && <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white"><Zap className="h-2.5 w-2.5" />EMERGENCY</span>}
-              <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{o.project_name}</p>
+              <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{labOrderTitle(o)}</p>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">{o.order_no}</p>
           </div>
@@ -648,44 +621,22 @@ export function LabOrders() {
         <div className="mb-3 flex flex-wrap gap-1.5">
           {stationView && hasAlbumWork(o) && o.album_status !== 'Pending' && o.album_status !== 'Complete' && <Badge color="amber">Album · {o.album_status}</Badge>}
           {stationView && hasVideoWork(o) && o.video_status !== 'Pending' && o.video_status !== 'Complete' && <Badge color="amber">Video · {o.video_status}</Badge>}
-          <Badge color={STATUS_COLORS[o.order_status] ?? 'slate'}>{o.order_status}</Badge>
+          <Badge color={STATUS_COLORS[labOrderOverviewStatus(o)] ?? 'slate'}>{labOrderOverviewStatus(o)}</Badge>
           <Badge color="slate">{o.delivery_mode}</Badge>
-          {o.promised_delivery_date && (
-            <span className="inline-flex items-center gap-0.5 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-700 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-400">
-              <CalendarClock className="h-2.5 w-2.5" /> Promised: {formatDate(o.promised_delivery_date)}
-            </span>
-          )}
-          {(() => {
-            const allClients = o.clients ?? [];
-            const deliveredCount = allClients.filter((c) => c.delivery_status === 'Delivered').length;
-            const total = allClients.length;
-            if (total > 0) {
-              if (deliveredCount === total) {
-                return <Badge color="emerald">Delivered</Badge>;
-              } else if (deliveredCount > 0) {
-                return <Badge color="amber">Partially Delivered ({deliveredCount}/{total})</Badge>;
-              }
-            }
-            return null;
-          })()}
+          {o.date_pending && <Badge color="amber">Date Pending</Badge>}
         </div>
         <p className="mb-1 text-xs text-slate-500 dark:text-slate-400">{o.studio_name} · {o.studio_mobile}</p>
         {o.partner_name && (
           <p className="mb-1 text-xs text-amber-600 dark:text-amber-400">Partner: {o.partner_name}</p>
         )}
-        {(o.is_emergency || o.date_pending || o.album_required_date || o.video_delivery_date) && (
+        {(o.is_emergency || o.date_pending || visibleLabOrderDates(o).length > 0) && (
           <div className="mb-1 flex flex-wrap gap-2 text-[11px]">
             {o.is_emergency && <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white"><Zap className="h-2.5 w-2.5" />EMERGENCY</span>}
-            {o.date_pending ? (
-              <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"><CalendarClock className="h-2.5 w-2.5" />Date Pending</span>
-            ) : (() => {
-              const earliest = getEarliestDeadline(o);
-              if (!earliest) return null;
-              const isUrgent = isDeadlineUrgent(o, deadlineAlerts);
-              return (
-                <span className={`flex items-center gap-0.5 ${isUrgent ? 'text-rose-500 dark:text-rose-400 font-medium' : 'text-slate-500 dark:text-slate-400'}`}><CalendarClock className="h-3 w-3" /> Due: {formatDate(earliest)}</span>
-              );
-            })()}
+            {o.date_pending && <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"><CalendarClock className="h-2.5 w-2.5" />Date Pending</span>}
+            {visibleLabOrderDates(o).map(({ label, date }) => {
+              const isUrgent = date === getEarliestDeadline(o) && isDeadlineUrgent(o, deadlineAlerts);
+              return <span key={label} className={`flex items-center gap-0.5 ${isUrgent ? 'text-rose-500 dark:text-rose-400 font-medium' : 'text-slate-500 dark:text-slate-400'}`}><CalendarClock className="h-3 w-3" /> {label}: {formatDate(date)}</span>;
+            })}
           </div>
         )}
         {o.parcel_tracking_details && (
@@ -790,7 +741,7 @@ export function LabOrders() {
         ) : (
         <div className="mt-3 flex items-center gap-2">
           <button
-            onClick={() => setSettleOrder(o)}
+            onClick={() => setQuickPayOrder(o)}
             className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20"
           >
             <CheckCircle2 className="h-3.5 w-3.5" /> Settle Balance
@@ -853,8 +804,8 @@ export function LabOrders() {
     <div className="w-full flex flex-col relative">
       <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-2 py-2 shadow-md backdrop-blur-md sm:px-4 md:gap-0 md:py-2">
         <div className="min-w-0 flex-1 md:w-auto md:flex-none">
-          <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">{activeTab === 'partners' && selectedOrder ? selectedOrder.project_name || selectedOrder.order_no : activeTab === 'partners' && showReadyDeliveries ? 'Ready for Delivery' : activeTab === 'partners' && selectedDeliveryYear ? `Delivered Orders · ${selectedDeliveryYear}` : activeTab === 'partners' && selectedClient ? selectedClient.client_name : activeTab === 'partners' && selectedPartnerGroup ? selectedPartnerGroup.partnerName : 'Lab Order Form'}</h1>
-          <p className="hidden truncate text-xs text-slate-400 sm:block">{activeTab === 'partners' && selectedOrder ? `${selectedOrder.order_no} · ${selectedOrder.partner_name}` : activeTab === 'partners' && showReadyDeliveries ? `${selectedPartnerGroup?.partnerName ?? 'Partner'} · ${readyDeliveryOrders.length} completed bills awaiting handover` : activeTab === 'partners' && selectedDeliveryYear ? `${selectedPartnerGroup?.partnerName ?? 'Partner'} · ${deliveredYearGroups.find(([year]) => year === selectedDeliveryYear)?.[1].length ?? 0} delivered bills` : activeTab === 'partners' && selectedClient ? `${selectedPartnerGroup?.partnerName ?? 'Partner'} · Client dashboard` : activeTab === 'partners' && selectedPartnerGroup ? `${selectedPartnerGroup.studioName} · Partner dashboard` : 'Photolab & Media Production Order Sheet'}</p>
+          <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">{activeTab === 'partners' && selectedOrder ? labOrderTitle(selectedOrder) : activeTab === 'partners' && showReadyDeliveries ? 'Ready for Delivery' : activeTab === 'partners' && selectedDeliveryYear ? `Delivered Orders · ${selectedDeliveryYear}` : activeTab === 'partners' && selectedPartnerGroup ? selectedPartnerGroup.partnerName : 'Lab Order Form'}</h1>
+          <p className="hidden truncate text-xs text-slate-400 sm:block">{activeTab === 'partners' && selectedOrder ? `${selectedOrder.order_no} · ${selectedOrder.partner_name}` : activeTab === 'partners' && showReadyDeliveries ? `${selectedPartnerGroup?.partnerName ?? 'Partner'} · ${readyDeliveryOrders.length} completed bills awaiting handover` : activeTab === 'partners' && selectedDeliveryYear ? `${selectedPartnerGroup?.partnerName ?? 'Partner'} · ${deliveredYearGroups.find(([year]) => year === selectedDeliveryYear)?.[1].length ?? 0} delivered bills` : activeTab === 'partners' && selectedPartnerGroup ? `${selectedPartnerGroup.studioName} · Partner dashboard` : 'Photolab & Media Production Order Sheet'}</p>
         </div>
         <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2 md:w-auto">
           <button
@@ -898,7 +849,7 @@ export function LabOrders() {
             </div>
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} sm:w-auto`}>
               <option value="all">All Statuses</option>
-              {LAB_ORDER_STATUSES.filter((s) => s !== 'Pending').map((s) => <option key={s} value={s}>{s}</option>)}
+              {LIVE_STATION_FILTER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           {loading ? (
@@ -917,7 +868,7 @@ export function LabOrders() {
                 <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto pb-0.5 sm:justify-between">
                   <button
                     type="button"
-                    onClick={() => { setSelectedOrder(null); setSelectedClientKey(null); setSelectedDeliveryYear(null); setShowReadyDeliveries(false); setSelectedPartner(null); }}
+                    onClick={() => { setSelectedOrder(null); setSelectedDeliveryYear(null); setShowReadyDeliveries(false); setSelectedPartner(null); }}
                     title="Back to Partners"
                     aria-label="Back to Partners"
                     className="shrink-0 rounded-md border border-zinc-700 px-2 py-1.5 text-[11px] font-medium text-zinc-300 transition-colors hover:bg-zinc-800 sm:rounded-lg sm:px-3 sm:py-2 sm:text-xs"
@@ -926,12 +877,12 @@ export function LabOrders() {
                   </button>
                   <div className="flex shrink-0 items-center gap-1.5 sm:ml-auto" aria-label="Delivered orders by year">
                     <span className="shrink-0 text-[10px] font-medium text-zinc-500">Complete</span>
-                    <button type="button" onClick={() => { setSelectedClientKey(null); setSelectedOrder(null); setSelectedDeliveryYear(null); setShowReadyDeliveries(true); }} className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${showReadyDeliveries ? 'border-amber-500/60 bg-amber-500/10 text-amber-300' : 'border-zinc-700 bg-zinc-800/60 text-zinc-300 hover:border-amber-500/50'}`}>
+                    <button type="button" onClick={() => { setSelectedOrder(null); setSelectedDeliveryYear(null); setShowReadyDeliveries(true); }} className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${showReadyDeliveries ? 'border-amber-500/60 bg-amber-500/10 text-amber-300' : 'border-zinc-700 bg-zinc-800/60 text-zinc-300 hover:border-amber-500/50'}`}>
                       <span aria-hidden="true">📁</span><span className="font-semibold">Ready</span>
                     </button>
                     <span className="shrink-0 text-[10px] font-medium text-zinc-500">Delivered</span>
                     {deliveredYearGroups.map(([year]) => (
-                      <button key={year} type="button" title={`Delivered orders for ${year}`} onClick={() => { setSelectedClientKey(null); setSelectedOrder(null); setShowReadyDeliveries(false); setSelectedDeliveryYear(year); }} className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${selectedDeliveryYear === year ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-300' : 'border-zinc-700 bg-zinc-800/60 text-zinc-300 hover:border-emerald-500/50'}`}>
+                      <button key={year} type="button" title={`Delivered orders for ${year}`} onClick={() => { setSelectedOrder(null); setShowReadyDeliveries(false); setSelectedDeliveryYear(year); }} className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${selectedDeliveryYear === year ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-300' : 'border-zinc-700 bg-zinc-800/60 text-zinc-300 hover:border-emerald-500/50'}`}>
                         <span aria-hidden="true">📁</span><span className="font-semibold">{year}</span>
                       </button>
                     ))}
@@ -945,27 +896,22 @@ export function LabOrders() {
                       onClick={() => setSelectedOrder(null)}
                       className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
                     >
-                      🔙 Back to {showReadyDeliveries ? 'Ready for Delivery' : selectedDeliveryYear ? `${selectedDeliveryYear} Delivered` : selectedClient ? selectedClient.client_name : 'Partner Dashboard'}
+                      🔙 Back to {showReadyDeliveries ? 'Ready for Delivery' : selectedDeliveryYear ? `${selectedDeliveryYear} Delivered` : 'Partner Dashboard'}
                     </button>
                     {renderOrderCard(selectedOrder)}
-                    {selectedOrder.order_status === 'Delivered' ? (
-                      <label className="flex max-w-xs flex-col gap-1 text-xs font-medium text-slate-400">
-                        Delivery action
-                        <select defaultValue="" onChange={(event) => { if (event.target.value === 're-edit') void handleDeliveryAction(selectedOrder, 're-edit'); event.target.value = ''; }} className={selectClass}>
-                          <option value="" disabled>Deliver / Re-edit</option>
-                          <option value="re-edit">Re-edit — send to Live Station</option>
-                        </select>
-                      </label>
-                    ) : (
-                      <label className="flex max-w-xs flex-col gap-1 text-xs font-medium text-slate-400">
-                        Final delivery
-                        <select defaultValue="" onChange={(event) => { if (event.target.value === 'deliver') void handleDeliveryAction(selectedOrder, 'deliver'); event.target.value = ''; }} className={selectClass}>
-                          <option value="" disabled>Deliver / Re-edit</option>
-                        <option value="deliver" disabled={!((hasAlbumWork(selectedOrder) || hasVideoWork(selectedOrder)) && (!hasAlbumWork(selectedOrder) || selectedOrder.album_status === 'Complete') && (!hasVideoWork(selectedOrder) || selectedOrder.video_status === 'Complete'))}>Deliver bill</option>
-                        </select>
-                        {!((hasAlbumWork(selectedOrder) || hasVideoWork(selectedOrder)) && (!hasAlbumWork(selectedOrder) || selectedOrder.album_status === 'Complete') && (!hasVideoWork(selectedOrder) || selectedOrder.video_status === 'Complete')) && <span className="text-[11px] text-amber-400">Add Album/Video work and complete all applicable work before delivery.</span>}
-                      </label>
-                    )}
+                    <div className="space-y-1">
+                      <label htmlFor="single-client-final-delivery" className="block text-xs font-medium text-zinc-300">Final delivery</label>
+                      <select id="single-client-final-delivery" defaultValue="" onChange={(event) => {
+                        const action = event.target.value as 'deliver' | 'reopen' | '';
+                        event.target.value = '';
+                        if (action) void handleOrderDelivery(selectedOrder, action);
+                      }} className="w-full max-w-sm rounded-lg border border-zinc-700 bg-slate-900 px-3 py-2 text-sm text-white">
+                        <option value="">Deliver / Re-edit</option>
+                        {selectedOrder.order_status !== 'Delivered' && <option value="deliver" disabled={!isProductionComplete(selectedOrder)}>Deliver</option>}
+                        {selectedOrder.order_status === 'Delivered' && <option value="reopen">Re-edit</option>}
+                      </select>
+                      {!isProductionComplete(selectedOrder) && <p className="text-[11px] font-medium text-amber-400">Add Album/Video work and complete all applicable work before delivery.</p>}
+                    </div>
                     <div className="flex flex-wrap gap-3">
                       {selectedOrder.order_status !== 'Delivered' && hasAlbumWork(selectedOrder) && renderWorkToggle('album')}
                       {selectedOrder.order_status !== 'Delivered' && hasVideoWork(selectedOrder) && renderWorkToggle('video')}
@@ -975,8 +921,8 @@ export function LabOrders() {
                   <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
                     {readyDeliveryOrders.map((order) => (
                       <button key={getOrderKey(order)} type="button" onClick={() => setSelectedOrder(order)} className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5 text-left transition-colors hover:border-amber-500/60">
-                        <p className="truncate text-sm font-semibold text-zinc-100">{order.project_name || order.order_no}</p>
-                        <p className="mt-0.5 truncate text-xs text-zinc-400">{order.clients?.map((client) => client.client_name).filter(Boolean).join(', ') || 'Client'} · {order.order_no}</p>
+                        <p className="truncate text-sm font-semibold text-zinc-100">{labOrderTitle(order)}</p>
+                        <p className="mt-0.5 truncate text-xs text-zinc-400">{order.order_no} · {labOrderClientLabels(order) || 'No client listed'}</p>
                         <p className="mt-1.5 text-[11px] text-amber-300">Work complete · waiting for client handover</p>
                       </button>
                     ))}
@@ -987,34 +933,24 @@ export function LabOrders() {
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {(selectedPartnerGroup?.orders ?? []).filter((order) => order.order_status === 'Delivered' && !order.deleted_at && getDeliveryYear(order) === selectedDeliveryYear).map((order) => (
                         <button key={getOrderKey(order)} type="button" onClick={() => setSelectedOrder(order)} className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-2.5 text-left transition-colors hover:border-amber-500/60">
-                          <p className="text-sm font-semibold text-zinc-100">{order.project_name || order.order_no}</p>
-                          <p className="mt-1 text-xs text-zinc-400">{order.clients?.map((client) => client.client_name).filter(Boolean).join(', ') || 'Client'} · {order.order_no}</p>
+                          <p className="text-sm font-semibold text-zinc-100">{labOrderTitle(order)}</p>
+                          <p className="mt-1 text-xs text-zinc-400">{order.order_no} · {labOrderClientLabels(order) || 'No client listed'}</p>
                           <p className="mt-2 text-xs text-emerald-400">Delivered {order.delivered_at ? formatDate(order.delivered_at) : 'date unavailable'}</p>
                         </button>
                       ))}
                     </div>
                   </div>
-                ) : selectedClientKey ? (
-                  <div className="space-y-3">
-                    <button type="button" onClick={() => setSelectedClientKey(null)} className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300">🔙 Back to Clients</button>
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      {selectedClientOrders.map((order) => (
-                        <button key={getOrderKey(order)} type="button" onClick={() => setSelectedOrder(order)} className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-2.5 text-left transition-colors hover:border-amber-500/60">
-                          <p className="text-sm font-semibold text-zinc-100">{order.project_name || 'Untitled Project'}</p>
-                          <p className="mt-1 text-xs text-zinc-400">{order.order_no}</p>
-                          <p className="mt-2 text-xs text-zinc-300">Album: {hasAlbumWork(order) ? order.album_status || 'Pending' : '—'} · Video: {hasVideoWork(order) ? order.video_status || 'Pending' : '—'}</p>
-                          <p className="mt-1 text-xs text-amber-300">Net due {formatINR(toNum(order.net_final_due))}</p>
-                        </button>
-                      ))}
-                    </div>
-                    {selectedClientOrders.length === 0 && <EmptyState icon={Clapperboard} title="No active orders for this client" subtitle="Delivered bills are available in the Partner's year folders." />}
-                  </div>
                 ) : (
-                  <div className="grid grid-cols-1 items-start gap-3">
-                    <section className="min-w-0">
-                      <h2 className="mb-2 text-sm font-semibold text-zinc-200">Clients</h2>
-                      {partnerClientGroups.length ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{partnerClientGroups.map(([key, group]) => <button key={key} type="button" onClick={() => setSelectedClientKey(key)} className="min-w-0 rounded-lg border border-zinc-700 bg-zinc-800/50 p-2.5 text-left transition-colors hover:border-amber-500/60"><p className="truncate text-sm font-semibold text-zinc-100">{group.client.client_name || 'Unnamed Client'}</p><p className="mt-0.5 line-clamp-1 text-xs text-zinc-400">{group.client.event_address || 'No event address'}</p><p className="mt-1.5 text-[11px] text-amber-300">{group.orders.length} active bill{group.orders.length === 1 ? '' : 's'}</p></button>)}</div> : <p className="text-xs text-zinc-500">No active client work.</p>}
-                    </section>
+                  <div className="space-y-2">
+                    <h2 className="text-sm font-semibold text-zinc-200">Active Bills / Orders</h2>
+                    {partnerActiveOrders.length ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{partnerActiveOrders.map((order) => (
+                      <button key={getOrderKey(order)} type="button" onClick={() => setSelectedOrder(order)} className="min-w-0 rounded-lg border border-zinc-700 bg-zinc-800/50 p-3 text-left transition-colors hover:border-amber-500/60">
+                        <div className="flex items-center justify-between gap-2"><p className="truncate text-sm font-semibold text-zinc-100">{labOrderTitle(order)}</p><span className="shrink-0 rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-300">{labOrderOverviewStatus(order)}</span></div>
+                        <p className="mt-1 text-xs text-zinc-400">{order.order_no}</p>
+                        <p className="mt-1 truncate text-xs text-slate-300">{labOrderClientLabels(order) || 'No client listed'}</p>
+                        <p className="mt-1.5 text-[11px] text-amber-300">{formatINR(toNum(order.net_final_due))} balance due</p>
+                      </button>
+                    ))}</div> : <p className="text-xs text-zinc-500">No active bills for this partner.</p>}
                   </div>
                 )}
               </>
@@ -1024,7 +960,7 @@ export function LabOrders() {
                   <button
                     key={key}
                     type="button"
-                    onClick={() => { setSelectedPartner(key); setSelectedClientKey(null); setSelectedDeliveryYear(null); setShowReadyDeliveries(false); setSelectedOrder(null); }}
+                    onClick={() => { setSelectedPartner(key); setSelectedDeliveryYear(null); setShowReadyDeliveries(false); setSelectedOrder(null); }}
                     className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-2.5 text-left transition-colors hover:border-amber-500/60 hover:bg-zinc-800"
                   >
                     <div className="mb-2 flex items-center justify-between">
@@ -1049,7 +985,6 @@ export function LabOrders() {
       </ErrorBoundary>
       <LabWorkSlipModal order={viewSlipOrder} onClose={() => setViewSlipOrder(null)} settings={settings} onDualPrint={() => { if (viewSlipOrder) { setDualPrintOrder(viewSlipOrder); setTimeout(() => { window.print(); setDualPrintOrder(null); }, 100); } }} />
       {dualPrintOrder && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><LabOrderPrintTemplate order={dualPrintOrder} settings={settings} compact /></PrintableDualCopies></div>, document.body)}
-      {settleOrder && <LabSettlementModal order={settleOrder} onClose={() => setSettleOrder(null)} onSaved={(updated) => { setSettleOrder(null); setOrders((prev) => prev.map((order) => (getOrderKey(order) === getOrderKey(updated) ? updated : order))); setSelectedOrder((current) => current && getOrderKey(current) === getOrderKey(updated) ? updated : current); load(); }} />}
       {quickPayOrder && <LabQuickPayModal order={quickPayOrder} onClose={() => setQuickPayOrder(null)} onSaved={(updated) => { setQuickPayOrder(null); setOrders((prev) => prev.map((order) => (getOrderKey(order) === getOrderKey(updated) ? updated : order))); setSelectedOrder((current) => current && getOrderKey(current) === getOrderKey(updated) ? updated : current); load(); }} />}
       {successOrder && (
         <ErrorBoundary>
@@ -1097,7 +1032,9 @@ function sendLabWhatsApp(o: StudioLabOrder, settings: StudioSettings | null) {
     `Advance Paid: ${formatINR(toNum(o.advance_paid))}\n` +
     `Balance Due: ${formatINR(toNum(o.net_final_due))}\n\n` +
     (o.payment_mode ? `Payment: ${o.payment_mode}${o.payment_note ? ` (${o.payment_note})` : ''}\n` : '') +
-    `Status: ${o.order_status} · Delivery: ${o.delivery_mode}` +
+    `Status: ${labOrderOverviewStatus(o)} · ${[hasLabAlbumWork(o) ? `Album ${o.album_status || 'Pending'}` : '', hasLabVideoWork(o) ? `Video ${o.video_status || 'Pending'}` : ''].filter(Boolean).join(' · ')} · Delivery: ${o.delivery_mode}` +
+    (o.is_emergency ? '\nEmergency priority' : '') +
+    (o.date_pending ? '\nDelivery date pending confirmation' : visibleLabOrderDates(o).map(({ label, date }) => `\n${label}: ${formatDate(date)}`).join('')) +
     (o.parcel_tracking_details ? `\nTracking: ${o.parcel_tracking_details}` : '') +
     `\n\nThank you — ${settings?.production_title ?? 'Bollywood Umang Production'}`;
   const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
@@ -1154,6 +1091,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
   const [paymentDate, setPaymentDate] = useState(todayISO());
   const [paymentMode, setPaymentMode] = useState('Cash');
   const [paymentNote, setPaymentNote] = useState('');
+  const [paymentClientId, setPaymentClientId] = useState('');
   const [printPreview, setPrintPreview] = useState(false);
   const [showStamp, setShowStamp] = useState(true);
   const [termsText, setTermsText] = useState(getStoredLabTerms());
@@ -1162,7 +1100,8 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
   const exportFilename = order ? buildLabOrderDocumentFilename(order) : 'lab-order.pdf';
   useEffect(() => {
     if (!order) return;
-    setPaymentHistory(order.payment_history ?? (order.advance_paid ? [{ id: uid(), amount: toNum(order.advance_paid), payment_date: order.payment_date || '', payment_mode: order.payment_mode || 'Cash', note: order.payment_note || 'Existing payment' }] : []));
+    setPaymentHistory(labOrderPayments(order));
+    setPaymentClientId(order.clients?.length === 1 ? order.clients[0].id : '');
   }, [order]);
   useEffect(() => {
     try { window.localStorage.setItem('lab_terms_conditions', termsText); } catch { /* noop */ }
@@ -1172,18 +1111,23 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
   const clients = (order.clients ?? []).map((client) => ({
     ...emptyClient(),
     ...client,
-    delivery_status: client.delivery_status ?? 'In Design',
+    delivery_status: client.delivery_status ?? 'Pending',
     dispatch_mode: client.dispatch_mode ?? 'By Hand',
     video_rows: Array.isArray(client.video_rows) ? client.video_rows : [],
     album_rows: (Array.isArray(client.album_rows) ? client.album_rows : []).map((album) => ({ ...EMPTY_ALBUM_ROW, ...album, papers: Array.isArray(album.papers) ? album.papers : [] })),
   }));
   const totalPaid = paymentHistory.reduce((sum, payment) => sum + toNum(payment.amount), 0);
   const labDue = toNum(order.master_total) - totalPaid;
+  const paymentClient = clients.find((client) => client.id === paymentClientId);
+  const clientDue = paymentClient ? Math.max(0, clientWorkTotal(paymentClient, order.extra_items ?? [], clients) - clientPaidTotal(paymentClient, paymentHistory, clients)) : labDue;
 
   const recordPayment = async () => {
     const amount = toNum(paymentAmount);
     if (amount <= 0) return;
-    const payment: LabPaymentInstallment = { id: uid(), amount, payment_date: paymentDate, payment_mode: paymentMode, note: paymentNote, created_at: new Date().toISOString() };
+    if (clients.length > 0 && !paymentClientId) { toast('Select the client for this payment', 'error'); return; }
+    if (amount > labDue) { toast('Payment is greater than the remaining combined order due', 'error'); return; }
+    if (paymentClient && amount > clientDue) { toast('Payment is greater than this client’s bill due', 'error'); return; }
+    const payment: LabPaymentInstallment = { id: uid(), amount, payment_date: paymentDate, payment_mode: paymentMode, note: paymentNote, created_at: new Date().toISOString(), ...(paymentClient ? { client_id: paymentClient.id, client_name: paymentClient.client_name } : {}) };
     const nextHistory = [...paymentHistory, payment];
     try {
       const nextDue = Math.max(0, toNum(order.master_total) - totalPaid - amount);
@@ -1252,16 +1196,15 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
             </div>
           )}
           <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-            <span className="font-medium">Project:</span> {order.project_name}
+            <span className="font-medium">Project:</span> {order.project_name || '—'}
           </div>
         </div>
 
-        {/* Per-client tables */}
+        {/* Client-wise work detail inside one combined bill */}
         {clients.map((c, ci) => (
-          <div key={c.id} className="rounded-lg border border-slate-200 p-3 dark:border-white/10">
+          <div key={c.id} className="rounded-lg border-2 border-slate-300 p-3 dark:border-white/15">
             <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-white">
               Client {ci + 1}: {c.client_name || '—'}
-              {c.event_address ? <span className="ml-2 text-xs font-normal text-slate-400">({c.event_address})</span> : ''}
             </h3>
             {c.video_rows.length > 0 && (
               <div className="mb-2">
@@ -1335,6 +1278,12 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
                 <p className="mt-1 text-right text-xs font-medium text-slate-600 dark:text-slate-400">Album Subtotal: {formatINR(computeClientAlbumTotal(c.album_rows))}</p>
               </div>
             )}
+            <div className="mt-2 grid grid-cols-3 gap-2 border-t border-slate-200 pt-2 text-right text-xs dark:border-white/10">
+              <span className="text-slate-500">Client total<b className="block text-slate-900 dark:text-white">{formatINR(clientWorkTotal(c, order.extra_items ?? [], clients))}</b></span>
+              <span className="text-slate-500">Paid<b className="block text-emerald-600 dark:text-emerald-400">{formatINR(clientPaidTotal(c, paymentHistory, clients))}</b></span>
+              <span className="text-slate-500">Due<b className="block text-rose-600 dark:text-rose-400">{formatINR(Math.max(0, clientWorkTotal(c, order.extra_items ?? [], clients) - clientPaidTotal(c, paymentHistory, clients)))}</b></span>
+            </div>
+            {paymentHistory.filter((payment) => payment.client_id === c.id || (!payment.client_id && payment.client_name === c.client_name)).map((payment) => <p key={payment.id} className="mt-1 text-right text-[10px] text-slate-500">Payment · {formatDateTime(payment.created_at || payment.payment_date)} · {payment.payment_mode} · {formatINR(payment.amount)}{payment.note ? ` · ${payment.note}` : ''}</p>)}
           </div>
         ))}
 
@@ -1347,6 +1296,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
 
         {/* Summary */}
         <div className="rounded-lg bg-slate-50 p-3 dark:bg-white/5">
+          <p className="mb-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Single combined bill summary</p>
           <div className="space-y-1 text-sm">
             <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Total Video Bill</span><span className="font-medium text-slate-900 dark:text-white">{formatINR(toNum(order.total_video_bill))}</span></div>
             <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Total Album Bill</span><span className="font-medium text-slate-900 dark:text-white">{formatINR(toNum(order.total_album_bill))}</span></div>
@@ -1370,6 +1320,10 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
 
         <div className="border-t border-slate-200 pt-3 dark:border-white/10">
           <h3 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Payment History</h3>
+          {clients.length > 0 && <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <select value={paymentClientId} onChange={(event) => setPaymentClientId(event.target.value)} className={selectClass}><option value="">— Select client —</option>{clients.map((client, index) => <option key={client.id} value={client.id}>Client {index + 1}: {client.client_name}</option>)}</select>
+            {paymentClient && <div className="rounded-md border border-slate-200 p-2 text-xs dark:border-white/10"><p>Client work total: {formatINR(clientWorkTotal(paymentClient, order.extra_items ?? [], clients))}</p><p>Paid: {formatINR(clientPaidTotal(paymentClient, paymentHistory, clients))}</p><p className="font-semibold">Client portion due: {formatINR(clientDue)}</p></div>}
+          </div>}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
             <input type="number" min={0} value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} className={inputClass} placeholder="Amount Paid (₹)" />
             <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputClass} />
@@ -1377,7 +1331,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
             <input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} className={inputClass} placeholder="Custom Note" />
           </div>
           <button onClick={recordPayment} className="mt-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-600">Record Installment</button>
-          {paymentHistory.length > 0 && <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[560px] text-xs"><thead><tr className="border-b border-slate-200 text-left text-slate-400 dark:border-white/10"><th className="px-2 py-1">Date &amp; Time</th><th className="px-2 py-1">Mode</th><th className="px-2 py-1">Note</th><th className="px-2 py-1 text-right">Amount</th><th className="px-2 py-1 text-right">Running Due</th></tr></thead><tbody>{(() => { let runningPaid = 0; return paymentHistory.map((payment) => { runningPaid += toNum(payment.amount); return <tr key={payment.id} className="border-b border-slate-100 dark:border-white/5"><td className="px-2 py-1">{formatDateTime(payment.created_at || payment.payment_date)}</td><td className="px-2 py-1">{payment.payment_mode}</td><td className="px-2 py-1">{payment.note || '—'}</td><td className="px-2 py-1 text-right text-emerald-600">{formatINR(toNum(payment.amount))}</td><td className="px-2 py-1 text-right">{formatINR(Math.max(0, toNum(order.master_total) - runningPaid))}</td></tr>; }); })()}</tbody></table></div>}
+          {paymentHistory.length > 0 && <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[600px] text-xs"><thead><tr className="border-b border-slate-200 text-left text-slate-400 dark:border-white/10"><th className="px-2 py-1">Date &amp; Time</th><th className="px-2 py-1">Client</th><th className="px-2 py-1">Mode</th><th className="px-2 py-1">Note</th><th className="px-2 py-1 text-right">Amount</th><th className="px-2 py-1 text-right">Running Due</th></tr></thead><tbody>{(() => { let runningPaid = 0; return paymentHistory.map((payment) => { runningPaid += toNum(payment.amount); const client = clients.find((entry) => entry.id === payment.client_id) ?? clients.find((entry) => !payment.client_id && payment.client_name && entry.client_name === payment.client_name); return <tr key={payment.id} className="border-b border-slate-100 dark:border-white/5"><td className="px-2 py-1">{formatDateTime(payment.created_at || payment.payment_date)}</td><td className="px-2 py-1">{client ? `Client ${clients.findIndex((entry) => entry.id === client.id) + 1}: ${client.client_name}` : 'Order-level'}</td><td className="px-2 py-1">{payment.payment_mode}</td><td className="px-2 py-1">{payment.note || '—'}</td><td className="px-2 py-1 text-right text-emerald-600">{formatINR(toNum(payment.amount))}</td><td className="px-2 py-1 text-right">{formatINR(Math.max(0, toNum(order.master_total) - runningPaid))}</td></tr>; }); })()}</tbody></table></div>}
         </div>
 
         <div className="border-t border-slate-200 pt-3 dark:border-white/10">
@@ -1465,7 +1419,9 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
     if (phone.length === 10) phone = '91' + phone;
     const albums = albumRows.map((row) => `Album: ${row.album_type || 'Album'} | Size: ${row.size || '—'} | Sheets: ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} | Paper: ${row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} | Cover/Box: ${row.packaging || '—'}`).join('\n');
     const videos = videoRows.map((row) => `Video: ${row.video_type || 'Edit'} | Format: ${row.quality || '—'} | Output specs: ${row.quality || '—'}`).join('\n');
-    const message = `*Lab Work Slip*\nProject: ${order.project_name}\nLab Partner: ${order.partner_name || '—'}\n${albums}\n${videos}\nPromised Delivery: ${order.promised_delivery_date ? formatDate(order.promised_delivery_date) : '—'}\nDrive / Delivery Link: ${order.parcel_tracking_details || '—'}`;
+    const dates = order.date_pending ? 'Delivery date pending confirmation' : visibleLabOrderDates(order).map(({ label, date }) => `${label}: ${formatDate(date)}`).join('\n');
+    const work = [hasLabAlbumWork(order) ? `Album status: ${order.album_status || 'Pending'}` : '', hasLabVideoWork(order) ? `Video status: ${order.video_status || 'Pending'}` : ''].filter(Boolean).join('\n');
+    const message = `*Lab Work Slip*\nProject: ${order.project_name}\nLab Partner: ${order.partner_name || '—'}\nOverall: ${labOrderOverviewStatus(order)}${order.is_emergency ? '\nEmergency priority' : ''}\n${work}\n${albums}\n${videos}\n${dates}\nDrive / Delivery Link: ${order.parcel_tracking_details || '—'}`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
   };
   const handlePrintA4 = () => {
@@ -1484,7 +1440,7 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
           <p className="text-xs">{settings?.production_subtitle ?? ''}</p>
           <p className="text-xs">{settings?.address ?? ''}</p>
         </div>
-        <div className="grid grid-cols-2 gap-3 text-sm"><p><strong>Lab Partner:</strong> {order.partner_name || '—'}</p><p><strong>Work Order:</strong> {order.order_no}</p><p><strong>Project:</strong> {order.project_name}</p><p><strong>Promised Delivery:</strong> {order.promised_delivery_date ? formatDate(order.promised_delivery_date) : '—'}</p></div>
+        <div className="grid grid-cols-2 gap-3 text-sm"><p><strong>Lab Partner:</strong> {order.partner_name || '—'}</p><p><strong>Work Order:</strong> {order.order_no}</p><p><strong>Project:</strong> {order.project_name}</p><p><strong>Overall Status:</strong> {labOrderOverviewStatus(order)}</p>{order.is_emergency && <p><strong>Priority:</strong> Emergency</p>}{(order.date_pending ? ['Delivery date pending confirmation'] : visibleLabOrderDates(order).map(({ label, date }) => `${label}: ${formatDate(date)}`)).map((item) => <p key={item}><strong>Schedule:</strong> {item}</p>)}{hasLabAlbumWork(order) && <p><strong>Album Status:</strong> {order.album_status || 'Pending'}</p>}{hasLabVideoWork(order) && <p><strong>Video Status:</strong> {order.video_status || 'Pending'}</p>}</div>
         {albumRows.length > 0 && <div><h3 className="mb-2 font-semibold">Album Designing &amp; Printing</h3><div className="space-y-1 text-sm">{albumRows.map((row, index) => <p key={index}>{row.album_type || 'Album'} · Size {row.size || '—'} · {row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} sheets · Paper {row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} · Cover/Box {row.packaging || '—'}</p>)}</div></div>}
         {videoRows.length > 0 && <div><h3 className="mb-2 font-semibold">Video Editing</h3><div className="space-y-1 text-sm">{videoRows.map((row, index) => <p key={index}>{row.video_type || 'Video Edit'} · Format {row.quality || '—'} · Output specs {row.quality || '—'}</p>)}</div></div>}
         <div><h3 className="mb-2 font-semibold">Delivery / Drive Links</h3><p className="break-all text-sm">{order.parcel_tracking_details || 'No link provided'}</p></div>
@@ -1594,10 +1550,12 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
   const [paymentDate, setPaymentDate] = useState(todayISO());
   const [paymentMode, setPaymentMode] = useState<string>('Cash');
   const [paymentNote, setPaymentNote] = useState('');
+  const [paymentClientId, setPaymentClientId] = useState(order.clients.length === 1 ? order.clients[0].id : '');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setCurrentOrder(order);
+    setPaymentClientId(order.clients.length === 1 ? order.clients[0].id : '');
   }, [order]);
 
   const orderTotal = Number(currentOrder.current_order_total ?? currentOrder.total_album_bill ?? currentOrder.total_video_bill ?? 0);
@@ -1609,7 +1567,13 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
   const remainingBalance = Math.max(0, Number(currentOrder.net_due || currentOrder.net_final_due || netDue) - paymentAmount);
   const isOverPayment = paymentAmount > Number(currentOrder.net_due || currentOrder.net_final_due || netDue);
   const totalPaidAfterPay = Number(currentOrder.advance_paid || 0) + paymentAmount;
-  const paymentHistoryList = currentOrder.payment_history ?? [];
+  const paymentHistoryList = labOrderPayments(currentOrder);
+  const paymentClient = currentOrder.clients.find((client) => client.id === paymentClientId);
+  const paymentClientTotal = paymentClient ? clientWorkTotal(paymentClient, currentOrder.extra_items ?? [], currentOrder.clients) : 0;
+  const paymentClientPaid = paymentClient ? clientPaidTotal(paymentClient, paymentHistoryList, currentOrder.clients) : 0;
+  const paymentTargetDue = paymentClient ? Math.max(0, paymentClientTotal - paymentClientPaid) : netDue;
+  const remainingTargetBalance = Math.max(0, paymentTargetDue - paymentAmount);
+  const isOverTarget = paymentAmount > paymentTargetDue;
 
   const handleSave = async () => {
     const value = Number(amount);
@@ -1619,7 +1583,9 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
     setSaving(true);
     try {
       const currentNetDue = Math.max(0, Number(currentOrder.master_total ?? orderTotal + previousBackDue) - Number(currentOrder.advance_paid ?? 0));
+      if (currentOrder.clients.length > 0 && !paymentClientId) { toast('Select which client this payment belongs to', 'error'); return; }
       if (value > currentNetDue) { toast('Payment is greater than the remaining order balance', 'error'); return; }
+      if (paymentClient && value > paymentTargetDue) { toast('Payment is greater than this client’s remaining work balance', 'error'); return; }
       const nextAdvance = Number(currentOrder.advance_paid || 0) + value;
       const nextNetDue = Math.max(0, currentNetDue - value);
       const nextHistory: LabPaymentInstallment[] = [...(currentOrder.payment_history ?? []), {
@@ -1629,6 +1595,7 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
         payment_mode: selectedMode,
         note: trimmedNote || '',
         created_at: new Date().toISOString(),
+        ...(paymentClient ? { client_id: paymentClient.id, client_name: paymentClient.client_name } : {}),
       }];
 
       const nextOrder: StudioLabOrder = {
@@ -1655,7 +1622,7 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
       setCurrentOrder(nextOrder);
 
       if (currentOrder.partner_id) {
-        const ledgerDescription = `Order #${currentOrder.order_no} (${currentOrder.project_name || 'Project'}) payment via ${selectedMode}${trimmedNote ? ` - Note: ${trimmedNote}` : ''}`;
+        const ledgerDescription = `Order #${currentOrder.order_no} (${currentOrder.project_name || 'Project'})${paymentClient ? ` · Client ${currentOrder.clients.findIndex((client) => client.id === paymentClient.id) + 1}: ${paymentClient.client_name}` : ''} payment via ${selectedMode}${trimmedNote ? ` - Note: ${trimmedNote}` : ''}`;
         const ledgerPayload = {
           partner_id: currentOrder.partner_id,
           amount: value,
@@ -1701,12 +1668,12 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-medium uppercase tracking-wide">Remaining Balance</span>
           <span className={`text-base font-bold ${remainingBalance === 0 ? 'text-emerald-700 dark:text-emerald-300' : isOverPayment ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-300'}`}>
-            {formatINR(remainingBalance)}
+            {formatINR(paymentClient ? remainingTargetBalance : remainingBalance)}
           </span>
         </div>
         {paymentAmount > 0 && (
           <div className="mt-1 text-[11px] text-slate-600 dark:text-slate-300">
-            {remainingBalance === 0 ? 'FULL SETTLE' : isOverPayment ? `This payment exceeds the current due by ${formatINR(paymentAmount - Number(currentOrder.net_due || currentOrder.net_final_due || netDue))}.` : `Total paid after this entry: ${formatINR(totalPaidAfterPay)}.`}
+            {(paymentClient ? remainingTargetBalance : remainingBalance) === 0 ? 'FULL SETTLE' : (paymentClient ? isOverTarget : isOverPayment) ? `This payment exceeds the selected due by ${formatINR(paymentAmount - paymentTargetDue)}.` : `Total paid after this entry: ${formatINR(totalPaidAfterPay)}.`}
           </div>
         )}
       </div>
@@ -1727,7 +1694,7 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
               return (
                 <div key={entry.id} className="rounded-lg border border-slate-200 bg-white p-2 dark:border-white/10 dark:bg-slate-900/60">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">{entryDate ? formatDate(entryDate) : '—'}</span>
+                    <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">{entryDate ? formatDate(entryDate) : '—'} · {entry.client_name || 'Order-level'}</span>
                     <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">{entryMode}</span>
                   </div>
                   <div className="mt-1 flex items-center justify-between gap-2">
@@ -1741,7 +1708,9 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
         </div>
       </div>
 
-      <Field label="Payment Amount (₹)"><input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} placeholder="0" autoFocus /></Field>
+      {currentOrder.clients.length > 0 && <Field label="Payment belongs to client"><select value={paymentClientId} onChange={(e) => setPaymentClientId(e.target.value)} className={selectClass}><option value="">— Select client —</option>{currentOrder.clients.map((client, index) => <option key={client.id} value={client.id}>Client {index + 1}: {client.client_name || 'Unnamed'} · Due {formatINR(Math.max(0, clientWorkTotal(client, currentOrder.extra_items ?? [], currentOrder.clients) - clientPaidTotal(client, paymentHistoryList, currentOrder.clients)))}</option>)}</select></Field>}
+      {paymentClient && <div className="rounded-lg border border-white/10 bg-white/5 p-2 text-xs"><div className="flex justify-between"><span>Client work total</span><b>{formatINR(paymentClientTotal)}</b></div><div className="flex justify-between"><span>Client paid</span><b className="text-emerald-400">{formatINR(paymentClientPaid)}</b></div><div className="flex justify-between font-semibold"><span>Client due</span><b>{formatINR(paymentTargetDue)}</b></div></div>}
+      <Field label="Payment Amount (₹)"><input type="number" min={0} max={paymentTargetDue} value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} placeholder="0" autoFocus /></Field>
       <Field label="Payment Note / Kab Dega"><input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} className={inputClass} placeholder="Optional note for this payment" /></Field>
       <div className="grid grid-cols-2 gap-4">
         <Field label="Date"><input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputClass} /></Field>
@@ -1892,6 +1861,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
       setStorageLocations(editing?.storage_locations ?? []);
     } else {
       setOrderStatus('Pending');
+      setClients((current) => current.map((client) => client.delivery_status === 'In Design' ? { ...client, delivery_status: 'Pending' } : client));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing]);
@@ -1919,6 +1889,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
   };
 
   const updateClient = (ci: number, patch: Partial<LabClientRow>) => {
+    if ('client_name' in patch && clients.length === 1) setProjectName(patch.client_name?.trim() ?? '');
     setClients((prev) => {
       const next = prev.map((c, idx) => {
         if (idx !== ci) return c;
@@ -1927,10 +1898,6 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
         updated.album_total = computeClientAlbumTotal(updated.album_rows);
         return updated;
       });
-      if ('client_name' in patch) {
-        const joined = next.map((c) => c.client_name.trim()).filter(Boolean).join(' + ');
-        setProjectName(joined);
-      }
       return next;
     });
   };
@@ -2123,35 +2090,30 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
                 {DELIVERY_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
             </Field>
-            <Field label="Order Status">
-              <select value={orderStatus} onChange={(e) => setOrderStatus(e.target.value)} disabled={editing?.order_status === 'Delivered'} className={selectClass}>
-                {LAB_ORDER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                {orderStatus !== 'Pending' && <option value={orderStatus} disabled={orderStatus === 'Delivered'}>{orderStatus} (existing status)</option>}
-              </select>
-              {editing?.order_status === 'Delivered' && <p className="mt-1 text-[11px] text-slate-500">Use Deliver / Re-edit in the Partner folder to change final delivery.</p>}
-            </Field>
+            <div className="self-end rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-white/10"><span className="text-slate-500">Overall status:</span> <strong className="text-slate-800 dark:text-slate-200">{labOrderOverviewStatus(editing ?? { order_status: orderStatus, clients, total_video_bill: totalVideoBill, total_album_bill: totalAlbumBill, album_status: 'Pending', video_status: 'Pending' })}</strong><p className="mt-1 text-[10px] text-slate-500">Album/Video progress is tracked on each work item.</p></div>
           </div>
           {deliveryMode !== 'By Hand' && (
             <div className="mt-4">
               <Field label="Courier Name & Tracking ID"><input value={parcelTracking} onChange={(e) => setParcelTracking(e.target.value)} placeholder="e.g. DTDC: P123456789" className={inputClass} /></Field>
             </div>
           )}
-          {/* Emergency + Deadline Fields */}
+          {/* Priority + Delivery Schedule */}
           <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50/50 p-3 dark:border-rose-500/20 dark:bg-rose-500/5">
             <label className="flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-white">
               <input type="checkbox" checked={isEmergency} onChange={(e) => setIsEmergency(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-rose-500 focus:ring-rose-400" />
               <Zap className="h-4 w-4 text-rose-500" /> Emergency Order
             </label>
-            <p className="mt-1 text-xs text-slate-400">Visual priority only — does not affect pricing, payments, or status.</p>
+            <p className="mt-1 text-xs text-slate-400">Emergency raises priority only. It does not change charges or work status.</p>
+            <div className="mt-3 max-w-sm"><Field label="Overall Promised Delivery Date"><input type="date" value={promisedDeliveryDate} onChange={(e) => setPromisedDeliveryDate(e.target.value)} disabled={datePending} className={`${inputClass} ${datePending ? 'cursor-not-allowed opacity-50' : ''}`} /></Field></div>
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Album Required Date"><input type="date" value={albumRequiredDate} onChange={(e) => setAlbumRequiredDate(e.target.value)} disabled={datePending} className={`${inputClass} ${datePending ? 'opacity-50 cursor-not-allowed' : ''}`} /></Field>
-              <Field label="Video Delivery Date"><input type="date" value={videoDeliveryDate} onChange={(e) => setVideoDeliveryDate(e.target.value)} disabled={datePending} className={`${inputClass} ${datePending ? 'opacity-50 cursor-not-allowed' : ''}`} /></Field>
+              {clients.some((client) => client.album_rows.length > 0) && <Field label="Album Required Date"><input type="date" value={albumRequiredDate} onChange={(e) => setAlbumRequiredDate(e.target.value)} disabled={datePending} className={`${inputClass} ${datePending ? 'cursor-not-allowed opacity-50' : ''}`} /></Field>}
+              {clients.some((client) => client.video_rows.length > 0) && <Field label="Video Delivery Date"><input type="date" value={videoDeliveryDate} onChange={(e) => setVideoDeliveryDate(e.target.value)} disabled={datePending} className={`${inputClass} ${datePending ? 'cursor-not-allowed opacity-50' : ''}`} /></Field>}
             </div>
             <label className="mt-3 flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-white">
               <input type="checkbox" checked={datePending} onChange={(e) => setDatePending(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400" />
               <CalendarClock className="h-4 w-4 text-amber-500" /> Date Pending (Client to Confirm Later)
             </label>
-            <p className="mt-1 text-xs text-slate-400">When enabled, delivery date inputs are disabled but saved values are preserved.</p>
+            <p className="mt-1 text-xs text-slate-400">When enabled, dates are hidden from dashboards and saved date values are retained for later confirmation.</p>
           </div>
         </div>
 
@@ -2175,29 +2137,19 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Client Name"><input value={client.client_name} onChange={(e) => updateClient(ci, { client_name: e.target.value })} className={inputClass} /></Field>
-                <Field label="Event Address"><input value={client.event_address} onChange={(e) => updateClient(ci, { event_address: e.target.value })} className={inputClass} /></Field>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
                 <Field label="Delivery Status">
                   <select
-                    value={client.delivery_status || 'In Design'}
+                    value={client.delivery_status || 'Pending'}
                     onChange={(e) => updateClient(ci, { delivery_status: e.target.value as LabClientDeliveryStatus })}
+                    disabled={client.delivery_status === 'Delivered'}
                     className={`${selectClass} text-xs`}
                   >
+                    <option value="Pending">Pending</option>
                     <option value="In Design">In Design</option>
                     <option value="Ready">Ready</option>
                     <option value="Delivered">Delivered</option>
-                  </select>
-                </Field>
-                <Field label="Dispatch Mode">
-                  <select
-                    value={client.dispatch_mode || 'By Hand'}
-                    onChange={(e) => updateClient(ci, { dispatch_mode: e.target.value as LabClientDispatchMode })}
-                    className={`${selectClass} text-xs`}
-                  >
-                    <option value="By Hand">By Hand</option>
-                    <option value="Courier">Courier</option>
-                    <option value="Drive">Drive</option>
                   </select>
                 </Field>
               </div>
@@ -2323,11 +2275,11 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
         <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div><h3 className="text-sm font-semibold text-slate-900 dark:text-white">Extra Charges / Services</h3><p className="text-xs text-slate-500 dark:text-slate-400">Each charge is listed separately on the lab bill.</p></div>
-            <button type="button" onClick={() => setExtraItems((items) => [...items, { id: uid(), client_name: clients[0]?.client_name ?? '', description: '', quantity: 1, unit_rate: 0, line_amount: 0 }])} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950"><Plus className="mr-1 inline h-3.5 w-3.5" />Add Charge</button>
+            <button type="button" onClick={() => setExtraItems((items) => [...items, { id: uid(), client_id: clients[0]?.id, client_name: clients[0]?.client_name ?? '', description: '', quantity: 1, unit_rate: 0, line_amount: 0 }])} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950"><Plus className="mr-1 inline h-3.5 w-3.5" />Add Charge</button>
           </div>
           {extraItems.length === 0 ? <p className="text-xs text-slate-400">No additional charges.</p> : <div className="space-y-2">
             {extraItems.map((item, index) => <div key={item.id} className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 p-2 dark:border-white/10 sm:grid-cols-6">
-              <select value={item.client_name} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => rowIndex === index ? { ...row, client_name: event.target.value } : row))} className={`${selectClass} text-xs`}><option value="">All / Order-level</option>{clients.map((client, clientIndex) => <option key={`${client.id}-${clientIndex}`} value={client.client_name}>{client.client_name || `Client ${clientIndex + 1}`}</option>)}</select>
+              <select value={item.client_id ?? (clients.filter((client) => client.client_name === item.client_name).length === 1 ? clients.find((client) => client.client_name === item.client_name)?.id : '')} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => { if (rowIndex !== index) return row; const selectedClient = clients.find((client) => client.id === event.target.value); return { ...row, client_id: selectedClient?.id, client_name: selectedClient?.client_name ?? '' }; }))} className={`${selectClass} text-xs`}><option value="">All / Order-level</option>{clients.map((client, clientIndex) => <option key={`${client.id}-${clientIndex}`} value={client.id}>{client.client_name || `Client ${clientIndex + 1}`}</option>)}</select>
               <input value={item.description} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => rowIndex === index ? { ...row, description: event.target.value } : row))} className={`${inputClass} text-xs`} placeholder="Charge / service description" />
               <input type="number" min="0" value={item.quantity} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: Number(event.target.value), line_amount: Number(event.target.value) * row.unit_rate } : row))} className={`${inputClass} text-xs`} placeholder="Qty" />
               <input type="number" min="0" value={item.unit_rate} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => rowIndex === index ? { ...row, unit_rate: Number(event.target.value), line_amount: row.quantity * Number(event.target.value) } : row))} className={`${inputClass} text-xs`} placeholder="Unit rate ₹" />
@@ -2348,14 +2300,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
             <Field label="Master Total (₹)"><input type="number" value={masterTotal || ''} readOnly className={`${inputClass} font-semibold`} /></Field>
             <Field label="Advance Paid (₹)"><input type="number" value={advancePaid} onChange={(e) => setAdvancePaid(e.target.value)} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={inputClass} placeholder="0" /></Field>
           </div>
-          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Net Final Due (₹)">
-              <input type="number" value={netFinalDue || ''} readOnly className={`${inputClass} font-bold ${netFinalDue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
-            </Field>
-            <Field label="Promised Delivery Date">
-              <input type="date" value={promisedDeliveryDate} onChange={(e) => setPromisedDeliveryDate(e.target.value)} className={inputClass} />
-            </Field>
-          </div>
+          <div className="mt-3 max-w-sm"><Field label="Net Final Due (₹)"><input type="number" value={netFinalDue || ''} readOnly className={`${inputClass} font-bold ${netFinalDue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`} /></Field></div>
         </div>
 
         {/* Storage Locations */}
@@ -2468,7 +2413,9 @@ function buildLabOrderSummaryText(o: StudioLabOrder, settings: StudioSettings | 
     `Master Total: ${formatINR(toNum(o.master_total))}\n` +
     `Advance Paid: ${formatINR(toNum(o.advance_paid))}\n` +
     `Balance Due: ${formatINR(toNum(o.net_final_due))}\n` +
-    `Status: ${o.order_status} · Delivery: ${o.delivery_mode}` +
+    `Status: ${labOrderOverviewStatus(o)} · ${[hasLabAlbumWork(o) ? `Album ${o.album_status || 'Pending'}` : '', hasLabVideoWork(o) ? `Video ${o.video_status || 'Pending'}` : ''].filter(Boolean).join(' · ')} · Delivery: ${o.delivery_mode}` +
+    (o.is_emergency ? '\nEmergency priority' : '') +
+    (o.date_pending ? '\nDelivery date pending confirmation' : visibleLabOrderDates(o).map(({ label, date }) => `\n${label}: ${formatDate(date)}`).join('')) +
     (o.parcel_tracking_details ? `\nTracking: ${o.parcel_tracking_details}` : '') +
     `\n`
   );
@@ -2566,6 +2513,7 @@ function PrintTrigger({ order, onDone }: { order: StudioLabOrder; onDone: () => 
 function LabOrderPrintTemplate({ order, settings, compact = false, termsText }: { order: StudioLabOrder; settings: StudioSettings | null; compact?: boolean; termsText?: string }) {
   const s = settings;
   const clients = order.clients ?? [];
+  const orderPayments = labOrderPayments(order);
   const cn = compact ? 'compact-bill' : '';
   const resolvedTerms = termsText || settings?.production_terms || DEFAULT_PRODUCTION_TERMS;
   const isFullyPaid = Number(order.net_final_due ?? 0) <= 0;
@@ -2601,16 +2549,21 @@ function LabOrderPrintTemplate({ order, settings, compact = false, termsText }: 
         <div className="text-right">
           <p><strong>Project:</strong> {order.project_name || '—'}</p>
           <p><strong>Work Type:</strong> {order.work_type || '—'}</p>
-          <p><strong>Status:</strong> {order.order_status}</p>
+          <p><strong>Status:</strong> {labOrderOverviewStatus(order)}</p>
+          {order.is_emergency && <p><strong>Priority:</strong> Emergency</p>}
+          {hasLabAlbumWork(order) && <p><strong>Album Status:</strong> {order.album_status || 'Pending'}</p>}
+          {hasLabVideoWork(order) && <p><strong>Video Status:</strong> {order.video_status || 'Pending'}</p>}
+          {order.date_pending ? <p><strong>Schedule:</strong> Delivery date pending confirmation</p> : visibleLabOrderDates(order).map(({ label, date }) => <p key={label}><strong>{label}:</strong> {formatDate(date)}</p>)}
           <p><strong>Delivery:</strong> {order.delivery_mode}</p>
           {order.parcel_tracking_details && <p><strong>Tracking:</strong> {order.parcel_tracking_details}</p>}
         </div>
       </div>
 
       {/* Per-client tables */}
+      {clients.length > 0 && <h2 className={compact ? "mb-1 text-xs font-bold" : "mb-2 text-sm font-bold"}>Order Details</h2>}
       {clients.map((c, ci) => (
         <div key={c.id} className={compact ? "mb-2" : "mb-4"}>
-          <h3 className={compact ? "mb-0.5 text-xs font-bold" : "mb-1 text-sm font-bold"}>Client {ci + 1}: {c.client_name || '—'}{c.event_address ? ` (${c.event_address})` : ''}</h3>
+          <h3 className={compact ? "mb-0.5 text-xs font-bold" : "mb-1 text-sm font-bold"}>Client {ci + 1}: {c.client_name || '—'}</h3>
           {c.video_rows.length > 0 && (
             <table className={compact ? "mb-1 w-full border-collapse border border-black text-xs" : "mb-2 w-full border-collapse border border-black text-sm"}>
               <thead>
@@ -2675,6 +2628,14 @@ function LabOrderPrintTemplate({ order, settings, compact = false, termsText }: 
               </tbody>
             </table>
           )}
+          <div className={compact ? "mt-1 border-t border-black pt-1 text-right text-xs font-bold" : "mt-1 border-t border-black pt-1 text-right text-sm font-bold"}>
+            Client {ci + 1} Work Total: {formatINR(clientWorkTotal(c, order.extra_items ?? [], clients))}
+          </div>
+          <div className="mt-1 flex justify-end gap-4 text-xs">
+            <span>Paid: {formatINR(clientPaidTotal(c, orderPayments, clients))}</span>
+            <span className="font-semibold">Due: {formatINR(Math.max(0, clientWorkTotal(c, order.extra_items ?? [], clients) - clientPaidTotal(c, orderPayments, clients)))}</span>
+          </div>
+          {orderPayments.filter((payment) => payment.client_id === c.id || (!payment.client_id && payment.client_name === c.client_name)).map((payment) => <p key={payment.id} className="text-right text-[10px]">Payment · {formatDateTime(payment.created_at || payment.payment_date)} · {payment.payment_mode} · {formatINR(payment.amount)}{payment.note ? ` · ${payment.note}` : ''}</p>)}
         </div>
       ))}
 
@@ -2686,11 +2647,11 @@ function LabOrderPrintTemplate({ order, settings, compact = false, termsText }: 
         </table>
       </div>}
 
-      {(order.payment_history ?? []).length > 0 && <div className={compact ? 'mb-2' : 'mb-4'}>
+      {orderPayments.length > 0 && <div className={compact ? 'mb-2' : 'mb-4'}>
         <h3 className={compact ? 'mb-0.5 text-xs font-bold' : 'mb-1 text-sm font-bold'}>Payment History</h3>
         <table className={compact ? 'w-full border-collapse border border-black text-xs' : 'w-full border-collapse border border-black text-sm'}>
-          <thead><tr className="bg-gray-100"><th className="border border-black px-2 py-1 text-left">Date &amp; Time</th><th className="border border-black px-2 py-1 text-left">Mode</th><th className="border border-black px-2 py-1 text-left">Note</th><th className="border border-black px-2 py-1 text-right">Amount</th></tr></thead>
-          <tbody>{(order.payment_history ?? []).map((payment) => <tr key={payment.id}><td className="border border-black px-2 py-1">{formatDateTime(payment.created_at || payment.payment_date)}</td><td className="border border-black px-2 py-1">{payment.payment_mode || '—'}</td><td className="border border-black px-2 py-1">{payment.note || '—'}</td><td className="border border-black px-2 py-1 text-right">{formatINR(toNum(payment.amount))}</td></tr>)}</tbody>
+          <thead><tr className="bg-gray-100"><th className="border border-black px-2 py-1 text-left">Date &amp; Time</th><th className="border border-black px-2 py-1 text-left">Client</th><th className="border border-black px-2 py-1 text-left">Mode</th><th className="border border-black px-2 py-1 text-left">Note</th><th className="border border-black px-2 py-1 text-right">Amount</th></tr></thead>
+          <tbody>{orderPayments.map((payment) => <tr key={payment.id}><td className="border border-black px-2 py-1">{formatDateTime(payment.created_at || payment.payment_date)}</td><td className="border border-black px-2 py-1">{payment.client_name || 'Order-level'}</td><td className="border border-black px-2 py-1">{payment.payment_mode || '—'}</td><td className="border border-black px-2 py-1">{payment.note || '—'}</td><td className="border border-black px-2 py-1 text-right">{formatINR(toNum(payment.amount))}</td></tr>)}</tbody>
         </table>
       </div>}
 
