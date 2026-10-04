@@ -34,8 +34,10 @@ import type {
   PartnerStatus,
   DirectTransaction,
   DirectTxnType,
+  StudioLabOrder,
 } from '@/lib/types';
-import { formatINR, formatDate, todayISO } from '@/lib/format';
+import { formatINR, formatDate, formatDateTime, todayISO } from '@/lib/format';
+import { clientPaidTotal, clientWorkTotal, labOrderPayments, unallocatedPaidTotal } from '@/lib/labBilling';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
 import {
@@ -533,6 +535,11 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
           partner={detailPartner}
           directTxns={partnerDirectTxns(detailPartner.id)}
           ledgerEntries={partnerLedger(detailPartner.id, detailPartner.mobile)}
+          labOrders={labOrders.filter((order) => {
+            if (order.partner_id === detailPartner.id) return true;
+            const orderPartner = String(order.partner_name ?? order.studio_name ?? '').trim().toLowerCase();
+            return !!orderPartner && orderPartner === String(detailPartner.name ?? '').trim().toLowerCase();
+          })}
           profileOnly={mode === 'partners'}
           onClose={() => setDetailPartner(null)}
           onSettle={() => setSettlePartner(detailPartner)}
@@ -1336,6 +1343,7 @@ function PartnerDetailModal({
   partner,
   directTxns,
   ledgerEntries,
+  labOrders,
   profileOnly,
   onClose,
   onSettle,
@@ -1344,6 +1352,7 @@ function PartnerDetailModal({
   partner: Partner;
   directTxns: DirectTransaction[];
   ledgerEntries: PhotographerLedgerEntry[];
+  labOrders: StudioLabOrder[];
   profileOnly: boolean;
   onClose: () => void;
   onSettle: () => void;
@@ -1535,8 +1544,53 @@ function PartnerDetailModal({
             )}
           </div>
         </div>}
+        {!profileOnly && <PermanentLabOrderHistory orders={labOrders} />}
       </div>
     </Modal>
+  );
+}
+
+function PermanentLabOrderHistory({ orders }: { orders: StudioLabOrder[] }) {
+  const history = [...orders].sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
+  return (
+    <section className="border-t border-slate-200 pt-3 dark:border-white/10">
+      <h4 className="mb-1 text-sm font-semibold text-slate-700 dark:text-slate-200">Permanent Lab Order &amp; Client Work History</h4>
+      <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400">Full order and payment record for admin review. Settled, archived and soft-deleted records remain available here.</p>
+      {history.length === 0 ? <p className="py-5 text-center text-sm text-slate-400">No lab order history for this partner.</p> : (
+        <div className="max-h-[45vh] space-y-2 overflow-auto">
+          {history.map((order) => {
+            const payments = labOrderPayments(order);
+            const totalDue = Math.max(0, Number(order.master_total ?? 0) - Number(order.advance_paid ?? 0));
+            return (
+              <details key={order.id} className="rounded-lg border border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/5">
+                <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 p-3">
+                  <span className="min-w-0"><b className="text-xs text-slate-800 dark:text-slate-100">{order.order_no} · {order.project_name || order.work_type}</b><span className="mt-0.5 block text-[10px] text-slate-500 dark:text-slate-400">{order.created_at ? formatDate(order.created_at) : 'Date not recorded'} · {order.order_status || 'Status unavailable'}{order.archived_at ? ' · Archived' : ''}{order.deleted_at ? ' · Deleted (retained)' : ''}</span></span>
+                  <span className="shrink-0 text-right text-[11px] text-slate-600 dark:text-slate-300">Bill {formatINR(Number(order.master_total ?? 0))} · Paid {formatINR(Number(order.advance_paid ?? 0))}<b className="block text-rose-600 dark:text-rose-400">Due {formatINR(totalDue)}</b></span>
+                </summary>
+                <div className="space-y-2 border-t border-slate-200 p-3 text-[11px] dark:border-white/10">
+                  <div className="grid grid-cols-2 gap-2 text-slate-600 dark:text-slate-300 sm:grid-cols-4"><span>Work total: {formatINR(Number(order.current_order_total ?? 0))}</span><span>Previous balance: {formatINR(Number(order.previous_back_due ?? order.back_due ?? 0))}</span><span>Combined bill: {formatINR(Number(order.master_total ?? 0))}</span><span>Paid: {formatINR(Number(order.advance_paid ?? 0))}</span></div>
+                  {(order.clients ?? []).map((client, index) => {
+                    const work = clientWorkTotal(client, order.extra_items ?? [], order.clients ?? []);
+                    const paid = clientPaidTotal(client, payments, order.clients ?? []);
+                    const clientPayments = payments.filter((payment) => payment.client_id === client.id || (!payment.client_id && payment.client_name === client.client_name));
+                    return <div key={client.id || index} className="border-t border-slate-200 pt-2 dark:border-white/10">
+                      <p className="font-semibold text-cyan-700 dark:text-cyan-300">Client {index + 1}: {client.client_name || `Client ${index + 1}`} · Work {formatINR(work)} · Paid {formatINR(paid)} · Due {formatINR(Math.max(0, work - paid))}</p>
+                      <div className="mt-1 space-y-0.5 text-slate-600 dark:text-slate-400">
+                        {(client.video_rows ?? []).map((row, rowIndex) => <p key={`video-${rowIndex}`}>Video · {row.video_type} / {row.quality} · {row.qty} × {formatINR(Number(row.rate))} = {formatINR(Number(row.total ?? Number(row.qty) * Number(row.rate)))}</p>)}
+                        {(client.album_rows ?? []).map((row, rowIndex) => <div key={`album-${rowIndex}`}><p>Album · {row.album_type} ({row.size}) · {formatINR(Number(row.total ?? 0))}</p>{(row.papers ?? []).filter((paper) => paper.paper_type).map((paper) => <p key={paper.id} className="pl-3">{paper.paper_type} · {paper.sheets} sheets × {formatINR(Number(paper.rate))} = {formatINR(Number(paper.total))}</p>)}</div>)}
+                        {(order.extra_items ?? []).filter((item) => item.client_id ? item.client_id === client.id : item.client_name === client.client_name).map((item) => <p key={item.id}>Extra · {item.description} · {item.quantity} × {formatINR(item.unit_rate)} = {formatINR(item.line_amount)}</p>)}
+                      </div>
+                      {clientPayments.map((payment) => <p key={payment.id} className="mt-1 text-slate-500">Payment · {formatDateTime(payment.created_at || payment.payment_date)} · {payment.payment_mode || '—'} · {formatINR(Number(payment.amount))}{payment.note ? ` · ${payment.note}` : ''}</p>)}
+                    </div>;
+                  })}
+                  {unallocatedPaidTotal(payments) > 0 && <div className="border-t border-amber-500/20 pt-2 text-amber-700 dark:text-amber-300">Unassigned / legacy payments: {formatINR(unallocatedPaidTotal(payments))}{payments.filter((payment) => !payment.client_id && !payment.client_name).map((payment) => <p key={payment.id} className="mt-1 text-slate-500">{formatDateTime(payment.created_at || payment.payment_date)} · {payment.payment_mode || '—'} · {formatINR(Number(payment.amount))}{payment.note ? ` · ${payment.note}` : ''}</p>)}</div>}
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 

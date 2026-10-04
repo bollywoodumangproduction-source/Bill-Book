@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type TouchEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   Calendar,
@@ -42,6 +42,7 @@ import { Field } from '@/components/ui/Field';
 import { PinInput } from '@/components/ui/PinInput';
 import { Badge } from '@/components/ui/Badge';
 import { NotificationBell } from '@/components/NotificationBell';
+import { isRightEdgeBackSwipe, type TouchStartPoint } from '@/lib/touchNavigation';
 
 function innerSheetCount(session: ClientSelectionSession): number {
   return (session.proofSheets ?? []).filter((sheet) => Number(sheet.sheetNumber) > 0).length;
@@ -83,6 +84,7 @@ export function ClientDashboard() {
   const { settings } = useSettings();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const touchStartRef = useRef<TouchStartPoint | null>(null);
   const [booking, setBooking] = useState<Booking | null>(null);
   const [labOrder, setLabOrder] = useState<StudioLabOrder | null>(null);
   const [loading, setLoading] = useState(true);
@@ -195,6 +197,19 @@ export function ClientDashboard() {
     navigate('/client/login');
   };
 
+  const handleTouchStart = (event: TouchEvent<HTMLElement>) => {
+    if ((event.target as HTMLElement).closest('.no-print')) return;
+    const touch = event.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+  const handleTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start || (event.target as HTMLElement).closest('.no-print')) return;
+    const touch = event.changedTouches[0];
+    if (isRightEdgeBackSwipe(start, { x: touch.clientX, y: touch.clientY }, window.innerWidth)) navigate('/client');
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950">
@@ -204,7 +219,7 @@ export function ClientDashboard() {
   }
 
   if (labOrder) {
-    return <LabOrderDashboard order={labOrder} settings={settings} onLogout={handleLogout} onUpdated={setLabOrder} showPinModal={showPinModal} setShowPinModal={setShowPinModal} />;
+    return <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}><LabOrderDashboard order={labOrder} settings={settings} onLogout={handleLogout} onUpdated={setLabOrder} showPinModal={showPinModal} setShowPinModal={setShowPinModal} /></div>;
   }
 
   if (!booking) return null;
@@ -225,7 +240,7 @@ export function ClientDashboard() {
   const dashboardPromos = getVisiblePromoAds(promoAds, 'b2c_dashboard', 'clients', booking.id).slice(0, 3);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.16),_transparent_22%),linear-gradient(160deg,#020617_0%,#111827_35%,#0f172a_100%)] text-slate-100">
+    <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.16),_transparent_22%),linear-gradient(160deg,#020617_0%,#111827_35%,#0f172a_100%)] text-slate-100">
       <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">

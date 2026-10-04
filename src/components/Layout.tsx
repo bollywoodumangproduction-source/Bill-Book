@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   CalendarPlus,
@@ -27,10 +28,12 @@ import { useSettings } from '@/context/SettingsContext';
 import { useTheme } from '@/context/ThemeContext';
 import { SyncBadges } from '@/components/SyncBadges';
 import { clearAdminSession } from '@/pages/AdminLogin';
+import { isRightEdgeBackSwipe, type TouchStartPoint } from '@/lib/touchNavigation';
 
 interface LayoutProps {
   current: PageKey;
   onNavigate: (page: PageKey) => void;
+  onBack: () => void;
   children: ReactNode;
 }
 
@@ -92,9 +95,15 @@ function ThemeToggle() {
   );
 }
 
-export function Layout({ current, onNavigate, children }: LayoutProps) {
+export function Layout({ current, onNavigate, onBack, children }: LayoutProps) {
   const [moreOpen, setMoreOpen] = useState(false);
+  const touchStartRef = useRef<TouchStartPoint | null>(null);
   const { settings } = useSettings();
+  const navigate = useNavigate();
+  const logout = () => {
+    clearAdminSession();
+    navigate('/admin/login', { replace: true });
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
@@ -140,7 +149,7 @@ export function Layout({ current, onNavigate, children }: LayoutProps) {
           </div>
           <SyncBadges />
           <button
-            onClick={() => { clearAdminSession(); window.location.href = '/admin/login'; }}
+            onClick={logout}
             className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-rose-500 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5"
           >
             <LogOut className="h-3.5 w-3.5" /> Admin Logout
@@ -163,11 +172,33 @@ export function Layout({ current, onNavigate, children }: LayoutProps) {
         <div className="flex items-center gap-2">
           <SyncBadges />
           <ThemeToggle />
+          <button
+            onClick={logout}
+            aria-label="Admin logout"
+            title="Admin logout"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-rose-500/20 text-rose-500 transition-colors hover:bg-rose-500/10 dark:text-rose-300"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
         </div>
       </header>
 
       {/* Main content */}
-      <main className="min-h-screen pb-20 pt-14 md:ml-60 md:pb-0 md:pt-0">
+      <main
+        className="min-h-screen pb-20 pt-14 md:ml-60 md:pb-0 md:pt-0"
+        onTouchStart={(event) => {
+          if ((event.target as HTMLElement).closest('.no-print')) return;
+          const touch = event.touches[0];
+          touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+        }}
+        onTouchEnd={(event) => {
+          const start = touchStartRef.current;
+          touchStartRef.current = null;
+          if (!start || (event.target as HTMLElement).closest('.no-print')) return;
+          const touch = event.changedTouches[0];
+          if (isRightEdgeBackSwipe(start, { x: touch.clientX, y: touch.clientY }, window.innerWidth)) onBack();
+        }}
+      >
         <div className={['lab', 'bookings', 'partners', 'dairy', 'promo', 'music', 'teaser', 'invitation', 'photo-selection', 'ledger', 'payments'].includes(current) ? 'w-full px-1 md:px-0' : 'w-full p-1 sm:p-6 lg:p-8'}>{children}</div>
       </main>
 

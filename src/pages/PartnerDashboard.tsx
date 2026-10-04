@@ -33,6 +33,7 @@ import { formatDate, formatDateTime, formatINR, formatPhone } from '@/lib/format
 import { inputClass } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
 import { Field } from '@/components/ui/Field';
+import { isRightEdgeBackSwipe } from '@/lib/touchNavigation';
 import { useToast } from '@/context/ToastContext';
 import { copyToClipboard } from '@/lib/clipboard';
 import { getVisiblePromoAds } from '@/lib/promo';
@@ -436,6 +437,14 @@ export function PartnerDashboardContent({
     });
   const selectedOrder = selectedOrderId ? labOrders.find((order) => order.id === selectedOrderId) ?? null : null;
   const visibleLabOrders = selectedOrder ? [selectedOrder] : filteredLabOrders;
+  const dueLabOrders = labOrders.filter((order) => {
+    const payments = labOrderPayments(order);
+    const hasClientDue = (order.clients ?? []).some((client) =>
+      clientWorkTotal(client, order.extra_items ?? [], order.clients ?? [])
+        - clientPaidTotal(client, payments, order.clients ?? []) > 0.005,
+    );
+    return Math.max(0, Number(order.master_total ?? 0) - Number(order.advance_paid ?? 0)) > 0.005 || hasClientDue;
+  });
   const returnToOrderList = () => setSearchParams((current) => {
     const next = new URLSearchParams(current);
     next.delete('order');
@@ -444,23 +453,25 @@ export function PartnerDashboardContent({
 
   return (
     <div
-      className="min-h-screen w-full bg-slate-950 px-1 pb-4 pt-16 text-white sm:px-4 sm:pt-20"
+      className={`${adminPreview ? 'min-h-0 px-1 py-1 pb-2' : 'min-h-screen px-1 pb-4 pt-16 sm:px-4 sm:pt-20'} w-full bg-slate-950 text-white`}
       onTouchStart={(event) => {
+        if (adminPreview) return;
         const touch = event.touches[0];
         touchStartRef.current = { x: touch.clientX, y: touch.clientY };
       }}
       onTouchEnd={(event) => {
         const start = touchStartRef.current;
         touchStartRef.current = null;
-        if (!selectedOrderId || !start) return;
+        if (adminPreview || !start) return;
         const touch = event.changedTouches[0];
-        const swipedLeftFromRightEdge = start.x >= window.innerWidth - 44 && start.x - touch.clientX >= 80;
-        const mostlyHorizontal = Math.abs(start.y - touch.clientY) < 70;
-        if (swipedLeftFromRightEdge && mostlyHorizontal) returnToOrderList();
+        if (!isRightEdgeBackSwipe(start, { x: touch.clientX, y: touch.clientY }, window.innerWidth)) return;
+        if (selectedOrderId) returnToOrderList();
+        else if (activeTab !== 'orders') setActiveTab('orders');
+        else navigate('/partner');
       }}
     >
       <div className="mx-auto max-w-5xl space-y-3 sm:space-y-5">
-        <header className="fixed left-0 right-0 top-0 z-50 flex h-14 w-full items-center justify-between gap-2 border-b border-slate-800/80 bg-slate-950/95 px-2 backdrop-blur-md sm:gap-4 sm:px-4 lg:px-8">
+        {!adminPreview && <header className="fixed left-0 right-0 top-0 z-50 flex h-14 w-full items-center justify-between gap-2 border-b border-slate-800/80 bg-slate-950/95 px-2 backdrop-blur-md sm:gap-4 sm:px-4 lg:px-8">
           <div className="flex min-w-0 max-w-[44%] items-center gap-1.5 sm:max-w-none sm:gap-2.5">
             <img
               src={settingsData?.studioLogo || settingsData?.logo || settings?.production_logo_url || settings?.films_logo_url || '/logo.png'}
@@ -489,9 +500,9 @@ export function PartnerDashboardContent({
               </button>
             )}
           </div>
-        </header>
+        </header>}
 
-        <div className="sticky top-14 z-40 -mx-1 flex gap-1 overflow-x-auto border-b border-white/10 bg-slate-950/95 px-1 pb-1 pt-1 backdrop-blur-md sm:-mx-4 sm:px-4">
+        <div className={`sticky ${adminPreview ? 'top-0' : 'top-14'} z-40 -mx-1 flex gap-1 overflow-x-auto border-b border-white/10 bg-slate-950/95 px-1 pb-1 pt-1 backdrop-blur-md sm:-mx-4 sm:px-4`}>
           {([
             ['orders', 'Orders', '📦 Lab Orders'],
             ['ledger', 'Ledger', '📑 Ledger'],
@@ -702,7 +713,7 @@ export function PartnerDashboardContent({
         </div>}
         {activeTab === 'ledger' && <div className="space-y-3">
           <div className="rounded-xl border border-white/10 bg-slate-900 p-4"><h2 className="mb-2 text-sm font-semibold">Partner Account Balance</h2><p className="mb-3 text-[11px] text-slate-400">This is the partner-level account ledger (shoot duties and direct settlements), separate from client/order balances below.</p><div className="grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-lg bg-slate-950/50 p-2"><p className="text-slate-500">Duty credits</p><b className="text-emerald-300">{formatINR(balance.credit)}</b></div><div className="rounded-lg bg-slate-950/50 p-2"><p className="text-slate-500">Partner debits</p><b className="text-rose-300">{formatINR(balance.debit)}</b></div><div className="rounded-lg bg-slate-950/50 p-2"><p className="text-slate-500">Account balance</p><b className={balance.balance < 0 ? 'text-rose-300' : 'text-cyan-200'}>{formatINR(balance.balance)}</b></div></div></div>
-          <div className="rounded-xl border border-white/10 bg-slate-900 p-4"><h2 className="mb-1 text-sm font-semibold">Client &amp; Lab Order Statement</h2><p className="mb-3 text-[11px] text-slate-400">Each client has a separate work total and balance within the same combined bill number.</p>{labOrders.length === 0 ? <p className="text-xs text-slate-400">No client or lab-order balances.</p> : <div className="space-y-3">{labOrders.map((order) => { const payments = labOrderPayments(order); return <div key={order.id} className="rounded-lg border border-white/10 bg-slate-950/50 p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold text-white">{order.order_no} · {order.project_name || order.work_type}</p><p className="text-xs text-slate-400">Work: {order.work_type} · Studio: {order.studio_name || '—'}</p></div><span className="text-xs font-semibold text-amber-300">Combined due {formatINR(Math.max(0, Number(order.master_total ?? 0) - Number(order.advance_paid ?? 0)))}</span></div><div className="mt-2 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4"><span className="text-slate-400">Combined work <b className="text-slate-200">{formatINR(Number(order.current_order_total ?? 0))}</b></span><span className="text-slate-400">Previous balance <b className="text-slate-200">{formatINR(Number(order.previous_back_due ?? 0))}</b></span><span className="text-slate-400">Combined bill <b className="text-slate-200">{formatINR(Number(order.master_total ?? 0))}</b></span><span className="text-slate-400">Combined paid <b className="text-emerald-300">{formatINR(Number(order.advance_paid ?? 0))}</b></span></div>{(order.clients ?? []).map((client, ci) => { const total = clientWorkTotal(client, order.extra_items ?? [], order.clients ?? []); const paid = clientPaidTotal(client, payments, order.clients ?? []); return <div key={client.id || ci} className="mt-2 border-t border-white/10 pt-2"><div className="flex flex-wrap justify-between gap-2"><p className="text-xs font-semibold text-cyan-200">Client {ci + 1}: {client.client_name || `Client ${ci + 1}`}</p><p className="text-[11px] text-slate-400">Work {formatINR(total)} · Paid {formatINR(paid)} · Due <b className="text-rose-300">{formatINR(Math.max(0, total - paid))}</b></p></div><div className="mt-1 space-y-0.5 text-[11px] text-slate-400">{(client.video_rows ?? []).map((row, ri) => <p key={`v${ri}`}>Video · {row.video_type} / {row.quality} · {row.qty} × {formatINR(Number(row.rate))} = {formatINR(Number(row.total ?? Number(row.qty) * Number(row.rate)))}</p>)}{(client.album_rows ?? []).map((row, ri) => <p key={`a${ri}`}>Album · {row.album_type} ({row.size}) · {formatINR(Number(row.total ?? 0))}</p>)}{(order.extra_items ?? []).filter((item) => item.client_id ? item.client_id === client.id : item.client_name === client.client_name).map((item) => <p key={item.id} className="text-amber-200">Extra · {item.description} · {item.quantity} × {formatINR(item.unit_rate)} = {formatINR(item.line_amount)}</p>)}</div>{payments.filter((payment) => payment.client_id === client.id || (!payment.client_id && payment.client_name === client.client_name)).map((payment) => <p key={payment.id} className="mt-1 text-[10px] text-slate-500">Payment · {formatDateTime(payment.created_at || payment.payment_date)} · {payment.payment_mode} · {formatINR(Number(payment.amount))}{payment.note ? ` · ${payment.note}` : ''}</p>)}</div>; })}{unallocatedPaidTotal(payments) > 0 && <div className="mt-2 border-t border-amber-500/20 pt-2 text-[11px] text-amber-200">Unassigned/legacy payment: {formatINR(unallocatedPaidTotal(payments))} · this historical payment is not attributed to a specific client.</div>}</div>; })}</div>}</div>
+          <div className="rounded-xl border border-white/10 bg-slate-900 p-4"><h2 className="mb-1 text-sm font-semibold">Unpaid Client &amp; Lab Order Work</h2><p className="mb-3 text-[11px] text-slate-400">Only work with an outstanding balance is listed. Fully paid work disappears from this view.</p>{dueLabOrders.length === 0 ? <p className="text-xs text-slate-400">No outstanding client or lab-order balances.</p> : <div className="space-y-3">{dueLabOrders.map((order) => { const payments = labOrderPayments(order); return <div key={order.id} className="rounded-lg border border-white/10 bg-slate-950/50 p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold text-white">{order.order_no} · {order.project_name || order.work_type}</p><p className="text-xs text-slate-400">Work: {order.work_type} · Studio: {order.studio_name || '—'}</p></div><span className="text-xs font-semibold text-amber-300">Combined due {formatINR(Math.max(0, Number(order.master_total ?? 0) - Number(order.advance_paid ?? 0)))}</span></div><div className="mt-2 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4"><span className="text-slate-400">Combined work <b className="text-slate-200">{formatINR(Number(order.current_order_total ?? 0))}</b></span><span className="text-slate-400">Previous balance <b className="text-slate-200">{formatINR(Number(order.previous_back_due ?? 0))}</b></span><span className="text-slate-400">Combined bill <b className="text-slate-200">{formatINR(Number(order.master_total ?? 0))}</b></span><span className="text-slate-400">Combined paid <b className="text-emerald-300">{formatINR(Number(order.advance_paid ?? 0))}</b></span></div>{(order.clients ?? []).map((client, ci) => { const total = clientWorkTotal(client, order.extra_items ?? [], order.clients ?? []); const paid = clientPaidTotal(client, payments, order.clients ?? []); if (total - paid <= 0.005) return null; return <div key={client.id || ci} className="mt-2 border-t border-white/10 pt-2"><div className="flex flex-wrap justify-between gap-2"><p className="text-xs font-semibold text-cyan-200">Client {ci + 1}: {client.client_name || `Client ${ci + 1}`}</p><p className="text-[11px] text-slate-400">Work {formatINR(total)} · Paid {formatINR(paid)} · Due <b className="text-rose-300">{formatINR(Math.max(0, total - paid))}</b></p></div><div className="mt-1 space-y-0.5 text-[11px] text-slate-400">{(client.video_rows ?? []).map((row, ri) => <p key={`v${ri}`}>Video · {row.video_type} / {row.quality} · {row.qty} × {formatINR(Number(row.rate))} = {formatINR(Number(row.total ?? Number(row.qty) * Number(row.rate)))}</p>)}{(client.album_rows ?? []).map((row, ri) => <p key={`a${ri}`}>Album · {row.album_type} ({row.size}) · {formatINR(Number(row.total ?? 0))}</p>)}{(order.extra_items ?? []).filter((item) => item.client_id ? item.client_id === client.id : item.client_name === client.client_name).map((item) => <p key={item.id} className="text-amber-200">Extra · {item.description} · {item.quantity} × {formatINR(item.unit_rate)} = {formatINR(item.line_amount)}</p>)}</div>{payments.filter((payment) => payment.client_id === client.id || (!payment.client_id && payment.client_name === client.client_name)).map((payment) => <p key={payment.id} className="mt-1 text-[10px] text-slate-500">Payment · {formatDateTime(payment.created_at || payment.payment_date)} · {payment.payment_mode} · {formatINR(Number(payment.amount))}{payment.note ? ` · ${payment.note}` : ''}</p>)}</div>; })}{unallocatedPaidTotal(payments) > 0 && <div className="mt-2 border-t border-amber-500/20 pt-2 text-[11px] text-amber-200">Unassigned/legacy payment: {formatINR(unallocatedPaidTotal(payments))} · this historical payment is not attributed to a specific client.</div>}</div>; })}</div>}</div>
         </div>}
         <p className="flex items-center gap-1.5 text-xs text-slate-500"><Camera className="h-3.5 w-3.5" /> Operational schedule only. Client package amounts are private.</p>
       </div>

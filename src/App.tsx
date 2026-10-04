@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { SettingsProvider } from '@/context/SettingsContext';
 import { ToastProvider } from '@/context/ToastContext';
@@ -32,11 +32,26 @@ import type { PageKey } from '@/lib/types';
 
 function AdminApp() {
   const [page, setPage] = useState<PageKey>('dashboard');
+  const pageHistory = useRef<PageKey[]>([]);
+  const currentPage = useRef<PageKey>('dashboard');
+
+  const navigatePage = (nextPage: PageKey) => {
+    if (nextPage === currentPage.current) return;
+    pageHistory.current.push(currentPage.current);
+    currentPage.current = nextPage;
+    setPage(nextPage);
+  };
+
+  const goBack = () => {
+    const previousPage = pageHistory.current.pop() ?? 'dashboard';
+    currentPage.current = previousPage;
+    setPage(previousPage);
+  };
 
   return (
-    <Layout current={page} onNavigate={setPage}>
+    <Layout current={page} onNavigate={navigatePage} onBack={goBack}>
       <ErrorBoundary>
-        <DesktopPage page={page} onNavigate={setPage} />
+        <DesktopPage page={page} onNavigate={navigatePage} />
       </ErrorBoundary>
     </Layout>
   );

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { LogIn, Sparkles, ArrowLeft, Lock, Mail, KeyRound, ShieldCheck } from 'lucide-react';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
@@ -30,6 +30,8 @@ export function AdminLogin() {
   const [loading, setLoading] = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
 
+  if (getAdminSession()) return <Navigate to="/" replace />;
+
   const handleLogin = () => {
     if (!password) { toast('Enter the admin password', 'error'); return; }
     setLoading(true);
@@ -37,7 +39,7 @@ export function AdminLogin() {
       if (password === ADMIN_MASTER_PASSWORD) {
         setAdminSession();
         setLoading(false);
-        navigate('/');
+        navigate('/', { replace: true });
       } else {
         setLoading(false);
         toast('Incorrect admin password', 'error');

@@ -858,7 +858,7 @@ export function LabOrders() {
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search studio, project, order..." className={`${inputClass} py-1.5 pl-8 pr-2 text-xs`} />
           </div>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} w-[104px] shrink-0 px-1.5 py-1.5 text-[10px]`}>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} !h-8 !w-[104px] shrink-0 !px-1.5 !py-1.5 !text-[10px]`}>
             <option value="all">All Statuses</option>
             {LIVE_STATION_FILTER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
@@ -886,7 +886,7 @@ export function LabOrders() {
       </div>}
       </div>
 
-      <div className="mt-0 w-full space-y-2 rounded-xl border border-gray-800 px-0 py-1 sm:p-2 md:-mt-2 md:space-y-3 md:p-3">
+      <div className="mt-0 w-full space-y-2 px-0 py-0 md:-mt-2 md:space-y-3 md:rounded-xl md:border md:border-gray-800 md:p-3 sm:py-2 sm:px-2">
         {activeTab === 'station' ? <>
           {loading ? (
             <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
