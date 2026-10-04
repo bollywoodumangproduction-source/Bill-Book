@@ -29,6 +29,7 @@ import { InvitationHub, PublicInvitationHub } from '@/pages/InvitationHub';
 import { PhotoSelection } from '@/pages/PhotoSelection';
 import { PublicPhotoSelection } from '@/pages/PublicPhotoSelection';
 import type { PageKey } from '@/lib/types';
+import { useAppBackGuard } from '@/lib/useAppBackGuard';
 
 function AdminApp() {
   const [page, setPage] = useState<PageKey>('dashboard');
@@ -43,13 +44,15 @@ function AdminApp() {
   };
 
   const goBack = () => {
-    const previousPage = pageHistory.current.pop() ?? 'dashboard';
+    const previousPage = pageHistory.current.pop();
+    if (!previousPage) return;
     currentPage.current = previousPage;
     setPage(previousPage);
   };
+  const guardedGoBack = useAppBackGuard(goBack);
 
   return (
-    <Layout current={page} onNavigate={navigatePage} onBack={goBack}>
+    <Layout current={page} onNavigate={navigatePage} onBack={guardedGoBack}>
       <ErrorBoundary>
         <DesktopPage page={page} onNavigate={navigatePage} />
       </ErrorBoundary>

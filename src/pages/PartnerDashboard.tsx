@@ -34,6 +34,7 @@ import { inputClass } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
 import { Field } from '@/components/ui/Field';
 import { isRightEdgeBackSwipe } from '@/lib/touchNavigation';
+import { useAppBackGuard } from '@/lib/useAppBackGuard';
 import { useToast } from '@/context/ToastContext';
 import { copyToClipboard } from '@/lib/clipboard';
 import { getVisiblePromoAds } from '@/lib/promo';
@@ -450,6 +451,11 @@ export function PartnerDashboardContent({
     next.delete('order');
     return next;
   }, { replace: true });
+  const handleAppBack = () => {
+    if (selectedOrderId) returnToOrderList();
+    else if (activeTab !== 'orders') setActiveTab('orders');
+  };
+  const guardedBack = useAppBackGuard(handleAppBack, !adminPreview);
 
   return (
     <div
@@ -465,9 +471,7 @@ export function PartnerDashboardContent({
         if (adminPreview || !start) return;
         const touch = event.changedTouches[0];
         if (!isRightEdgeBackSwipe(start, { x: touch.clientX, y: touch.clientY }, window.innerWidth)) return;
-        if (selectedOrderId) returnToOrderList();
-        else if (activeTab !== 'orders') setActiveTab('orders');
-        else navigate('/partner');
+        guardedBack();
       }}
     >
       <div className="mx-auto max-w-5xl space-y-3 sm:space-y-5">

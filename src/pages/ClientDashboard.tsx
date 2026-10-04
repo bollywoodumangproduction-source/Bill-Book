@@ -43,6 +43,7 @@ import { PinInput } from '@/components/ui/PinInput';
 import { Badge } from '@/components/ui/Badge';
 import { NotificationBell } from '@/components/NotificationBell';
 import { isRightEdgeBackSwipe, type TouchStartPoint } from '@/lib/touchNavigation';
+import { useAppBackGuard } from '@/lib/useAppBackGuard';
 
 function innerSheetCount(session: ClientSelectionSession): number {
   return (session.proofSheets ?? []).filter((sheet) => Number(sheet.sheetNumber) > 0).length;
@@ -197,6 +198,11 @@ export function ClientDashboard() {
     navigate('/client/login');
   };
 
+  const handleAppBack = () => {
+    if (showPinModal) setShowPinModal(false);
+  };
+  const guardedBack = useAppBackGuard(handleAppBack);
+
   const handleTouchStart = (event: TouchEvent<HTMLElement>) => {
     if ((event.target as HTMLElement).closest('.no-print')) return;
     const touch = event.touches[0];
@@ -207,7 +213,7 @@ export function ClientDashboard() {
     touchStartRef.current = null;
     if (!start || (event.target as HTMLElement).closest('.no-print')) return;
     const touch = event.changedTouches[0];
-    if (isRightEdgeBackSwipe(start, { x: touch.clientX, y: touch.clientY }, window.innerWidth)) navigate('/client');
+    if (isRightEdgeBackSwipe(start, { x: touch.clientX, y: touch.clientY }, window.innerWidth)) guardedBack();
   };
 
   if (loading) {
