@@ -2049,8 +2049,6 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
         work_type: allVideoRows.length > 0 ? 'Video Mixing' : allAlbumRows.length > 0 ? 'Album Design' : 'Other',
         clients,
         extra_items: extraItems,
-        is_demo: editing?.is_demo ?? false,
-        isDemo: false,
         total_album_bill: totalAlbumBill,
         total_video_bill: totalVideoBill,
         current_order_total: currentOrderTotal,
