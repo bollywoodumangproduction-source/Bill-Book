@@ -722,8 +722,6 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
         } satisfies BookingPaymentDetails,
       },
       base_amount: toNum(baseAmount),
-      is_demo: editing?.is_demo ?? false,
-      isDemo: false,
       is_login_allowed: editing?.is_login_allowed ?? false,
       access_pin: editing?.access_pin ?? '',
       pin_changed: editing?.pin_changed ?? false,
