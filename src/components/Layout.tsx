@@ -41,6 +41,7 @@ const desktopNav: { key: PageKey; label: string; icon: typeof Home }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'bookings', label: 'Bookings', icon: CalendarPlus },
   { key: 'lab', label: 'Lab Orders', icon: Clapperboard },
+  { key: 'rentals', label: 'Equipment Rentals', icon: Camera },
   { key: 'partners', label: 'Partners', icon: Users },
   { key: 'ledger', label: 'Ledger', icon: Camera },
   { key: 'payments', label: 'Payments', icon: Wallet },
@@ -62,6 +63,7 @@ const mobileNav: { key: PageKey; label: string; icon: typeof Home }[] = [
 
 const moreNav: { key: PageKey; label: string; icon: typeof Home }[] = [
   { key: 'partners', label: 'Partners', icon: Users },
+  { key: 'rentals', label: 'Equipment Rentals', icon: Camera },
   { key: 'ledger', label: 'Ledger', icon: Camera },
   { key: 'dairy', label: 'Dairy Book', icon: BookOpen },
   { key: 'promo', label: 'Promo & Setup', icon: Megaphone },
@@ -199,7 +201,7 @@ export function Layout({ current, onNavigate, onBack, children }: LayoutProps) {
           if (isRightEdgeBackSwipe(start, { x: touch.clientX, y: touch.clientY }, window.innerWidth)) onBack();
         }}
       >
-        <div className={['lab', 'bookings', 'partners', 'dairy', 'promo', 'music', 'teaser', 'invitation', 'photo-selection', 'ledger', 'payments'].includes(current) ? 'w-full px-1 md:px-0' : 'w-full p-1 sm:p-6 lg:p-8'}>{children}</div>
+        <div className={['lab', 'rentals', 'bookings', 'partners', 'dairy', 'promo', 'music', 'teaser', 'invitation', 'photo-selection', 'ledger', 'payments'].includes(current) ? 'w-full px-1 md:px-0' : 'w-full p-1 sm:p-6 lg:p-8'}>{children}</div>
       </main>
 
       {/* Mobile bottom nav */}

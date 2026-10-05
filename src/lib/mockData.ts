@@ -24,6 +24,9 @@ import type {
   ClientSelectionSession,
   DairyBookEntry,
   DairyOpeningBalance,
+  EquipmentRental,
+  EquipmentRentalItem,
+  EquipmentRentalPayment,
 } from '@/lib/types';
 
 function uuid(): string {
@@ -66,6 +69,9 @@ export interface MockDB {
   photo_selection_sessions: ClientSelectionSession[];
   dairy_book_entries: DairyBookEntry[];
   dairy_book_opening_balance: DairyOpeningBalance[];
+  equipment_rentals: EquipmentRental[];
+  equipment_rental_items: EquipmentRentalItem[];
+  equipment_rental_payments: EquipmentRentalPayment[];
 }
 
 function demoId(prefix: string, fallbackId?: string): string {
@@ -336,6 +342,9 @@ function seedDB(): MockDB {
     photo_selection_sessions: [],
     dairy_book_entries: [],
     dairy_book_opening_balance: [{ id: 1, opening_amount: 0, is_locked: false, effective_date: '', updated_at: isoNow() }],
+    equipment_rentals: [],
+    equipment_rental_items: [],
+    equipment_rental_payments: [],
   };
 }
 
@@ -418,6 +427,9 @@ export function loadDB(): MockDB {
         photo_selection_sessions: Array.isArray(db.photo_selection_sessions) ? db.photo_selection_sessions : fallback.photo_selection_sessions,
         dairy_book_entries: Array.isArray(db.dairy_book_entries) ? db.dairy_book_entries : fallback.dairy_book_entries,
         dairy_book_opening_balance: Array.isArray(db.dairy_book_opening_balance) && db.dairy_book_opening_balance.length > 0 ? db.dairy_book_opening_balance : fallback.dairy_book_opening_balance,
+        equipment_rentals: Array.isArray(db.equipment_rentals) ? db.equipment_rentals : fallback.equipment_rentals,
+        equipment_rental_items: Array.isArray(db.equipment_rental_items) ? db.equipment_rental_items : fallback.equipment_rental_items,
+        equipment_rental_payments: Array.isArray(db.equipment_rental_payments) ? db.equipment_rental_payments : fallback.equipment_rental_payments,
       };
       return merged;
     }
@@ -486,6 +498,9 @@ export function loadDemoData(): MockDB {
     photo_selection_sessions: mergeLists(current.photo_selection_sessions, demoSeed.photo_selection_sessions, 'photo-selection'),
     dairy_book_entries: mergeLists(current.dairy_book_entries, demoSeed.dairy_book_entries, 'dairy-entry'),
     dairy_book_opening_balance: current.dairy_book_opening_balance ?? demoSeed.dairy_book_opening_balance,
+    equipment_rentals: mergeLists(current.equipment_rentals, demoSeed.equipment_rentals, 'equipment-rental'),
+    equipment_rental_items: mergeLists(current.equipment_rental_items, demoSeed.equipment_rental_items, 'equipment-rental-item'),
+    equipment_rental_payments: mergeLists(current.equipment_rental_payments, demoSeed.equipment_rental_payments, 'rental-payment'),
   };
 
   saveDB(next);
@@ -520,6 +535,9 @@ export function wipeDemoData(): MockDB {
     photo_selection_sessions: (current.photo_selection_sessions ?? []).filter((row) => !isDemoRecord(row)),
     dairy_book_entries: (current.dairy_book_entries ?? []).filter((row) => !isDemoRecord(row)),
     dairy_book_opening_balance: current.dairy_book_opening_balance ?? [],
+    equipment_rentals: (current.equipment_rentals ?? []).filter((row) => !isDemoRecord(row)),
+    equipment_rental_items: (current.equipment_rental_items ?? []).filter((row) => !isDemoRecord(row)),
+    equipment_rental_payments: (current.equipment_rental_payments ?? []).filter((row) => !isDemoRecord(row)),
   };
   saveDB(next);
   return next;
@@ -548,6 +566,9 @@ export function clearAllData(): MockDB {
     photo_selection_sessions: [],
     dairy_book_entries: [],
     dairy_book_opening_balance: [],
+    equipment_rentals: [],
+    equipment_rental_items: [],
+    equipment_rental_payments: [],
   };
   try {
     localStorage.removeItem(STORAGE_KEY);

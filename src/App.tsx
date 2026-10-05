@@ -13,6 +13,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { Bookings } from '@/pages/Bookings';
 import { LabOrders } from '@/pages/StudioWork';
 import { Ledger } from '@/pages/Photographers';
+import { EquipmentRentals } from '@/pages/EquipmentRentals';
 import { Payments } from '@/pages/Payments';
 import { DairyBook } from '@/pages/DairyBook';
 import { PublicInvoice } from '@/pages/PublicInvoice';
@@ -62,6 +63,7 @@ function AdminApp() {
 
 function DesktopPage({ page, onNavigate }: { page: PageKey; onNavigate: (page: PageKey) => void }) {
   if (page === 'lab') return <LabOrders />;
+  if (page === 'rentals') return <EquipmentRentals />;
   if (page === 'bookings') return <Bookings />;
   if (page === 'dairy') return <DairyBook />;
   if (page === 'promo') return <PromoManagement />;

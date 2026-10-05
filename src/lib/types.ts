@@ -457,7 +457,41 @@ export interface DairyOpeningBalance {
   updated_at: string;
 }
 
-export type PageKey = 'dashboard' | 'bookings' | 'lab' | 'partners' | 'ledger' | 'payments' | 'dairy' | 'settings' | 'promo' | 'music' | 'teaser' | 'invitation' | 'photo-selection';
+export type RentalDirection = 'Rented Out' | 'Rented In';
+export type RentalStatus = 'Not Delivered' | 'Delivered' | 'Complete' | 'Cancelled';
+export type RentalPaymentMode = 'Cash' | 'UPI';
+
+export interface EquipmentRental {
+  id: string;
+  direction: RentalDirection;
+  item_name: string;
+  category: string;
+  quantity: number;
+  counterparty_name: string;
+  counterparty_mobile: string;
+  counterparty_type: 'Partner' | 'Other';
+  rental_date: string;
+  expected_return_date: string;
+  delivered_at: string | null;
+  actual_return_date: string | null;
+  total_rent: number;
+  status: RentalStatus;
+  note: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export interface EquipmentRentalPayment {
+  id: string;
+  rental_id: string;
+  amount: number;
+  payment_date: string;
+  payment_mode: RentalPaymentMode;
+  note: string;
+  created_at: string;
+};
+
+export type PageKey = 'dashboard' | 'bookings' | 'lab' | 'rentals' | 'partners' | 'ledger' | 'payments' | 'dairy' | 'settings' | 'promo' | 'music' | 'teaser' | 'invitation' | 'photo-selection';
 
 export type TeaserStatus = 'editing' | 'complete' | 'delivered';
 
@@ -532,6 +566,16 @@ export interface Banner {
   is_active: boolean;
   created_at: string;
 }
+
+export interface EquipmentRentalItem {
+  id: string;
+  rental_id: string;
+  item_name: string;
+  category: string;
+  quantity: number;
+  created_at: string;
+}
+
 
 export interface Popup {
   id: string;
