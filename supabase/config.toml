@@ -1,0 +1,5 @@
+[functions.portal-auth]
+verify_jwt = false
+
+[functions.public-share]
+verify_jwt = false

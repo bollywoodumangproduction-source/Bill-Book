@@ -615,6 +615,7 @@ export interface PhotoItem {
   folder: string;
   fileName: string;
   previewUrl: string;
+  originalUrl?: string;
   selected: boolean;
 }
 
@@ -662,4 +663,26 @@ export function withPhotoSessionCounts(session: ClientSelectionSession): ClientS
     totalPhotos: photos.length,
     selectedCount: photos.filter((photo) => photo.selected).length,
   };
+}
+
+const PHOTO_SESSION_DB_COLUMNS: Record<string, string> = {
+  billId: 'bill_id', clientName: 'client_name', partnerName: 'partner_name', partnerId: 'partner_id',
+  labOrderNo: 'lab_order_no', pinCode: 'pin_code', clientType: 'client_type', packageSheets: 'package_sheets',
+  extraSheetRate: 'extra_sheet_rate', isLocked: 'is_locked', pdfDownloadAllowed: 'pdf_download_allowed',
+  shareableUrl: 'shareable_url', proofSheets: 'proof_sheets',
+};
+
+export function photoSessionFromDatabase(row: Record<string, any>): ClientSelectionSession {
+  const value: Record<string, any> = { ...row };
+  for (const [camel, snake] of Object.entries(PHOTO_SESSION_DB_COLUMNS)) {
+    if (value[camel] === undefined && value[snake] !== undefined) value[camel] = value[snake];
+    delete value[snake];
+  }
+  return withPhotoSessionCounts(value as ClientSelectionSession);
+}
+
+export function photoSessionToDatabase(value: Record<string, any>): Record<string, any> {
+  const result: Record<string, any> = {};
+  for (const [key, item] of Object.entries(value)) result[PHOTO_SESSION_DB_COLUMNS[key] ?? key] = item;
+  return result;
 }

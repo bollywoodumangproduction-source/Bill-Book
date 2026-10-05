@@ -725,7 +725,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       is_demo: editing?.is_demo ?? false,
       isDemo: false,
       is_login_allowed: editing?.is_login_allowed ?? false,
-      access_pin: editing?.access_pin ?? defaultPinFromPhone(clientMobile),
+      access_pin: editing?.access_pin ?? '',
       pin_changed: editing?.pin_changed ?? false,
       work_status: editing?.work_status ?? 'pending',
     });
@@ -1510,9 +1510,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
   const safeDeliverables = booking.deliverables_data ?? DEFAULT_DELIVERABLES;
   const netDue = bookingDue(booking);
   const delivList = formatDeliverablesList(safeDeliverables);
-  const [showPin, setShowPin] = useState(false);
   const [loginAllowed, setLoginAllowed] = useState(booking.is_login_allowed ?? false);
-  const [currentPin, setCurrentPin] = useState(booking.access_pin ?? defaultPinFromPhone(booking.client_mobile));
   const [editingPin, setEditingPin] = useState(false);
   const [editPinValue, setEditPinValue] = useState('');
   const [partners, setPartners] = useState<Partner[]>([]);
@@ -1539,16 +1537,18 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
 
   const resetPin = async () => {
     const defaultPin = defaultPinFromPhone(booking.client_mobile);
-    setCurrentPin(defaultPin);
-    await supabase.from('bookings').update({ access_pin: defaultPin, pin_changed: false }).eq('id', booking.id);
+    const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'set-pin', portal: 'client_booking', recordId: booking.id, pin: defaultPin } });
+    if (error || data?.error) { toast(data?.error || 'Failed to reset PIN', 'error'); return; }
+    onUpdated({ ...booking, pin_changed: false });
     triggerRefresh();
     toast('PIN reset to default (last 4 digits of mobile)', 'success');
   };
 
   const saveEditedPin = async () => {
     if (editPinValue.length !== 4) { toast('PIN must be exactly 4 digits', 'error'); return; }
-    setCurrentPin(editPinValue);
-    await supabase.from('bookings').update({ access_pin: editPinValue, pin_changed: true }).eq('id', booking.id);
+    const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'set-pin', portal: 'client_booking', recordId: booking.id, pin: editPinValue } });
+    if (error || data?.error) { toast(data?.error || 'Failed to update PIN', 'error'); return; }
+    onUpdated({ ...booking, pin_changed: true });
     triggerRefresh();
     setEditingPin(false);
     setEditPinValue('');
@@ -1978,17 +1978,10 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
             ) : (
               <>
                 <span className="text-sm text-slate-600 dark:text-slate-300">
-                  Access PIN: <span className="font-mono font-medium text-slate-900 dark:text-white">{showPin ? currentPin : '••••'}</span>
+                  Access PIN: <span className="font-mono font-medium text-slate-900 dark:text-white">••••</span>
                 </span>
                 <button
-                  onClick={() => setShowPin(!showPin)}
-                  className="text-slate-400 hover:text-amber-500"
-                  title={showPin ? 'Hide PIN' : 'View PIN'}
-                >
-                  {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-                <button
-                  onClick={() => { setEditPinValue(currentPin); setEditingPin(true); }}
+                  onClick={() => { setEditPinValue(''); setEditingPin(true); }}
                   className="text-slate-400 hover:text-amber-500"
                   title="Edit PIN"
                 >

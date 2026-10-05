@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { Upload, X, ImageIcon, Loader2 } from 'lucide-react';
+import { uploadBrandingImage } from '@/lib/imageStorage';
 
 interface ImageUploadProps {
   value: string;
@@ -24,10 +25,10 @@ export function ImageUpload({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleFile = (file: File) => {
+  const handleFile = async (file: File) => {
     setError('');
-    if (!file.type.startsWith('image/')) {
-      setError('Please select an image file.');
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+      setError('Choose a JPG, PNG, WebP, or GIF image.');
       return;
     }
     if (file.size > maxMb * 1024 * 1024) {
@@ -35,21 +36,19 @@ export function ImageUpload({
       return;
     }
     setLoading(true);
-    const reader = new FileReader();
-    reader.onload = () => {
-      onChange(reader.result as string);
+    try {
+      const publicUrl = await uploadBrandingImage(file);
+      onChange(publicUrl);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : 'Image upload failed. Try again.');
+    } finally {
       setLoading(false);
-    };
-    reader.onerror = () => {
-      setError('Could not read the file. Try another image.');
-      setLoading(false);
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    if (file) void handleFile(file);
     e.target.value = '';
   };
 
@@ -80,7 +79,7 @@ export function ImageUpload({
         onDrop={(e) => {
           e.preventDefault();
           const file = e.dataTransfer.files?.[0];
-          if (file) handleFile(file);
+          if (file) void handleFile(file);
         }}
         className={`group relative flex cursor-pointer items-center gap-4 rounded-lg border-2 border-dashed p-4 transition-colors ${
           value
@@ -106,7 +105,7 @@ export function ImageUpload({
           {value ? (
             <>
               <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Image uploaded — click to replace</p>
-              <p className="mt-0.5 text-xs text-slate-400">PNG, JPG or WEBP. Stored as a data URL in your settings.</p>
+              <p className="mt-0.5 text-xs text-slate-400">Stored in Supabase Storage.</p>
             </>
           ) : loading ? (
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Processing image…</p>

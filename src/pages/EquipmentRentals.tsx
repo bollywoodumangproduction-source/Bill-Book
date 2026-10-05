@@ -174,7 +174,7 @@ function newRentalItem(): DraftRentalItem {
 function RentalForm({ open, rental, onClose, onSaved }: { open: boolean; rental: RentalWithPayments | null; onClose: () => void; onSaved: () => void }) {
   const { toast } = useToast();
   const [direction, setDirection] = useState<RentalDirection>(rental?.direction ?? 'Rented Out');
-  const [items, setItems] = useState<DraftRentalItem[]>(rental ? (rental.items.length ? rental.items : [{ ...newRentalItem(), item_name: rental.item_name, category: rental.category, quantity: rental.quantity }]).map((item) => ({ ...item, rowKey: `${item.id ?? Date.now()}-${Math.random()}` })) : [newRentalItem()]);
+  const [items, setItems] = useState<DraftRentalItem[]>(rental ? (rental.items.length ? rental.items : [{ ...newRentalItem(), item_name: rental.item_name, category: rental.category, quantity: rental.quantity }]).map((item) => ({ ...item, rowKey: `${('id' in item ? item.id : undefined) ?? Date.now()}-${Math.random()}` })) : [newRentalItem()]);
   const [name, setName] = useState(rental?.counterparty_name ?? '');
   const [mobile, setMobile] = useState(rental?.counterparty_mobile ?? '');
   const [rentalDate, setRentalDate] = useState(rental?.rental_date ?? todayISO());

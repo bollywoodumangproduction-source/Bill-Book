@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { createPortal } from 'react-dom';
 import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, TriangleAlert as AlertTriangle, Zap, CalendarClock, Images, HardDrive, FolderOpen } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { photoSessionFromDatabase } from '@/lib/types';
 import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabExtraCharge, LabClientDeliveryStatus, StorageLocation } from '@/lib/types';
 import { formatINR, formatDate, formatDateTime, todayISO, defaultPinFromPhone } from '@/lib/format';
 import { useToast } from '@/context/ToastContext';
@@ -278,7 +279,8 @@ export function LabOrders() {
       const { data, error } = await supabase.from('photo_selection_sessions').select('*');
       if (error) throw error;
       const map: Record<string, ClientSelectionSession | null> = {};
-      for (const row of (data ?? []) as ClientSelectionSession[]) {
+      for (const raw of data ?? []) {
+        const row = photoSessionFromDatabase(raw as Record<string, any>);
         if (row.billId) { (map as any)[row.billId] = row; }
       }
       setPhotoSessions(map);
@@ -1088,16 +1090,6 @@ function buildLabOrderDocumentFilename(order: StudioLabOrder): string {
   return `${orderNo}_${labPartner}_${projectName}.pdf`;
 }
 
-function getStoredLabTerms(): string {
-  if (typeof window === 'undefined') return DEFAULT_PRODUCTION_TERMS;
-  try {
-    const saved = window.localStorage.getItem('lab_terms_conditions');
-    return saved && saved.trim() ? saved : DEFAULT_PRODUCTION_TERMS;
-  } catch {
-    return DEFAULT_PRODUCTION_TERMS;
-  }
-}
-
 function LabDigitalStamp({ order }: { order: StudioLabOrder }) {
   const isFullyPaid = Number(order.net_final_due ?? order.net_due ?? 0) <= 0;
   const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -1121,6 +1113,7 @@ function LabDigitalStamp({ order }: { order: StudioLabOrder }) {
 
 function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: StudioLabOrder | null; onClose: () => void; settings: StudioSettings | null; onCopySummary: (o: StudioLabOrder) => void }) {
   const { toast } = useToast();
+  const { update: updateSettings } = useSettings();
   const { triggerRefresh } = useRefresh();
   const [paymentHistory, setPaymentHistory] = useState<LabPaymentInstallment[]>([]);
   const [paymentAmount, setPaymentAmount] = useState('');
@@ -1130,7 +1123,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
   const [paymentClientId, setPaymentClientId] = useState('');
   const [printPreview, setPrintPreview] = useState(false);
   const [showStamp, setShowStamp] = useState(true);
-  const [termsText, setTermsText] = useState(getStoredLabTerms());
+  const [termsText, setTermsText] = useState(settings?.production_terms?.trim() || DEFAULT_PRODUCTION_TERMS);
   const [editingTerms, setEditingTerms] = useState(false);
   const printId = `lab-bill-print-${order?.id ?? 'preview'}`;
   const exportFilename = order ? buildLabOrderDocumentFilename(order) : 'lab-order.pdf';
@@ -1140,8 +1133,17 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
     setPaymentClientId(order.clients?.length === 1 ? order.clients[0].id : '');
   }, [order]);
   useEffect(() => {
-    try { window.localStorage.setItem('lab_terms_conditions', termsText); } catch { /* noop */ }
-  }, [termsText]);
+    setTermsText(settings?.production_terms?.trim() || DEFAULT_PRODUCTION_TERMS);
+  }, [settings?.production_terms]);
+  const saveTerms = async () => {
+    try {
+      await updateSettings({ production_terms: termsText });
+      setEditingTerms(false);
+      toast('Lab terms saved to Supabase settings.', 'success');
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
+    }
+  };
   if (!order) return null;
 
   const clients = (order.clients ?? []).map((client) => ({
@@ -1391,7 +1393,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
             <div className="mb-4 rounded-xl border border-slate-200 p-3 dark:border-white/10">
               <textarea value={termsText} onChange={(e) => setTermsText(e.target.value)} rows={8} className="w-full rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700 dark:border-white/10 dark:bg-slate-950 dark:text-slate-200" />
               <div className="mt-2 flex justify-end">
-                <button type="button" onClick={() => setEditingTerms(false)} className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-white">Save Terms</button>
+                <button type="button" onClick={() => void saveTerms()} className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-white">Save Terms</button>
               </div>
             </div>
           )}
@@ -1430,13 +1432,27 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
 }
 
 function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: StudioLabOrder | null; onClose: () => void; settings: StudioSettings | null; onDualPrint?: () => void }) {
-  if (!order) return null;
-  const slipId = `lab-slip-${order.id}`;
-  const exportFilename = buildLabOrderDocumentFilename(order);
+  const { toast } = useToast();
+  const { update: updateSettings } = useSettings();
+  const slipId = `lab-slip-${order?.id ?? 'preview'}`;
+  const exportFilename = order ? buildLabOrderDocumentFilename(order) : 'lab-order.pdf';
   const [printPreview, setPrintPreview] = useState(false);
   const [showStamp, setShowStamp] = useState(true);
-  const [termsText, setTermsText] = useState(getStoredLabTerms());
+  const [termsText, setTermsText] = useState(settings?.production_terms?.trim() || DEFAULT_PRODUCTION_TERMS);
   const [editingTerms, setEditingTerms] = useState(false);
+  useEffect(() => {
+    setTermsText(settings?.production_terms?.trim() || DEFAULT_PRODUCTION_TERMS);
+  }, [settings?.production_terms]);
+  const saveTerms = async () => {
+    try {
+      await updateSettings({ production_terms: termsText });
+      setEditingTerms(false);
+      toast('Lab terms saved to Supabase settings.', 'success');
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
+    }
+  };
+  if (!order) return null;
   const download = async () => {
     setPrintPreview(true);
     setTimeout(async () => {
@@ -1445,9 +1461,6 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
       setPrintPreview(false);
     }, 120);
   };
-  useEffect(() => {
-    try { window.localStorage.setItem('lab_terms_conditions', termsText); } catch { /* noop */ }
-  }, [termsText]);
   const albumRows = (order.clients ?? []).flatMap((client) => client.album_rows ?? []);
   const videoRows = (order.clients ?? []).flatMap((client) => client.video_rows ?? []);
   const shareSlip = () => {
@@ -1488,7 +1501,7 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
           {editingTerms && (
             <div className="mb-3 rounded-lg border border-slate-200 p-3">
               <textarea value={termsText} onChange={(e) => setTermsText(e.target.value)} rows={8} className="w-full rounded border border-slate-200 p-2 text-xs text-slate-700" />
-              <div className="mt-2 flex justify-end"><button type="button" onClick={() => setEditingTerms(false)} className="rounded bg-slate-800 px-3 py-2 text-[10px] font-medium text-white">Save Terms</button></div>
+              <div className="mt-2 flex justify-end"><button type="button" onClick={() => void saveTerms()} className="rounded bg-slate-800 px-3 py-2 text-[10px] font-medium text-white">Save Terms</button></div>
             </div>
           )}
           <p className="whitespace-pre-line text-xs">{termsText || DEFAULT_PRODUCTION_TERMS}</p>
@@ -2063,7 +2076,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
         parcel_tracking_details: parcelTracking,
         video_rows: allVideoRows,
         album_rows: allAlbumRows,
-        access_pin: editing?.access_pin || defaultPinFromPhone(studioMobile),
+        access_pin: editing?.access_pin || '',
         pin_changed: editing?.pin_changed ?? false,
         is_login_allowed: editing?.is_login_allowed ?? false,
         is_emergency: isEmergency,

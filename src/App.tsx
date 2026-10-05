@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { SettingsProvider } from '@/context/SettingsContext';
 import { ToastProvider } from '@/context/ToastContext';
@@ -22,7 +22,7 @@ import { ClientDashboard } from '@/pages/ClientDashboard';
 import { ClientLandingPage, PartnerLandingPage } from '@/pages/LandingPages';
 import { PartnerLogin } from '@/pages/PartnerLogin';
 import { PartnerDashboard, getPartnerSession } from '@/pages/PartnerDashboard';
-import { AdminLogin, getAdminSession } from '@/pages/AdminLogin';
+import { AdminLogin, setAdminSession } from '@/pages/AdminLogin';
 import { getClientSession } from '@/pages/ClientLogin';
 import { MusicSelection, PublicMusicSelection } from '@/pages/MusicSelection';
 import { TeaserPreview, PublicTeaserPreview } from '@/pages/TeaserPreview';
@@ -31,6 +31,7 @@ import { PhotoSelection } from '@/pages/PhotoSelection';
 import { PublicPhotoSelection } from '@/pages/PublicPhotoSelection';
 import type { PageKey } from '@/lib/types';
 import { useAppBackGuard } from '@/lib/useAppBackGuard';
+import { supabase } from '@/lib/supabase';
 
 function AdminApp() {
   const [page, setPage] = useState<PageKey>('dashboard');
@@ -85,7 +86,32 @@ function DesktopPage({ page, onNavigate }: { page: PageKey; onNavigate: (page: P
 
 function AdminGuard() {
   const location = useLocation();
-  if (!getAdminSession()) {
+  const [authorized, setAuthorized] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    const check = async () => {
+      const { data } = await supabase.auth.getUser();
+      const allowed = data.user?.app_metadata?.role === 'admin';
+      if (active) {
+        setAuthorized(allowed);
+        if (allowed) setAdminSession();
+        else sessionStorage.removeItem('bup_admin_session');
+      }
+    };
+    void check();
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const allowed = session?.user.app_metadata?.role === 'admin';
+      if (active) {
+        setAuthorized(allowed);
+        if (allowed) setAdminSession();
+        else sessionStorage.removeItem('bup_admin_session');
+      }
+    });
+    return () => { active = false; listener.subscription.unsubscribe(); };
+  }, []);
+
+  if (authorized === null) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-sm text-slate-400">Checking admin session…</div>;
+  if (!authorized) {
     return <Navigate to="/admin/login" replace state={{ from: location }} />;
   }
   return <AdminApp />;
@@ -93,7 +119,28 @@ function AdminGuard() {
 
 function ClientGuard() {
   const location = useLocation();
-  if (!getClientSession()) {
+  const [authorized, setAuthorized] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    const check = async () => {
+      const [{ data: { user } }, localSession] = await Promise.all([supabase.auth.getUser(), Promise.resolve(getClientSession())]);
+      const role = user?.app_metadata?.role;
+      const allowed = !!localSession && user?.app_metadata?.portal_record_id === localSession.id
+        && (role === 'client_booking' || role === 'client_lab');
+      if (active) setAuthorized(allowed);
+    };
+    void check();
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const localSession = getClientSession();
+      const role = session?.user.app_metadata?.role;
+      const allowed = !!localSession && session?.user.app_metadata?.portal_record_id === localSession.id
+        && (role === 'client_booking' || role === 'client_lab');
+      if (active) setAuthorized(allowed);
+    });
+    return () => { active = false; listener.subscription.unsubscribe(); };
+  }, []);
+  if (authorized === null) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-sm text-slate-400">Checking client session…</div>;
+  if (!authorized) {
     return <Navigate to="/client/login" replace state={{ from: location }} />;
   }
   return <ClientDashboard />;
@@ -101,7 +148,26 @@ function ClientGuard() {
 
 function PartnerGuard() {
   const location = useLocation();
-  if (!getPartnerSession()) {
+  const [authorized, setAuthorized] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    const check = async () => {
+      const [{ data: { user } }, localPartner] = await Promise.all([supabase.auth.getUser(), Promise.resolve(getPartnerSession())]);
+      const allowed = !!localPartner && user?.app_metadata?.role === 'partner'
+        && user.app_metadata?.portal_record_id === localPartner.id;
+      if (active) setAuthorized(allowed);
+    };
+    void check();
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const localPartner = getPartnerSession();
+      const allowed = !!localPartner && session?.user.app_metadata?.role === 'partner'
+        && session.user.app_metadata?.portal_record_id === localPartner.id;
+      if (active) setAuthorized(allowed);
+    });
+    return () => { active = false; listener.subscription.unsubscribe(); };
+  }, []);
+  if (authorized === null) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-sm text-slate-400">Checking partner session…</div>;
+  if (!authorized) {
     return <Navigate to="/partner/login" replace state={{ from: location }} />;
   }
   return <PartnerDashboard />;

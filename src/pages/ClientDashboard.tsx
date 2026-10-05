@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { Booking, PromoAd, StudioLabOrder, TeaserProject, InvitationProject, MusicProject, ClientSelectionSession, BookingPaymentInstallment } from '@/lib/types';
-import { withPhotoSessionCounts } from '@/lib/types';
+import { photoSessionFromDatabase } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { formatINR, formatDate, formatDateTime, formatPhone } from '@/lib/format';
@@ -138,7 +138,7 @@ export function ClientDashboard() {
         const { data: phonePhoto } = await supabase.from('photo_selection_sessions').select('*').eq('phone', b.client_mobile).maybeSingle();
         photoData = phonePhoto;
       }
-      setPhotoSession(photoData ? withPhotoSessionCounts(photoData as ClientSelectionSession) : null);
+      setPhotoSession(photoData ? photoSessionFromDatabase(photoData as Record<string, any>) : null);
     } else {
       clearClientSession();
       navigate('/client/login');
@@ -183,8 +183,7 @@ export function ClientDashboard() {
           setPhotoSession(null);
           return;
         }
-        const next = payload.new as ClientSelectionSession;
-        setPhotoSession(withPhotoSessionCounts(next));
+        setPhotoSession(photoSessionFromDatabase(payload.new as Record<string, any>));
         void supabase.from('bookings').select('*').eq('id', booking.id).maybeSingle().then(({ data }) => {
           if (data) setBooking(data as Booking);
         });
@@ -466,7 +465,7 @@ export function ClientDashboard() {
                 icon={Music2}
                 title="Music Selection"
                 description={musicProject ? `Status: ${musicProject.status === 'locked' ? 'Finalized' : musicProject.status === 'submitted' ? 'Submitted' : 'Open for selection'}` : 'Choose songs for your video edit'}
-                href={musicProject ? `/music-selection?party=${encodeURIComponent(booking.client_name)}` : null}
+                href={musicProject ? `/music-selection?project=${encodeURIComponent(musicProject.id)}` : null}
                 badgeColor={musicProject?.status === 'locked' ? 'emerald' : musicProject ? 'amber' : undefined}
                 badgeText={musicProject?.status === 'locked' ? 'Locked' : musicProject ? 'Active' : undefined}
               />
@@ -674,7 +673,7 @@ function LabOrderDashboard({
     const loadPhotoSession = async () => {
       if (!order.order_no) return;
       const { data } = await supabase.from('photo_selection_sessions').select('*').eq('bill_id', order.order_no).maybeSingle();
-      if (!cancelled) setLabPhotoSession(data ? withPhotoSessionCounts(data as ClientSelectionSession) : null);
+      if (!cancelled) setLabPhotoSession(data ? photoSessionFromDatabase(data as Record<string, any>) : null);
     };
     void loadPhotoSession();
     return () => { cancelled = true; };
@@ -689,8 +688,7 @@ function LabOrderDashboard({
           setLabPhotoSession(null);
           return;
         }
-        const next = payload.new as ClientSelectionSession;
-        setLabPhotoSession(withPhotoSessionCounts(next));
+        setLabPhotoSession(photoSessionFromDatabase(payload.new as Record<string, any>));
       })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
@@ -885,17 +883,15 @@ function ChangePinModal({ open, onClose, booking, onUpdated }: { open: boolean; 
     if (currentPin.length !== 4) { toast('Current PIN must be 4 digits', 'error'); return; }
     if (newPin.length !== 4) { toast('New PIN must be 4 digits', 'error'); return; }
     if (confirmPin.length !== 4) { toast('Confirm PIN must be 4 digits', 'error'); return; }
-    const storedPin = booking.access_pin ?? '';
-    if (currentPin !== storedPin) { toast('Current PIN is incorrect', 'error'); return; }
     if (newPin !== confirmPin) { toast('New PIN and Confirm PIN do not match', 'error'); return; }
     setSaving(true);
-    const { data, error } = await supabase.from('bookings').update({ access_pin: newPin, pin_changed: true }).eq('id', booking.id).select().single();
+    const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'change-pin', currentPin, newPin } });
     setSaving(false);
-    if (error || !data) {
-      toast('Failed to update PIN. Please try again.', 'error');
+    if (error || data?.error) {
+      toast(data?.error || 'Failed to update PIN. Please try again.', 'error');
       return;
     }
-    onUpdated(data as Booking);
+    onUpdated({ ...booking, pin_changed: true });
     toast('Access PIN updated successfully', 'success');
     reset();
     onClose();
@@ -948,17 +944,15 @@ function ChangeLabPinModal({ open, onClose, order, onUpdated }: { open: boolean;
     if (currentPin.length !== 4) { toast('Current PIN must be 4 digits', 'error'); return; }
     if (newPin.length !== 4) { toast('New PIN must be 4 digits', 'error'); return; }
     if (confirmPin.length !== 4) { toast('Confirm PIN must be 4 digits', 'error'); return; }
-    const storedPin = (order.access_pin ?? '').replace(/\D/g, '');
-    if (currentPin !== storedPin) { toast('Current PIN is incorrect', 'error'); return; }
     if (newPin !== confirmPin) { toast('New PIN and Confirm PIN do not match', 'error'); return; }
     setSaving(true);
-    const { data, error } = await supabase.from('studio_lab_orders').update({ access_pin: newPin, pin_changed: true }).eq('id', order.id).select().single();
+    const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'change-pin', currentPin, newPin } });
     setSaving(false);
-    if (error || !data) {
-      toast('Failed to update PIN. Please try again.', 'error');
+    if (error || data?.error) {
+      toast(data?.error || 'Failed to update PIN. Please try again.', 'error');
       return;
     }
-    onUpdated(data as StudioLabOrder);
+    onUpdated({ ...order, pin_changed: true });
     toast('Access PIN updated successfully', 'success');
     reset();
     onClose();

@@ -45,9 +45,9 @@ function newId(): string {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function shareUrl(clientName: string): string {
+function shareUrl(projectId: string): string {
   const url = new URL('/music-selection', window.location.origin);
-  url.searchParams.set('party', clientName);
+  url.searchParams.set('project', projectId);
   return url.toString();
 }
 
@@ -140,7 +140,7 @@ export function MusicSelection() {
 
   const copyShare = async () => {
     if (!selectedProject) return;
-    const ok = await copyToClipboard(shareUrl(selectedProject.client_name));
+    const ok = await copyToClipboard(shareUrl(selectedProject.id));
     toast(ok ? 'Client portal link copied' : 'Could not copy the portal link', ok ? 'success' : 'error');
   };
 
@@ -218,7 +218,7 @@ function AdminProject({ project, cues, onAddCue, onRemoveCue, onToggleLock, onCo
     URL.revokeObjectURL(url);
     toast('Cue sheet downloaded as text file', 'success');
   };
-  const whatsappText = `Music Selection Portal: ${shareUrl(project.client_name)}\n\nKripya video mixing shuru hone se pehle apni pasand ke gaane finalize karein\n\nProject managed & Bollywood Umang Films`;
+  const whatsappText = `Music Selection Portal: ${shareUrl(project.id)}\n\nKripya video mixing shuru hone se pehle apni pasand ke gaane finalize karein\n\nProject managed & Bollywood Umang Films`;
   const whatsappHref = `https://wa.me/?text=${encodeURIComponent(whatsappText)}`;
 
   return (
@@ -265,22 +265,23 @@ export function PublicMusicSelection() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const party = new URLSearchParams(window.location.search).get('party')?.trim() ?? '';
+  const projectId = new URLSearchParams(window.location.search).get('project')?.trim() ?? '';
 
   const load = useCallback(async () => {
-    const [{ data: projectData }, { data: cueData }] = await Promise.all([supabase.from('music_projects').select('*').order('updated_at', { ascending: false }), supabase.from('music_cues').select('*').order('created_at')]);
-    const match = ((projectData ?? []) as MusicProject[]).find((item) => item.client_name.toLowerCase() === party.toLowerCase());
+    if (!projectId) { setLoading(false); return; }
+    const { data, error } = await supabase.functions.invoke('public-share', { body: { action: 'music-read', id: projectId } });
+    const match = !error ? (data?.project as MusicProject | undefined) : undefined;
     setProject(match ?? null);
-    setCues(match ? ((cueData ?? []) as MusicCue[]).filter((cue) => cue.project_id === match.id) : []);
+    setCues(match ? (data?.cues as MusicCue[] ?? []) : []);
     setLoading(false);
-  }, [party]);
+  }, [projectId]);
 
   useEffect(() => { void load(); }, [load]);
 
   const addCue = async (cue: Omit<MusicCue, 'id' | 'created_at' | 'updated_at'>) => {
     if (!project || project.status === 'locked') return;
-    const payload: MusicCue = { ...cue, id: newId(), created_at: now(), updated_at: now() };
-    await supabase.from('music_cues').insert(payload);
+    const { error } = await supabase.functions.invoke('public-share', { body: { action: 'music-add-cue', projectId: project.id, cue } });
+    if (error) { toast('Could not save this song choice', 'error'); return; }
     setShowAdd(false);
     await load();
     toast('Your song choice was added', 'success');
@@ -288,7 +289,8 @@ export function PublicMusicSelection() {
 
   const submit = async () => {
     if (!project || cues.length === 0) { toast('Add at least one song before submitting', 'error'); return; }
-    await supabase.from('music_projects').update({ status: 'locked', locked_at: now(), updated_at: now() }).eq('id', project.id);
+    const { error } = await supabase.functions.invoke('public-share', { body: { action: 'music-submit', projectId: project.id } });
+    if (error) { toast('Could not submit music selection', 'error'); return; }
     setSubmitted(true);
     await load();
   };

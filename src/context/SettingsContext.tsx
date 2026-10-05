@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { supabase } from '@/lib/supabase';
+import { getSupabaseConfigurationError, supabase, supabaseConfigured } from '@/lib/supabase';
 import type { StudioSettings } from '@/lib/types';
 
 interface SettingsContextValue {
@@ -9,32 +9,8 @@ interface SettingsContextValue {
   update: (patch: Partial<StudioSettings>) => Promise<void>;
 }
 
-const fallbackSettings: StudioSettings = {
-  id: 1,
-  films_title: 'Bollywood Umang Films',
-  films_subtitle: '(A Unit of Bollywood Umang Production) • Premium Photography & Cinematography Services',
-  production_title: 'Bollywood Umang Production',
-  production_subtitle: 'Video Mixing Lab & Post-Production Hub',
-  address: 'Kamtaul, Darbhanga, Bihar',
-  phone: '+91 9122441332',
-  email: 'bollywoodumanginfo@gmail.com',
-  films_insta: '@bollywoodumang_films',
-  production_insta: '@bollywoodumang.production',
-  bank_name: 'Bollywood Umang Production',
-  bank_details: 'Cash / UPI / Bank Transfer',
-  whatsapp_number: '+91 9122441332',
-  alternate_phone: '',
-  branch_address: '',
-  upi_id: '',
-  stamp_image_url: '',
-  films_logo_url: '',
-  production_logo_url: '',
-  terms_conditions: '',
-  master_pin: '',
-};
-
 const SettingsContext = createContext<SettingsContextValue>({
-  settings: fallbackSettings,
+  settings: null,
   loading: false,
   refresh: async () => {},
   update: async () => {},
@@ -48,31 +24,47 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   useEffect(() => { settingsRef.current = settings; }, [settings]);
 
   const refresh = useCallback(async () => {
+    if (!supabaseConfigured) {
+      setSettings(null);
+      setLoading(false);
+      return;
+    }
+    const { data: sessionData } = await supabase.auth.getSession();
+    const isAdmin = sessionData.session?.user.app_metadata?.role === 'admin';
+    const settingsTable = isAdmin ? 'studio_settings' : 'public_studio_settings';
     const { data } = await supabase
-      .from('studio_settings')
+      .from(settingsTable)
       .select('*')
       .eq('id', 1)
       .maybeSingle();
     if (data) {
-      localStorage.setItem('studio_settings_cache', JSON.stringify(data));
       setSettings(data);
     } else {
-      const cached = localStorage.getItem('studio_settings_cache');
-      setSettings(cached ? JSON.parse(cached) : fallbackSettings);
+      setSettings(null);
     }
     setLoading(false);
   }, []);
 
   const update = useCallback(async (patch: Partial<StudioSettings>) => {
-    const merged = { ...(settingsRef.current ?? fallbackSettings), ...patch };
-    localStorage.setItem('studio_settings_cache', JSON.stringify(merged));
-    setSettings(merged);
-    settingsRef.current = merged;
-    await supabase.from('studio_settings').update(patch).eq('id', 1);
+    const configError = getSupabaseConfigurationError();
+    if (configError) throw new Error(configError);
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData.session?.user.app_metadata?.role !== 'admin') throw new Error('Administrator sign-in is required to change studio settings.');
+    const { data, error } = await supabase.from('studio_settings').update(patch).eq('id', 1).select('*').maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error('Studio settings were not found in Supabase.');
+    setSettings(data as StudioSettings);
+    settingsRef.current = data as StudioSettings;
   }, []);
 
   useEffect(() => {
-    refresh();
+    void refresh();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+      // Supabase warns against starting another Supabase request directly inside
+      // this callback; defer the settings refresh until the auth event settles.
+      queueMicrotask(() => { void refresh(); });
+    });
+    return () => subscription.unsubscribe();
   }, [refresh]);
 
   const value = useMemo(() => ({ settings, loading, refresh, update }), [settings, loading, refresh, update]);

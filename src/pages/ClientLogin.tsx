@@ -4,9 +4,8 @@ import { LogIn, Sparkles, Lock } from 'lucide-react';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { supabase } from '@/lib/supabase';
-import type { Booking, StudioLabOrder } from '@/lib/types';
-import { PhoneInput } from '@/components/ui/PhoneInput';
-import { formatPhone } from '@/lib/format';
+import { inputClass } from '@/components/ui/Field';
+import { PinInput } from '@/components/ui/PinInput';
 
 const CLIENT_SESSION_KEY = 'buf_client_session';
 const LEGACY_CLIENT_SESSION_KEY = 'bup_client_session';
@@ -55,6 +54,7 @@ export function getLabSessionId(session: Record<string, any> | null): string | n
 export function clearClientSession() {
   localStorage.removeItem(CLIENT_SESSION_KEY);
   sessionStorage.removeItem(LEGACY_CLIENT_SESSION_KEY);
+  void supabase.auth.signOut();
 }
 
 export function ClientLogin() {
@@ -62,55 +62,29 @@ export function ClientLogin() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [mobile, setMobile] = useState('');
+  const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
-    if (!mobile.trim()) { toast('Enter your mobile number or booking reference', 'error'); return; }
+    if (!mobile.trim() || pin.length !== 4) { toast('Enter your mobile/reference and 4-digit PIN.', 'error'); return; }
     setLoading(true);
-    const normalizedInput = mobile.trim().toLowerCase();
-    const cleanMobile = formatPhone(mobile);
-
-    // 1. Check bookings table (end-client bookings)
-    const { data: bookingData } = await supabase.from('bookings').select('*');
-    const bookingMatch = ((bookingData ?? []) as Booking[]).find(
-      (b) =>
-        formatPhone(b.client_mobile) === cleanMobile ||
-        (b.booking_no ?? '').toLowerCase() === normalizedInput ||
-        (b.id ?? '').toLowerCase() === normalizedInput,
-    );
-
-    if (bookingMatch) {
-      if (!bookingMatch.is_login_allowed) {
-        setLoading(false);
-        toast('Login access is currently disabled for your account. Please contact studio admin.', 'error');
-        return;
-      }
-      setClientSession(bookingMatch);
+    const { data, error } = await supabase.functions.invoke('portal-auth', {
+      body: { action: 'login', portal: 'client', identifier: mobile.trim(), pin },
+    });
+    if (error || !data?.session || !data?.recordId || !data?.portal) {
       setLoading(false);
-      navigate('/client/dashboard');
+      toast(data?.error || error?.message || 'Login failed. Check the details and try again.', 'error');
       return;
     }
-
-    // 2. Check studio_lab_orders table (lab partner orders)
-    const { data: labData } = await supabase.from('studio_lab_orders').select('*');
-    const labMatch = ((labData ?? []) as StudioLabOrder[]).find(
-      (o) =>
-        formatPhone(o.studio_mobile) === cleanMobile ||
-        (o.order_no ?? '').toLowerCase() === normalizedInput ||
-        (o.id ?? '').toLowerCase() === normalizedInput,
-    );
-
+    const { error: sessionError } = await supabase.auth.setSession(data.session);
+    if (sessionError) {
+      setLoading(false);
+      toast('Could not start a secure session. Please try again.', 'error');
+      return;
+    }
+    const labPortal = data.portal === 'client_lab';
+    setClientSession({ id: data.recordId, ...(labPortal ? { __lab_session: true } : {}) });
     setLoading(false);
-
-    if (!labMatch) {
-      toast('No account found with that mobile number or booking reference', 'error');
-      return;
-    }
-    if (!labMatch.is_login_allowed) {
-      toast('Login access is currently disabled for your account. Please contact studio admin.', 'error');
-      return;
-    }
-    setLabClientSession({ ...labMatch, __lab_session: true });
     navigate('/client/dashboard');
   };
 
@@ -132,8 +106,12 @@ export function ClientLogin() {
 
           <div className="space-y-4">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Mobile Number</label>
-              <PhoneInput value={mobile} onChange={setMobile} />
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Mobile Number or Booking / Order Reference</label>
+              <input value={mobile} onChange={(event) => setMobile(event.target.value)} className={inputClass} placeholder="Mobile number or booking/order reference" autoComplete="username" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">4-digit PIN</label>
+              <PinInput value={pin} onChange={setPin} />
             </div>
             <button
               onClick={handleLogin}

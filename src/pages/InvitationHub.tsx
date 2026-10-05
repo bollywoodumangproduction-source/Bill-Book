@@ -256,8 +256,8 @@ export function PublicInvitationHub() {
 
   const load = useCallback(async () => {
     if (!projectId) { setLoading(false); return; }
-    const { data } = await supabase.from('invitation_projects').select('*').eq('id', projectId).maybeSingle();
-    if (data) setProject(data as InvitationProject);
+    const { data, error } = await supabase.functions.invoke('public-share', { body: { action: 'invitation', id: projectId } });
+    if (!error && data?.project) setProject(data.project as InvitationProject);
     setLoading(false);
   }, [projectId]);
 

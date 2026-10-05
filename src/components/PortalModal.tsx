@@ -24,7 +24,7 @@ import { supabase } from '@/lib/supabase';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import type { Booking, Partner, PromoAd, PromoAdAudience, ClientSelectionSession } from '@/lib/types';
-import { withPhotoSessionCounts } from '@/lib/types';
+import { photoSessionFromDatabase } from '@/lib/types';
 import { formatINR, formatDate, formatPhone } from '@/lib/format';
 import { inputClass } from '@/components/ui/Field';
 import { PhoneInput } from '@/components/ui/PhoneInput';
@@ -104,11 +104,11 @@ export function PortalModal({ open, onClose, portalType, adminPreview = false }:
       .eq('bill_id', bookingRecord.booking_no)
       .maybeSingle();
     if (data) {
-      setClientPhotoSession(withPhotoSessionCounts(data as ClientSelectionSession));
+      setClientPhotoSession(photoSessionFromDatabase(data as Record<string, any>));
       return;
     }
     const { data: phoneData } = await supabase.from('photo_selection_sessions').select('*').eq('phone', bookingRecord.client_mobile).maybeSingle();
-    setClientPhotoSession(phoneData ? withPhotoSessionCounts(phoneData as ClientSelectionSession) : null);
+    setClientPhotoSession(phoneData ? photoSessionFromDatabase(phoneData as Record<string, any>) : null);
   }, []);
 
   useEffect(() => {
@@ -118,7 +118,7 @@ export function PortalModal({ open, onClose, portalType, adminPreview = false }:
       .on('postgres_changes', { event: '*', schema: 'public', table: 'photo_selection_sessions', filter: `bill_id=eq.${clientBooking.booking_no}` }, (payload) => {
         if (payload.eventType === 'DELETE') setClientPhotoSession(null);
         else {
-          setClientPhotoSession(withPhotoSessionCounts(payload.new as ClientSelectionSession));
+          setClientPhotoSession(photoSessionFromDatabase(payload.new as Record<string, any>));
           void supabase.from('bookings').select('*').eq('id', clientBooking.id).maybeSingle().then(({ data }) => {
             if (data) setClientBooking(data as Booking);
           });
@@ -564,13 +564,12 @@ function PartnerPwdModal({ open, onClose, partner, onUpdated, toast }: {
     if (currentPwd.length !== 4) { toast('Current PIN must be 4 digits', 'error'); return; }
     if (newPwd.length !== 4) { toast('New PIN must be 4 digits', 'error'); return; }
     if (confirmPwd.length !== 4) { toast('Confirm PIN must be 4 digits', 'error'); return; }
-    if (currentPwd !== (partner.portal_password ?? '')) { toast('Current PIN is incorrect', 'error'); return; }
     if (newPwd !== confirmPwd) { toast('New PIN and Confirm PIN do not match', 'error'); return; }
     setSaving(true);
-    const { data, error } = await supabase.from('partners').update({ portal_password: newPwd, password_changed: true }).eq('id', partner.id).select().single();
+    const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'change-pin', currentPin: currentPwd, newPin: newPwd } });
     setSaving(false);
-    if (error || !data) { toast('Failed to update PIN', 'error'); return; }
-    onUpdated(data as Partner);
+    if (error || data?.error) { toast(data?.error || 'Failed to update PIN', 'error'); return; }
+    onUpdated({ ...partner, password_changed: true });
     toast('PIN updated successfully', 'success');
     setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
     onClose();

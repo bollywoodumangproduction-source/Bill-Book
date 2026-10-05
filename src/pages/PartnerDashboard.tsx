@@ -28,7 +28,7 @@ import {
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import type { EventFunction, Partner, PromoAd, StudioLabOrder, ClientSelectionSession } from '@/lib/types';
-import { withPhotoSessionCounts } from '@/lib/types';
+import { photoSessionFromDatabase } from '@/lib/types';
 import { formatDate, formatDateTime, formatINR, formatPhone } from '@/lib/format';
 import { inputClass } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
@@ -91,6 +91,9 @@ export function getPartnerSession(): Partner | null {
 export function clearPartnerSession() {
   localStorage.removeItem(PARTNER_SESSION_KEY);
   sessionStorage.removeItem(LEGACY_PARTNER_SESSION_KEY);
+  localStorage.removeItem('partnerAuth');
+  localStorage.removeItem('partnerPhone');
+  void supabase.auth.signOut();
 }
 
 interface CrewBooking {
@@ -107,26 +110,17 @@ interface CrewBooking {
 
 /** Loads all data for a partner: assigned shoots, lab orders, ledger balance, photo sessions. */
 async function fetchPartnerData(p: Partner) {
-  const [{ data: assignmentData }, { data: labOrderData }, { data: ledger }, { data: directTxns }] = await Promise.all([
-    supabase.from('shoot_assignments').select('booking_id, function_name, role, reporting_time').eq('partner_id', p.id),
-    supabase.from('studio_lab_orders').select('*').eq('partner_id', p.id).order('created_at'),
+  const [{ data: bookingPayload, error: bookingError }, { data: labOrderPayload, error: labOrderError }, { data: ledger }, { data: directTxns }] = await Promise.all([
+    supabase.functions.invoke('portal-auth', { body: { action: 'partner-bookings' } }),
+    supabase.functions.invoke('portal-auth', { body: { action: 'partner-lab-orders' } }),
     supabase.from('photographer_ledger').select('*').eq('mobile', p.mobile),
     supabase.from('direct_transactions').select('*').eq('partner_id', p.id),
   ]);
+  if (bookingError) throw new Error(bookingPayload?.error || bookingError.message || 'Could not load assigned shoots.');
+  if (labOrderError) throw new Error(labOrderPayload?.error || labOrderError.message || 'Could not load lab orders.');
+  const bookings = (bookingPayload?.bookings ?? []) as CrewBooking[];
 
-  const ids = [...new Set((assignmentData ?? []).map((a: { booking_id: string }) => a.booking_id))];
-  const { data: bookingData } = ids.length > 0
-    ? await supabase.from('bookings').select('id, client_name, client_mobile, event_function, shoot_date, shoot_time, venue, events').in('id', ids).order('shoot_date')
-    : { data: [] };
-  const assignmentsByBooking = new Map<string, CrewBooking['assignments']>();
-  (assignmentData ?? []).forEach((a: { booking_id: string; function_name: string; role: string; reporting_time: string }) => {
-    const current = assignmentsByBooking.get(a.booking_id) ?? [];
-    current.push({ function_name: a.function_name, role: a.role, reporting_time: a.reporting_time });
-    assignmentsByBooking.set(a.booking_id, current);
-  });
-  const bookings = ((bookingData ?? []) as Omit<CrewBooking, 'assignments'>[]).map((b) => ({ ...b, assignments: assignmentsByBooking.get(b.id) ?? [] }));
-
-  const activeLabOrders = ((labOrderData ?? []) as StudioLabOrder[]).filter((o) => !o.deleted_at && (!o.archived_at || o.order_status === 'Delivered'));
+  const activeLabOrders = ((labOrderPayload?.orders ?? []) as StudioLabOrder[]).filter((o) => !o.deleted_at && (!o.archived_at || o.order_status === 'Delivered'));
 
   const ledgerEntries = (ledger ?? []) as Array<{ entry_type: string; amount: number }>;
   const directEntries = (directTxns ?? []) as Array<{ txn_type: string; amount: number }>;
@@ -139,65 +133,21 @@ async function fetchPartnerData(p: Partner) {
 }
 
 export function PartnerDashboard() {
-  const { settings } = useSettings();
   const navigate = useNavigate();
-  const [mobile, setMobile] = useState('');
   const [partner, setPartner] = useState<Partner | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadFromSession = useCallback(async () => {
-    const storedAuth = localStorage.getItem('partnerAuth');
-    const storedPhone = localStorage.getItem('partnerPhone');
-    let localPartner: Partner | null = null;
-
-    if (storedAuth) {
-      try {
-        const parsed = JSON.parse(storedAuth);
-        if (parsed && typeof parsed === 'object') localPartner = parsed as Partner;
-      } catch {
-        localStorage.removeItem('partnerAuth');
-      }
-    }
-
-    const registeredPartners = (settings as any)?.partners || [];
-    if (!localPartner && storedPhone) {
-      const phone = cleanPartnerPhone(storedPhone);
-      localPartner = (registeredPartners.find((candidate: any) =>
-        cleanPartnerPhone(candidate.phone || candidate.mobile) === phone,
-      ) as Partner | undefined) ?? null;
-    }
-
-    if (!localPartner) {
-      localPartner = getPartnerSession();
-    }
-
-    if (localPartner) {
-      setPartner(localPartner);
-      localStorage.setItem('partnerAuth', JSON.stringify(localPartner));
-      localStorage.setItem('partnerPhone', localPartner.mobile || '');
-    }
-
+    const { data: { user } } = await supabase.auth.getUser();
+    const localPartner = getPartnerSession();
+    const isOwnPartner = user?.app_metadata?.role === 'partner'
+      && user.app_metadata?.portal_record_id === localPartner?.id;
+    if (localPartner && isOwnPartner) setPartner(localPartner);
+    else if (localPartner) clearPartnerSession();
     setLoading(false);
-  }, [settings]);
+  }, []);
 
   useEffect(() => { loadFromSession(); }, [loadFromSession]);
-
-  const signIn = async () => {
-    if (!mobile.trim()) { setError('Enter your registered mobile number'); return; }
-    setLoading(true);
-    setError('');
-    const { data: partnerData } = await supabase.from('partners').select('*');
-    const matchedPartner = ((partnerData ?? []) as Partner[]).find((candidate) => cleanPartnerPhone(mobile) === cleanPartnerPhone(candidate.mobile));
-    if (!matchedPartner) {
-      setError('No staff profile found for this mobile number.');
-      setLoading(false);
-      return;
-    }
-    const p = matchedPartner;
-    setPartnerSession(p);
-    setPartner(p);
-    setLoading(false);
-  };
 
   const handleLogout = () => {
     clearPartnerSession();
@@ -276,11 +226,6 @@ export function PartnerDashboardContent({
     };
     void load();
 
-    const labOrdersChannel = supabase
-      .channel(`partner-lab-orders-${partner.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'studio_lab_orders', filter: `partner_id=eq.${partner.id}` }, () => { void load(); })
-      .subscribe();
-
     const assignmentsChannel = supabase
       .channel(`partner-assignments-${partner.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'shoot_assignments', filter: `partner_id=eq.${partner.id}` }, () => { void load(); })
@@ -301,9 +246,13 @@ export function PartnerDashboardContent({
       .on('postgres_changes', { event: '*', schema: 'public', table: 'photo_selection_sessions' }, () => { setPhotoSessionRevision((revision) => revision + 1); })
       .subscribe();
 
+    // Lab orders are delivered by an allow-listed Edge Function response so
+    // their client PIN columns are never sent over a Realtime row payload.
+    const refreshTimer = window.setInterval(() => { void load(); }, 30000);
+
     return () => {
       cancelled = true;
-      supabase.removeChannel(labOrdersChannel);
+      window.clearInterval(refreshTimer);
       supabase.removeChannel(assignmentsChannel);
       supabase.removeChannel(ledgerChannel);
       supabase.removeChannel(transactionsChannel);
@@ -319,7 +268,7 @@ export function PartnerDashboardContent({
         labOrders.map(async (o) => {
           if (!o.order_no) return [o.id, null] as const;
           const { data } = await supabase.from('photo_selection_sessions').select('*').eq('bill_id', o.order_no).maybeSingle();
-          return [o.id, data ? withPhotoSessionCounts(data as ClientSelectionSession) : null] as const;
+          return [o.id, data ? photoSessionFromDatabase(data as Record<string, any>) : null] as const;
         }),
       );
       if (!cancelled) {
@@ -525,7 +474,7 @@ export function PartnerDashboardContent({
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Music2 className="h-4 w-4 text-amber-400" /> Music Selection</h2>
             <div className="space-y-3">
               {musicProjects.map((project) => {
-                const shareUrl = `${window.location.origin}/music-selection?party=${encodeURIComponent(project.client_name)}`;
+                const shareUrl = `${window.location.origin}/music-selection?project=${encodeURIComponent(project.id)}`;
                 return (
                   <div key={project.id} className="rounded-lg border border-white/10 bg-white/5 p-3">
                     <div className="flex items-center justify-between gap-3">
@@ -745,19 +694,17 @@ function PartnerChangePasswordModal({ open, onClose, partner, onUpdated }: { ope
 
   const handleSubmit = async () => {
     if (!currentPwd || !newPwd || !confirmPwd) { toast('Please fill all fields', 'error'); return; }
-    const storedPwd = partner.portal_password ?? '';
-    if (currentPwd !== storedPwd) { toast('Current password is incorrect', 'error'); return; }
-    if (newPwd.length < 6) { toast('New password must be at least 6 characters', 'error'); return; }
+    if (!/^\d{4}$/.test(currentPwd) || !/^\d{4}$/.test(newPwd)) { toast('PIN must be exactly 4 digits', 'error'); return; }
     if (newPwd !== confirmPwd) { toast('New passwords do not match', 'error'); return; }
     setSaving(true);
-    const { data, error } = await supabase.from('partners').update({ portal_password: newPwd, password_changed: true }).eq('id', partner.id).select().single();
+    const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'change-pin', currentPin: currentPwd, newPin: newPwd } });
     setSaving(false);
-    if (error || !data) {
-      toast('Failed to change password. Please try again.', 'error');
+    if (error || data?.error) {
+      toast(data?.error || 'Failed to change PIN. Please try again.', 'error');
       return;
     }
-    onUpdated(data as Partner);
-    toast('Password updated successfully!', 'success');
+    onUpdated({ ...partner, password_changed: true });
+    toast('PIN updated successfully!', 'success');
     setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
     onClose();
   };

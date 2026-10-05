@@ -268,14 +268,10 @@ export function PublicTeaserPreview() {
 
   const load = useCallback(async () => {
     if (!projectId) { setLoading(false); return; }
-    const { data } = await supabase.from('teaser_projects').select('*').eq('id', projectId).maybeSingle();
-    if (data) {
-      const teaser = data as TeaserProject;
-      setProject(teaser);
-      if (teaser.booking_id) {
-        const { data: bookingData } = await supabase.from('bookings').select('*').eq('id', teaser.booking_id).maybeSingle();
-        if (bookingData) setBooking(bookingData as Booking);
-      }
+    const { data, error } = await supabase.functions.invoke('public-share', { body: { action: 'teaser', id: projectId } });
+    if (!error && data?.project) {
+      setProject(data.project as TeaserProject);
+      setBooking((data.booking as Booking | null) ?? null);
     }
     setLoading(false);
   }, [projectId]);

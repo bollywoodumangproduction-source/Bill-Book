@@ -22,12 +22,6 @@ import { withPhotoSessionCounts } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 
-function now(): string {
-  return new Date().toISOString();
-}
-
-const PIN_STORAGE_KEY = 'photo_selection_pin';
-
 export function PublicPhotoSelection() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const { settings } = useSettings();
@@ -35,7 +29,9 @@ export function PublicPhotoSelection() {
   const [session, setSession] = useState<ClientSelectionSession | null>(null);
   const [partner, setPartner] = useState<Partner | null>(null);
   const [loading, setLoading] = useState(true);
+  const [linkExists, setLinkExists] = useState(false);
   const [pinVerified, setPinVerified] = useState(false);
+  const [verifiedPin, setVerifiedPin] = useState('');
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
   const [activeFolder, setActiveFolder] = useState('All');
@@ -44,61 +40,34 @@ export function PublicPhotoSelection() {
   const [showProofing, setShowProofing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const [visiblePhotoLimit, setVisiblePhotoLimit] = useState(120);
 
-  const load = useCallback(async () => {
-    if (!sessionId) return;
-    const { data } = await supabase.from('photo_selection_sessions').select('*').eq('id', sessionId).single();
-    const loadedSession = data ? withPhotoSessionCounts(data as ClientSelectionSession) : null;
-    setSession(loadedSession);
-    if (loadedSession?.partnerId || loadedSession?.partnerName) {
-      const partnerQuery = supabase.from('partners').select('*');
-      const { data: partnerData } = await (loadedSession.partnerId
-        ? partnerQuery.eq('id', loadedSession.partnerId).maybeSingle()
-        : partnerQuery.eq('name', loadedSession.partnerName).maybeSingle());
-      setPartner(partnerData as Partner | null);
-    } else {
-      setPartner(null);
+  const load = useCallback(async (pin?: string) => {
+    if (!sessionId) { setLoading(false); return false; }
+    if (!pin) {
+      const { data } = await supabase.functions.invoke('public-share', { body: { action: 'photo-check', id: sessionId } });
+      setLinkExists(Boolean(data?.exists));
+      setLoading(false);
+      return Boolean(data?.exists);
     }
-    setLoading(false);
+    const { data, error } = await supabase.functions.invoke('public-share', { body: { action: 'photo-verify', id: sessionId, pin } });
+    if (error || !data?.session) return false;
+    setSession(withPhotoSessionCounts(data.session as ClientSelectionSession));
+    setPartner((data.partner as Partner | null) ?? null);
+    return true;
   }, [sessionId]);
-
-  // Keep partner name and logo current on existing B2B links after profile edits.
-  useEffect(() => {
-    if (!session?.partnerId) return;
-    const channel = supabase
-      .channel(`public-photo-partner-${session.partnerId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'partners', filter: `id=eq.${session.partnerId}` }, (payload) => {
-        if (payload.eventType === 'DELETE') setPartner(null);
-        else setPartner(payload.new as Partner);
-      })
-      .subscribe();
-    return () => { void supabase.removeChannel(channel); };
-  }, [session?.partnerId]);
 
   useEffect(() => { void load(); }, [load]);
 
-  // Keep an already-open client gallery in sync with admin Lock, PDF, and session updates.
-  useEffect(() => {
-    if (!sessionId) return;
-    const channel = supabase
-      .channel(`public-photo-session-${sessionId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'photo_selection_sessions', filter: `id=eq.${sessionId}` }, (payload) => {
-        if (payload.eventType === 'DELETE') {
-          setSession(null);
-          return;
-        }
-        setSession(withPhotoSessionCounts(payload.new as ClientSelectionSession));
-      })
-      .subscribe();
-    return () => { void supabase.removeChannel(channel); };
-  }, [sessionId]);
+  useEffect(() => { setVisiblePhotoLimit(120); }, [activeFolder, sessionId]);
 
-  // PIN check from sessionStorage
+  // Refresh lock/proof status without exposing the session table to anonymous clients.
   useEffect(() => {
-    if (!sessionId) return;
-    const stored = sessionStorage.getItem(`${PIN_STORAGE_KEY}_${sessionId}`);
-    if (stored === 'verified') setPinVerified(true);
-  }, [sessionId]);
+    if (!pinVerified || !verifiedPin) return;
+    const timer = window.setInterval(() => { void load(verifiedPin); }, 20000);
+    return () => window.clearInterval(timer);
+  }, [pinVerified, verifiedPin, load]);
 
   // Anti-theft: disable right-click, drag, long-press
   useEffect(() => {
@@ -119,31 +88,42 @@ export function PublicPhotoSelection() {
     };
   }, [pinVerified]);
 
-  const verifyPin = () => {
-    if (!session) return;
-    if (pinInput.trim() === session.pinCode) {
+  const verifyPin = async () => {
+    if (pinInput.length !== 4) return;
+    const valid = await load(pinInput);
+    if (valid) {
+      setVerifiedPin(pinInput);
       setPinVerified(true);
       setPinError(false);
-      sessionStorage.setItem(`${PIN_STORAGE_KEY}_${sessionId!}`, 'verified');
     } else {
       setPinError(true);
-      toast('Incorrect PIN. Please check and try again.', 'error');
+      toast('PIN was incorrect or the gallery is unavailable.', 'error');
     }
   };
 
   const togglePhoto = useCallback(async (photoId: string) => {
     if (!session || session.isLocked) return;
     const photos = session.photos.map((p) => p.id === photoId ? { ...p, selected: !p.selected } : p);
-    const updated = { ...session, photos, updated_at: now() };
-    setSession(updated);
-    await supabase.from('photo_selection_sessions').update({ photos, updated_at: now() }).eq('id', session.id);
-  }, [session]);
+    const { data, error } = await supabase.functions.invoke('public-share', { body: { action: 'photo-update', sessionId: session.id, pin: verifiedPin, photos } });
+    if (error || !data?.session) { toast(data?.error || 'Could not save your selection.', 'error'); return; }
+    setSession(withPhotoSessionCounts(data.session as ClientSelectionSession));
+  }, [session, verifiedPin, toast]);
 
   const visiblePhotos = useMemo(() => {
     if (!session) return [];
     if (activeFolder === 'All') return session.photos;
     return session.photos.filter((p) => p.folder === activeFolder);
   }, [session, activeFolder]);
+
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+    if (!sentinel || visiblePhotoLimit >= visiblePhotos.length) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setVisiblePhotoLimit((limit) => Math.min(limit + 120, visiblePhotos.length));
+    }, { rootMargin: '700px' });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [visiblePhotoLimit, visiblePhotos.length]);
 
   const selectedCount = session?.photos.filter((p) => p.selected).length ?? 0;
   const totalCount = session?.photos.length ?? 0;
@@ -185,12 +165,9 @@ export function PublicPhotoSelection() {
   const submitFinal = async () => {
     if (!session) return;
     setSubmitting(true);
-    await supabase.from('photo_selection_sessions').update({
-      isLocked: true,
-      submitted_at: now(),
-      updated_at: now(),
-    }).eq('id', session.id);
-    await load();
+    const { data, error } = await supabase.functions.invoke('public-share', { body: { action: 'photo-submit', sessionId: session.id, pin: verifiedPin } });
+    if (error || !data?.session) { setSubmitting(false); toast(data?.error || 'Could not submit your selection.', 'error'); return; }
+    setSession(withPhotoSessionCounts(data.session as ClientSelectionSession));
     setSubmitting(false);
     toast('Your selection has been submitted. The gallery is now locked.', 'success');
   };
@@ -228,7 +205,7 @@ export function PublicPhotoSelection() {
     );
   }
 
-  if (!session) {
+  if (!linkExists) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-center text-white">
         <div>
@@ -271,6 +248,8 @@ export function PublicPhotoSelection() {
       </div>
     );
   }
+
+  if (!session) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-300">Loading gallery…</div>;
 
   const isLocked = session.isLocked;
 
@@ -346,7 +325,7 @@ export function PublicPhotoSelection() {
           </div>
         ) : (
           <div ref={gridRef} className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
-            {visiblePhotos.map((photo, idx) => (
+            {visiblePhotos.slice(0, visiblePhotoLimit).map((photo, idx) => (
               <div
                 key={photo.id}
                 className={`group relative overflow-hidden rounded-xl border-2 transition ${photo.selected ? 'border-emerald-500' : 'border-transparent'}`}
@@ -355,6 +334,8 @@ export function PublicPhotoSelection() {
                   src={photo.previewUrl}
                   alt={photo.fileName}
                   className="aspect-square w-full object-cover select-none"
+                  loading="lazy"
+                  decoding="async"
                   draggable={false}
                   onContextMenu={(e) => e.preventDefault()}
                 />
@@ -386,6 +367,7 @@ export function PublicPhotoSelection() {
             ))}
           </div>
         )}
+        {visiblePhotoLimit < visiblePhotos.length && <div ref={loadMoreRef} className="py-3 text-center text-xs text-slate-500">Loading more photos as you scroll…</div>}
       </div>
 
       {/* Bottom action bar */}
@@ -439,7 +421,7 @@ export function PublicPhotoSelection() {
               <ChevronLeft className="h-6 w-6" />
             </button>
             <div className="flex max-h-[90vh] max-w-[90vw] flex-col items-center">
-              <img src={focusPhoto.previewUrl} alt={focusPhoto.fileName} className="max-h-[80vh] max-w-[90vw] object-contain" draggable={false} onContextMenu={(e) => e.preventDefault()} />
+              <img src={focusPhoto.originalUrl || focusPhoto.previewUrl} alt={focusPhoto.fileName} className="max-h-[80vh] max-w-[90vw] object-contain" decoding="async" draggable={false} onContextMenu={(e) => e.preventDefault()} />
               <div className="mt-3 flex items-center gap-3">
                 <button
                   onClick={() => togglePhoto(focusPhoto.id)}

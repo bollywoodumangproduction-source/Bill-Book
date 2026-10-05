@@ -1,17 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Save, Sparkles, Camera, Clapperboard, Stamp, FileText, Cloud, CloudOff, Upload, Download, RefreshCw, HardDrive, QrCode, Building2, User, LogIn, LogOut, ShieldCheck, FolderOpen, Database, Trash2, FlaskConical, Megaphone, Plus, Pencil, Trash, Eye, EyeOff, MessageCircle, Phone, Instagram, ChevronDown, LockKeyhole, ShieldAlert } from 'lucide-react';
+import { Save, Sparkles, Camera, Clapperboard, Stamp, FileText, QrCode, Building2, Database, Megaphone, Plus, Pencil, Trash, Eye, EyeOff, MessageCircle, Phone, Instagram, LockKeyhole } from 'lucide-react';
 import type { StudioSettings, PromoAd, PromoAdAudience } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
-import { useSync } from '@/context/SyncContext';
-import { useRefresh } from '@/context/RefreshContext';
 import { supabase } from '@/lib/supabase';
 import { Field, inputClass, textareaClass } from '@/components/ui/Field';
 import { ImageUpload } from '@/components/ui/ImageUpload';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Modal } from '@/components/ui/Modal';
-import { backupToDrive, restoreFromDrive, listDriveBackups, getStoredFolderId, setStoredFolderId, syncConnectionState, readDriveMeta, type DriveBackupFile } from '@/lib/driveBackup';
-import { signInWithGoogle, disconnectGoogle, getStoredClientId, setStoredClientId, getStoredProfile, getStoredToken } from '@/lib/googleAuth';
 
 type Tab = 'films' | 'production' | 'promo';
 
@@ -76,28 +71,6 @@ export function SettingsPage() {
   const [terms, setTerms] = useState(DEFAULT_TERMS);
   const [saving, setSaving] = useState(false);
 
-  // Google Drive state
-  const { driveMeta, refreshDriveMeta } = useSync();
-  const [backingUp, setBackingUp] = useState(false);
-  const [restoring, setRestoring] = useState(false);
-  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
-  const [googleClientId, setGoogleClientId] = useState('');
-  const [driveFolderId, setDriveFolderId] = useState('');
-  const [signingIn, setSigningIn] = useState(false);
-  const [backupFiles, setBackupFiles] = useState<DriveBackupFile[]>([]);
-  const [listingFiles, setListingFiles] = useState(false);
-
-  const { triggerRefresh } = useRefresh();
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [showDemoConfirm, setShowDemoConfirm] = useState(false);
-  const [showResetMenu, setShowResetMenu] = useState(false);
-  const [showFactoryResetPassword, setShowFactoryResetPassword] = useState(false);
-  const [factoryResetPassword, setFactoryResetPassword] = useState('');
-  const [factoryResetError, setFactoryResetError] = useState('');
-  const [factoryResetLoading, setFactoryResetLoading] = useState(false);
-  const [clearing, setClearing] = useState(false);
-  const [loadingDemo, setLoadingDemo] = useState(false);
-
   const termsRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -137,11 +110,6 @@ export function SettingsPage() {
     setStudioCallNumber(settings.studio_call_number ?? settings.phone ?? '');
     setStudioInstagramUrl(settings.studio_instagram_url ?? '');
   }, [settings]);
-
-  useEffect(() => {
-    setGoogleClientId(getStoredClientId());
-    setDriveFolderId(getStoredFolderId());
-  }, []);
 
   const loadPromoAds = useCallback(async () => {
     try {
@@ -196,130 +164,6 @@ export function SettingsPage() {
     toast('Settings updated successfully!', 'success');
   };
 
-  const loadDemoData = useCallback(async () => {
-    setLoadingDemo(true);
-    try {
-      (supabase as any).loadDemoData();
-      triggerRefresh();
-      toast('Demo data loaded successfully', 'success');
-    } catch (error) {
-      console.error('Load demo data failed:', error);
-      toast('Failed to load demo data. Please try again.', 'error');
-    } finally {
-      setLoadingDemo(false);
-    }
-  }, [toast, triggerRefresh]);
-
-  const resetDemoDataOnly = useCallback(async () => {
-    setLoadingDemo(true);
-    try {
-      (supabase as any).clearDemoData();
-      triggerRefresh();
-      toast('Demo data removed successfully', 'success');
-    } catch (error) {
-      console.error('Reset demo data failed:', error);
-      toast('Failed to reset demo data. Please try again.', 'error');
-    } finally {
-      setLoadingDemo(false);
-    }
-  }, [toast, triggerRefresh]);
-
-  const handleFactoryReset = async () => {
-    const entered = factoryResetPassword.trim();
-    if (!entered) {
-      setFactoryResetError('Enter the current admin or studio password to continue.');
-      return;
-    }
-    const validPassword = entered === 'admin123' || (settings?.master_pin && entered === settings.master_pin);
-    if (!validPassword) {
-      setFactoryResetError('Incorrect password. No data was changed.');
-      return;
-    }
-
-    setFactoryResetLoading(true);
-    try {
-      (supabase as any).clearAll();
-      triggerRefresh();
-      setShowFactoryResetPassword(false);
-      setFactoryResetPassword('');
-      setFactoryResetError('');
-      toast('All studio data completely wiped', 'success');
-    } catch (error) {
-      console.error('Factory reset failed:', error);
-      setFactoryResetError('Factory reset failed. Please try again.');
-      toast('Factory reset failed. Please try again.', 'error');
-    } finally {
-      setFactoryResetLoading(false);
-    }
-  };
-
-  const handleSignInGoogle = async () => {
-    if (!googleClientId.trim()) {
-      toast('Enter your Google Client ID first.', 'error');
-      return;
-    }
-    setSigningIn(true);
-    try {
-      const { profile } = await signInWithGoogle(googleClientId);
-      setStoredClientId(googleClientId.trim());
-      refreshDriveMeta();
-      toast(`Signed in as ${profile.email}`, 'success');
-    } catch (e: any) {
-      toast(e?.message ?? 'Google sign-in failed.', 'error');
-    }
-    setSigningIn(false);
-  };
-
-  const handleDisconnectGoogle = () => {
-    disconnectGoogle();
-    refreshDriveMeta();
-    setBackupFiles([]);
-    toast('Google account disconnected.', 'info');
-  };
-
-  const handleSaveFolderId = () => {
-    setStoredFolderId(driveFolderId.trim());
-    refreshDriveMeta();
-    toast('Drive folder ID saved.', 'success');
-  };
-
-  const handleBackupNow = async () => {
-    setBackingUp(true);
-    try {
-      const meta = await backupToDrive();
-      refreshDriveMeta();
-      toast(`Backup complete — ${meta.recordCount} records saved to Google Drive`, 'success');
-    } catch (e: any) {
-      toast(e?.message ?? 'Backup failed. Check your connection and try again.', 'error');
-    }
-    setBackingUp(false);
-  };
-
-  const handleRestore = async () => {
-    setRestoring(true);
-    try {
-      const meta = await restoreFromDrive();
-      refreshDriveMeta();
-      toast(`Restore complete — ${meta.recordCount} records loaded from Google Drive`, 'success');
-      setTimeout(() => window.location.reload(), 1200);
-    } catch (e: any) {
-      toast(e?.message ?? 'Restore failed. No backup file found.', 'error');
-    }
-    setRestoring(false);
-  };
-
-  const handleListBackups = async () => {
-    setListingFiles(true);
-    try {
-      const files = await listDriveBackups();
-      setBackupFiles(files);
-      if (files.length === 0) toast('No backup files found on Drive yet.', 'info');
-    } catch (e: any) {
-      toast(e?.message ?? 'Failed to list Drive backups.', 'error');
-    }
-    setListingFiles(false);
-  };
-
   if (loading || !settings) {
     return <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>;
   }
@@ -327,10 +171,6 @@ export function SettingsPage() {
   const upiQrUrl = upiId
     ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=${encodeURIComponent(upiId)}`
     : '';
-
-  const profile = getStoredProfile();
-  const hasToken = getStoredToken() !== null;
-  const connectedMeta = syncConnectionState(readDriveMeta());
 
   return (
     <div className="space-y-5">
@@ -591,373 +431,14 @@ export function SettingsPage() {
         <Save className="h-4 w-4" /> {saving ? 'Saving...' : 'Save Settings Configuration'}
       </button>
 
-      {/* Google Drive Account Integration */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4 dark:border-white/10 dark:bg-slate-900/50">
+      <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900/50">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-          <Cloud className="h-4 w-4 text-sky-500" /> Google Drive Account Integration
+          <Database className="h-4 w-4 text-sky-500" /> Supabase Database
         </h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          Connect your Google account to back up studio data directly to Google Drive. Uses OAuth 2.0 with
-          <span className="font-mono text-slate-700 dark:text-slate-300"> drive.file </span> scope — only the backup file created by this app is accessible.
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          Studio records are stored in Supabase. Google Drive backup is paused because the old feature backed up local demo data, not Supabase records.
         </p>
-
-        {/* Config inputs */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Google Client ID (OAuth 2.0)">
-            <input
-              value={googleClientId}
-              onChange={(e) => setGoogleClientId(e.target.value)}
-              placeholder="xxxxx.apps.googleusercontent.com"
-              className={inputClass}
-            />
-          </Field>
-          <Field label="Google Drive Folder ID (Optional)">
-            <div className="flex gap-2">
-              <input
-                value={driveFolderId}
-                onChange={(e) => setDriveFolderId(e.target.value)}
-                placeholder="1aBcDeFgHiJkLmNoPqRsTuVwXyZ"
-                className={inputClass}
-              />
-              <button
-                onClick={handleSaveFolderId}
-                className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
-              >
-                Save
-              </button>
-            </div>
-          </Field>
-        </div>
-
-        {/* Connected profile */}
-        {hasToken && profile ? (
-          <div className="space-y-3">
-            <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-500/20 dark:bg-emerald-500/10">
-              {profile.picture ? (
-                <img src={profile.picture} alt="Profile" className="h-10 w-10 rounded-full" />
-              ) : (
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500">
-                  <User className="h-5 w-5 text-white" />
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-medium text-slate-900 dark:text-white">{profile.name}</p>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white">
-                    <ShieldCheck className="h-3 w-3" /> Connected
-                  </span>
-                </div>
-                <p className="truncate text-xs text-slate-500 dark:text-slate-400">{profile.email}</p>
-              </div>
-              <button
-                onClick={handleDisconnectGoogle}
-                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
-              >
-                <LogOut className="h-3.5 w-3.5" /> Disconnect
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={handleSignInGoogle}
-            disabled={signingIn}
-            className="flex w-full items-center justify-center gap-2.5 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 transition-all hover:bg-slate-50 hover:shadow-md disabled:opacity-50 dark:bg-slate-800 dark:text-slate-200 dark:ring-white/10 dark:hover:bg-slate-700"
-          >
-            <GoogleIcon className="h-5 w-5" />
-            {signingIn ? 'Connecting…' : 'Sign in with Google / Connect Email'}
-          </button>
-        )}
-
-        {/* Connection status */}
-        <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-800/40">
-          <div className="flex items-center gap-3">
-            {connectedMeta.connected ? (
-              <Cloud className="h-5 w-5 text-emerald-500" />
-            ) : (
-              <CloudOff className="h-5 w-5 text-slate-400" />
-            )}
-            <div>
-              <p className="text-sm font-medium text-slate-900 dark:text-white">
-                {connectedMeta.connected ? 'Drive Connected' : 'Drive Disconnected'}
-              </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {connectedMeta.lastBackupAt
-                  ? `Last backup: ${new Date(connectedMeta.lastBackupAt).toLocaleString('en-IN')}`
-                  : 'No backup yet'}
-              </p>
-            </div>
-          </div>
-          {connectedMeta.connected && (
-            <button
-              onClick={handleDisconnectGoogle}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
-            >
-              Switch Account
-            </button>
-          )}
-        </div>
-
-        {/* Backup metadata */}
-        {connectedMeta.lastBackupAt && (
-          <div className="grid grid-cols-3 gap-3 text-center">
-            <div className="rounded-lg bg-slate-50 py-2 dark:bg-slate-800/40">
-              <HardDrive className="mx-auto mb-1 h-4 w-4 text-slate-400" />
-              <p className="text-xs text-slate-400">File size</p>
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                {(connectedMeta.sizeBytes / 1024).toFixed(1)} KB
-              </p>
-            </div>
-            <div className="rounded-lg bg-slate-50 py-2 dark:bg-slate-800/40">
-              <RefreshCw className="mx-auto mb-1 h-4 w-4 text-slate-400" />
-              <p className="text-xs text-slate-400">Records</p>
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{connectedMeta.recordCount}</p>
-            </div>
-            <div className="rounded-lg bg-slate-50 py-2 dark:bg-slate-800/40">
-              <Cloud className="mx-auto mb-1 h-4 w-4 text-slate-400" />
-              <p className="text-xs text-slate-400">Last restore</p>
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                {connectedMeta.lastRestoreAt
-                  ? new Date(connectedMeta.lastRestoreAt).toLocaleDateString('en-IN')
-                  : 'Never'}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Action buttons */}
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <button
-            onClick={handleBackupNow}
-            disabled={backingUp || !hasToken}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white transition-all hover:bg-sky-500 hover:shadow-lg hover:shadow-sky-500/20 disabled:opacity-50"
-          >
-            <Upload className="h-4 w-4" /> {backingUp ? 'Uploading…' : 'Backup Now to Google Drive'}
-          </button>
-          <button
-            onClick={() => setShowRestoreConfirm(true)}
-            disabled={restoring || !hasToken}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition-all hover:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5"
-          >
-            <Download className="h-4 w-4" /> {restoring ? 'Restoring…' : 'Restore from Google Drive'}
-          </button>
-        </div>
-
-        {/* List existing backups */}
-        {hasToken && (
-          <div className="space-y-2">
-            <button
-              onClick={handleListBackups}
-              disabled={listingFiles}
-              className="flex items-center gap-2 text-xs font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400"
-            >
-              <FolderOpen className="h-3.5 w-3.5" /> {listingFiles ? 'Listing…' : 'List existing Drive backups'}
-            </button>
-            {backupFiles.length > 0 && (
-              <div className="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-slate-800/40">
-                {backupFiles.map((f) => (
-                  <div key={f.id} className="flex items-center justify-between rounded-md bg-white px-3 py-2 text-xs dark:bg-slate-800">
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-3.5 w-3.5 text-slate-400" />
-                      <span className="font-medium text-slate-700 dark:text-slate-200">{f.name}</span>
-                    </div>
-                    <span className="text-slate-400">
-                      {new Date(f.modifiedTime).toLocaleString('en-IN')} · {(Number(f.size) / 1024).toFixed(1)} KB
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </div>
-
-      {/* Data Management Section */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4 dark:border-white/10 dark:bg-slate-900/50">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-          <Database className="h-4 w-4 text-amber-500" /> Data Management
-        </h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          Reset your studio data to a fresh demo set, or clear all records while keeping your settings. Changes apply instantly across all open windows.
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void loadDemoData();
-            }}
-            disabled={loadingDemo}
-            className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
-          >
-            <FlaskConical className="h-4 w-4" />
-            {loadingDemo ? 'Loading Demo Data…' : 'Load Demo Data'}
-          </button>
-
-          <div className="relative inline-block">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setShowResetMenu((value) => !value);
-              }}
-              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5"
-            >
-              <Database className="h-4 w-4 text-amber-500" />
-              Data Reset Options
-              <ChevronDown className={`h-4 w-4 transition-transform ${showResetMenu ? 'rotate-180' : ''}`} />
-            </button>
-
-            {showResetMenu && (
-              <div className="absolute left-0 z-20 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-slate-900">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setShowResetMenu(false);
-                    void resetDemoDataOnly();
-                  }}
-                  disabled={loadingDemo}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-amber-50 hover:text-amber-700 dark:text-slate-200 dark:hover:bg-amber-500/10 dark:hover:text-amber-300"
-                >
-                  <FlaskConical className="h-4 w-4 text-amber-500" />
-                  {loadingDemo ? 'Resetting Demo Data…' : 'Reset Demo Data'}
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setShowResetMenu(false);
-                    setShowFactoryResetPassword(true);
-                    setFactoryResetError('');
-                    setFactoryResetPassword('');
-                  }}
-                  disabled={clearing}
-                  className="mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-rose-700 transition-colors hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  {clearing ? 'Clearing…' : 'Factory Reset / Delete All Data'}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Restore confirmation modal */}
-      <ConfirmDialog
-        open={showRestoreConfirm}
-        onClose={() => setShowRestoreConfirm(false)}
-        onConfirm={handleRestore}
-        title="Restore from Google Drive?"
-        message="This will overwrite all current local data (Bookings, Lab Orders, Ledger, Payments & Settings) with the contents of the master backup file. This action cannot be undone."
-        confirmLabel="Restore & Overwrite"
-        danger
-      />
-
-      {/* Clear data confirmation */}
-      <ConfirmDialog
-        open={showClearConfirm}
-        onClose={() => setShowClearConfirm(false)}
-        onConfirm={async () => {
-          setClearing(true);
-          try {
-            (supabase as any).clearAll();
-            triggerRefresh();
-            toast('All data cleared — settings preserved', 'success');
-          } catch (error) {
-            console.error('Clear all failed:', error);
-            toast('Failed to clear data. Please try again.', 'error');
-          } finally {
-            setShowClearConfirm(false);
-            setClearing(false);
-          }
-        }}
-        title="Clear all data?"
-        message="This will permanently delete all bookings, lab orders, ledger entries, and payments. Your studio settings will be kept. This cannot be undone."
-        confirmLabel="Clear All Data"
-        danger
-      />
-
-      <Modal
-        open={showFactoryResetPassword}
-        onClose={() => {
-          setShowFactoryResetPassword(false);
-          setFactoryResetPassword('');
-          setFactoryResetError('');
-        }}
-        title="Factory Reset Confirmation"
-        size="sm"
-      >
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
-            <ShieldAlert className="h-5 w-5" />
-            This will permanently delete all records, including bookings, lab orders, payments, ledger data, and local backups.
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Current Admin / Studio Password</label>
-            <input
-              type="password"
-              value={factoryResetPassword}
-              onChange={(event) => {
-                setFactoryResetPassword(event.target.value);
-                if (factoryResetError) setFactoryResetError('');
-              }}
-              className={`${inputClass} border-slate-300 bg-white text-slate-900 dark:border-white/10 dark:bg-slate-800 dark:text-white`}
-              placeholder="Enter password"
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  handleFactoryReset();
-                }
-              }}
-            />
-            {factoryResetError && <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">{factoryResetError}</p>}
-          </div>
-
-          <div className="flex gap-3">
-            <button
-              onClick={() => {
-                setShowFactoryResetPassword(false);
-                setFactoryResetPassword('');
-                setFactoryResetError('');
-              }}
-              className="flex-1 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white/5"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                void handleFactoryReset();
-              }}
-              disabled={factoryResetLoading}
-              className="flex-1 rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
-            >
-              {factoryResetLoading ? 'Verifying…' : 'Delete All Data'}
-            </button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Demo data confirmation */}
-      <ConfirmDialog
-        open={showDemoConfirm}
-        onClose={() => setShowDemoConfirm(false)}
-        onConfirm={async () => {
-          setShowDemoConfirm(false);
-          void loadDemoData();
-        }}
-        title="Load Demo Data?"
-        message="This will populate the default seeded demo records without duplicating any existing demo entries. Real production data will be preserved."
-        confirmLabel="Load Demo Data"
-      />
     </div>
   );
 }
@@ -1185,16 +666,5 @@ function PromoAdForm({ open, onClose, onSaved, editing, toast }: {
         </div>
       </div>
     </Modal>
-  );
-}
-
-function GoogleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" width="24" height="24">
-      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-    </svg>
   );
 }

@@ -18,8 +18,8 @@ export function PublicInvoice() {
 
   const load = useCallback(async () => {
     if (!bookingId) { setError(true); setLoading(false); return; }
-    const { data } = await supabase.from('bookings').select('*').eq('id', bookingId).maybeSingle();
-    if (data) { setBooking(data as Booking); } else { setError(true); }
+    const { data, error: shareError } = await supabase.functions.invoke('public-share', { body: { action: 'invoice', id: bookingId } });
+    if (!shareError && data?.booking) { setBooking(data.booking as Booking); } else { setError(true); }
     setLoading(false);
   }, [bookingId]);
 

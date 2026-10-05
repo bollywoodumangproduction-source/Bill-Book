@@ -2,61 +2,43 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn, Sparkles, Lock } from 'lucide-react';
 import { useSettings } from '@/context/SettingsContext';
-import { useToast } from '@/context/ToastContext';
 import { supabase } from '@/lib/supabase';
 import type { Partner } from '@/lib/types';
 import { inputClass } from '@/components/ui/Field';
-import { cleanPartnerPhone, setPartnerSession } from '@/pages/PartnerDashboard';
+import { PinInput } from '@/components/ui/PinInput';
+import { setPartnerSession } from '@/pages/PartnerDashboard';
 
 export function PartnerLogin() {
   const { settings } = useSettings();
-  const { toast } = useToast();
   const navigate = useNavigate();
   const [mobile, setMobile] = useState('');
+  const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const signIn = async () => {
-    if (!mobile.trim()) {
-      setError('Enter your registered mobile number');
+    if (!mobile.trim() || pin.length !== 4) {
+      setError('Enter your registered mobile number and 4-digit PIN');
       return;
     }
 
     setLoading(true);
     setError('');
-    const clean = (num: string) => (num || '').replace(/\D/g, '').slice(-10);
-    const enteredPhoneClean = clean(mobile);
-    const { data: partnerData, error: partnerError } = await supabase.from('partners').select('*');
-    if (partnerError) {
-      setError('Could not check login access. Please try again.');
+    const { data, error } = await supabase.functions.invoke('portal-auth', {
+      body: { action: 'login', portal: 'partner', identifier: mobile.trim(), pin },
+    });
+    if (error || !data?.session || !data?.partner) {
+      setError(data?.error || error?.message || 'Login details are incorrect or access is disabled.');
       setLoading(false);
       return;
     }
-    const matchedPartner = ((partnerData ?? []) as Partner[]).find((candidate) =>
-      enteredPhoneClean === cleanPartnerPhone(candidate.mobile || (candidate as Partner & { phone?: string }).phone || ''),
-    );
-
-    if (!matchedPartner) {
-      setError('No staff profile found for this mobile number.');
+    const { error: sessionError } = await supabase.auth.setSession(data.session);
+    if (sessionError) {
+      setError('Could not start a secure session. Please try again.');
       setLoading(false);
       return;
     }
-
-    const partner = matchedPartner;
-    if (partner.status && partner.status !== 'Active') {
-      setError('Login access is currently disabled for this partner. Please contact studio admin.');
-      setLoading(false);
-      return;
-    }
-    if (!partner.is_login_allowed) {
-      setError('Login access is currently disabled for this partner. Please contact studio admin.');
-      setLoading(false);
-      return;
-    }
-
-    setPartnerSession(partner);
-    localStorage.setItem('partnerAuth', JSON.stringify(matchedPartner));
-    localStorage.setItem('partnerPhone', (matchedPartner as Partner & { phone?: string }).phone || matchedPartner.mobile);
+    setPartnerSession(data.partner as Partner);
     setLoading(false);
     navigate('/partner/dashboard');
   };
@@ -88,10 +70,14 @@ export function PartnerLogin() {
                 placeholder="+91 98765 43210"
               />
             </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-300">4-digit PIN</label>
+              <PinInput value={pin} onChange={setPin} />
+            </div>
             {error && <p className="text-xs text-rose-400">{error}</p>}
             <button
               type="submit"
-              disabled={loading || !mobile.trim()}
+              disabled={loading || !mobile.trim() || pin.length !== 4}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-cyan-500 to-sky-500 px-4 py-3 text-sm font-medium text-white transition-colors hover:from-cyan-400 hover:to-sky-400 disabled:opacity-50"
             >
               {loading ? <Sparkles className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}

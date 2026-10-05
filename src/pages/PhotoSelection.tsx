@@ -29,25 +29,17 @@ import type {
   Partner,
   StudioLabOrder,
 } from '@/lib/types';
-import { withPhotoSessionCounts } from '@/lib/types';
+import { photoSessionFromDatabase, photoSessionToDatabase } from '@/lib/types';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
 import { inputClass, selectClass, textareaClass, Field } from '@/components/ui/Field';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { copyToClipboard } from '@/lib/clipboard';
+import { uploadImage, uploadImageAsset } from '@/lib/imageStorage';
 
 function now(): string {
   return new Date().toISOString();
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error('Could not read image file'));
-    reader.readAsDataURL(file);
-  });
 }
 
 function newId(): string {
@@ -209,7 +201,7 @@ export function PhotoSelection() {
       supabase.from('studio_lab_orders').select('*').order('created_at', { ascending: false }),
       supabase.from('partners').select('*').order('name'),
     ]);
-    const next = (sessionData ?? []).map((session) => withPhotoSessionCounts(session as ClientSelectionSession));
+    const next = (sessionData ?? []).map((session) => photoSessionFromDatabase(session as Record<string, any>));
     setSessions(next);
     setBookings((bookingData ?? []) as Booking[]);
     setLabOrders((labData ?? []) as StudioLabOrder[]);
@@ -233,7 +225,7 @@ export function PhotoSelection() {
     if (!previous) return;
     const optimistic = { ...previous, ...patch, updated_at: now() };
     setSessions((current) => current.map((session) => session.id === id ? optimistic : session));
-    const { error } = await supabase.from('photo_selection_sessions').update({ ...patch, updated_at: now() }).eq('id', id);
+    const { error } = await supabase.from('photo_selection_sessions').update(photoSessionToDatabase({ ...patch, updated_at: now() })).eq('id', id);
     if (error) {
       setSessions((current) => current.map((session) => session.id === id ? previous : session));
       toast('Could not update session', 'error');
@@ -277,7 +269,7 @@ export function PhotoSelection() {
       created_at: ts,
       updated_at: ts,
     };
-    const { error } = await supabase.from('photo_selection_sessions').insert(payload);
+    const { error } = await supabase.from('photo_selection_sessions').insert(photoSessionToDatabase(payload as unknown as Record<string, any>));
     if (error) { toast('Could not create session', 'error'); return; }
     setShowCreate(false);
     await load();
@@ -406,6 +398,7 @@ function SessionDetail({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadFolder, setUploadFolder] = useState(session.folders[0] ?? 'Card 1');
   const [activeFolder, setActiveFolder] = useState(session.folders[0] ?? 'Card 1');
+  const [uploadProgress, setUploadProgress] = useState('');
 
   useEffect(() => {
     const firstFolder = session.folders[0] ?? 'Card 1';
@@ -498,15 +491,33 @@ function SessionDetail({
 
   const handlePhotoUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const newPhotos = await Promise.all(Array.from(files).map(async (file): Promise<PhotoItem> => ({
-        id: newId(),
-        folder: uploadFolder,
-        fileName: file.name,
-        previewUrl: await readFileAsDataUrl(file),
-        selected: false,
-      })));
-    await onUpdate({ photos: [...session.photos, ...newPhotos] });
-    toast(`${newPhotos.length} photo${newPhotos.length > 1 ? 's' : ''} added to ${uploadFolder}`, 'success');
+    const selectedFiles = Array.from(files);
+    const uploaded: PhotoItem[] = [];
+    const failures: string[] = [];
+    let nextIndex = 0;
+    setUploadProgress(`Uploading 0/${selectedFiles.length}`);
+    const workers = Array.from({ length: Math.min(4, selectedFiles.length) }, async () => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= selectedFiles.length) return;
+        const file = selectedFiles[index];
+        try {
+          const asset = await uploadImageAsset(file, 'photo-selection', { sessionId: session.id, folder: uploadFolder });
+          uploaded.push({ id: newId(), folder: uploadFolder, fileName: file.name, previewUrl: asset.previewUrl, originalUrl: asset.publicUrl, selected: false });
+        } catch (error) {
+          failures.push(`${file.name}: ${error instanceof Error ? error.message : 'Upload failed'}`);
+        } finally {
+          setUploadProgress(`Uploading ${uploaded.length + failures.length}/${selectedFiles.length}`);
+        }
+      }
+    });
+    await Promise.all(workers);
+    if (uploaded.length > 0) {
+      await onUpdate({ photos: [...session.photos, ...uploaded] });
+      toast(`${uploaded.length} photo${uploaded.length === 1 ? '' : 's'} added to ${uploadFolder}${failures.length ? `; ${failures.length} failed` : ''}`, failures.length ? 'info' : 'success');
+    }
+    if (uploaded.length === 0 && failures.length > 0) toast(failures[0], 'error');
+    setUploadProgress('');
   };
 
   const removePhoto = (photoId: string) => {
@@ -621,9 +632,10 @@ function SessionDetail({
             {session.folders.map((f) => <option key={f}>{f}</option>)}
           </select>
           <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void handlePhotoUpload(e.target.files)} />
-          <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400">
+          <button onClick={() => fileInputRef.current?.click()} disabled={Boolean(uploadProgress)} className="flex items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50">
             <Upload className="h-3.5 w-3.5" /> Upload Photos
           </button>
+          {uploadProgress && <span role="status" className="text-xs text-slate-500">{uploadProgress}</span>}
         </div>
 
         {session.photos.filter((photo) => photo.folder === activeFolder).length === 0 ? (
@@ -632,7 +644,7 @@ function SessionDetail({
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {session.photos.filter((photo) => photo.folder === activeFolder).map((photo) => (
               <div key={photo.id} className="group relative overflow-hidden rounded-xl border border-slate-200 dark:border-white/10">
-                <img src={photo.previewUrl} alt={photo.fileName} className="aspect-square w-full object-cover" draggable={false} />
+                <img src={photo.previewUrl} alt={photo.fileName} className="aspect-square w-full object-cover" loading="lazy" decoding="async" draggable={false} />
                 {photo.selected && (
                   <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg">
                     <CheckCircle2 className="h-4 w-4" />
@@ -1009,18 +1021,28 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
   const handleCoverUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const file = files[0];
-    const previewUrl = await readFileAsDataUrl(file);
-    setSheets((prev) => {
-      const withoutCover = prev.filter((s) => s.sheetNumber !== 0);
-      return [{ sheetNumber: 0, previewUrl }, ...withoutCover];
-    });
+    try {
+      const previewUrl = await uploadImage(file, 'photo-selection-proof', { sessionId: session.id });
+      setSheets((prev) => {
+        const withoutCover = prev.filter((s) => s.sheetNumber !== 0);
+        return [{ sheetNumber: 0, previewUrl }, ...withoutCover];
+      });
+    } catch (uploadError) {
+      toast(uploadError instanceof Error ? uploadError.message : 'Proof upload failed.', 'error');
+    }
   };
 
   const handleInnerUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.currentTarget.files ? Array.from(event.currentTarget.files) : [];
     if (!files || files.length === 0) { event.currentTarget.value = ''; return; }
     event.currentTarget.value = '';
-    const dataUrls = await Promise.all(files.map(async (file) => ({ name: file.name, previewUrl: await readFileAsDataUrl(file) })));
+    let dataUrls: Array<{ name: string; previewUrl: string }>;
+    try {
+      dataUrls = await Promise.all(files.map(async (file) => ({ name: file.name, previewUrl: await uploadImage(file, 'photo-selection-proof', { sessionId: session.id }) })));
+    } catch (uploadError) {
+      toast(uploadError instanceof Error ? uploadError.message : 'Proof upload failed.', 'error');
+      return;
+    }
     setSheets((prev) => {
       const existingNames = new Set(prev.map((sheet) => sheet.fileName).filter(Boolean));
       const freshFiles = dataUrls.filter((file) => !existingNames.has(file.name));
