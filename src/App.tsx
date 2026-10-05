@@ -23,6 +23,7 @@ import { ClientLandingPage, PartnerLandingPage } from '@/pages/LandingPages';
 import { PartnerLogin } from '@/pages/PartnerLogin';
 import { PartnerDashboard, getPartnerSession } from '@/pages/PartnerDashboard';
 import { AdminLogin, setAdminSession } from '@/pages/AdminLogin';
+import { AdminPasswordRecovery } from '@/pages/AdminPasswordRecovery';
 import { getClientSession } from '@/pages/ClientLogin';
 import { MusicSelection, PublicMusicSelection } from '@/pages/MusicSelection';
 import { TeaserPreview, PublicTeaserPreview } from '@/pages/TeaserPreview';
@@ -185,6 +186,7 @@ export default function App() {
                   <Route path="/" element={<AdminGuard />} />
                   <Route path="/admin" element={<AdminGuard />} />
                   <Route path="/admin/login" element={<AdminLogin />} />
+                  <Route path="/admin/reset-password" element={<AdminPasswordRecovery />} />
                   <Route path="/client" element={<ClientLandingPage />} />
                   <Route path="/client/login" element={<ClientLogin />} />
                   <Route path="/client-login" element={<Navigate to="/client/login" replace />} />

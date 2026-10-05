@@ -5,6 +5,7 @@ import type { StudioSettings } from '@/lib/types';
 interface SettingsContextValue {
   settings: StudioSettings | null;
   loading: boolean;
+  loadError: string | null;
   refresh: () => Promise<void>;
   update: (patch: Partial<StudioSettings>) => Promise<void>;
 }
@@ -12,6 +13,7 @@ interface SettingsContextValue {
 const SettingsContext = createContext<SettingsContextValue>({
   settings: null,
   loading: false,
+  loadError: null,
   refresh: async () => {},
   update: async () => {},
 });
@@ -19,30 +21,43 @@ const SettingsContext = createContext<SettingsContextValue>({
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const settingsRef = useRef<StudioSettings | null>(null);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
     if (!supabaseConfigured) {
       setSettings(null);
+      setLoadError(getSupabaseConfigurationError());
       setLoading(false);
       return;
     }
-    const { data: sessionData } = await supabase.auth.getSession();
-    const isAdmin = sessionData.session?.user.app_metadata?.role === 'admin';
-    const settingsTable = isAdmin ? 'studio_settings' : 'public_studio_settings';
-    const { data } = await supabase
-      .from(settingsTable)
-      .select('*')
-      .eq('id', 1)
-      .maybeSingle();
-    if (data) {
-      setSettings(data);
-    } else {
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      const isAdmin = sessionData.session?.user.app_metadata?.role === 'admin';
+      const settingsTable = isAdmin ? 'studio_settings' : 'public_studio_settings';
+      const { data, error } = await supabase
+        .from(settingsTable)
+        .select('*')
+        .eq('id', 1)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        setSettings(null);
+        setLoadError(`No settings row with id 1 was found in ${settingsTable}.`);
+      } else {
+        setSettings(data);
+      }
+    } catch (error) {
       setSettings(null);
+      setLoadError(error instanceof Error ? error.message : 'Could not load settings from Supabase.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   const update = useCallback(async (patch: Partial<StudioSettings>) => {
@@ -67,7 +82,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, [refresh]);
 
-  const value = useMemo(() => ({ settings, loading, refresh, update }), [settings, loading, refresh, update]);
+  const value = useMemo(() => ({ settings, loading, loadError, refresh, update }), [settings, loading, loadError, refresh, update]);
 
   return (
     <SettingsContext.Provider value={value}>

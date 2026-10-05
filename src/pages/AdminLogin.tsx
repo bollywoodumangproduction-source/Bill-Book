@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogIn, Sparkles, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { LogIn, Sparkles, ArrowLeft, ShieldCheck, Mail } from 'lucide-react';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { inputClass } from '@/components/ui/Field';
@@ -28,6 +28,7 @@ export function AdminLogin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sendingRecovery, setSendingRecovery] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -52,6 +53,19 @@ export function AdminLogin() {
     setAdminSession();
     setLoading(false);
     navigate('/', { replace: true });
+  };
+
+  const sendPasswordRecovery = async () => {
+    if (!email.trim()) { toast('Pehle admin email likhein.', 'error'); return; }
+    const configError = getSupabaseConfigurationError();
+    if (configError) { toast(configError, 'error'); return; }
+    setSendingRecovery(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/admin/reset-password`,
+    });
+    setSendingRecovery(false);
+    if (error) { toast(error.message || 'Recovery email nahi bheja ja saka.', 'error'); return; }
+    toast('Agar is email par admin account hai, password reset link bhej diya gaya hai.', 'success');
   };
 
   return (
@@ -85,6 +99,14 @@ export function AdminLogin() {
                 className={`${inputClass} border-white/10 bg-slate-800 text-white placeholder-slate-500`}
                 placeholder="admin@example.com"
               />
+              <button
+                type="button"
+                onClick={() => void sendPasswordRecovery()}
+                disabled={sendingRecovery || !supabaseConfigured}
+                className="mt-2 text-xs font-medium text-amber-400 hover:text-amber-300 disabled:opacity-50"
+              >
+                <span className="inline-flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" />{sendingRecovery ? 'Sending reset link…' : 'Forgot password? Email me a reset link'}</span>
+              </button>
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-300">Password</label>

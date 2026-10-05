@@ -22,7 +22,7 @@ const DEFAULT_PRODUCTION_TERMS = `1. रॉ डाटा बैकअप व स
 5. डिलीवरी व पूर्ण भुगतान (Final Delivery & Due Settlement): तैयार मास्टर वीडियो / पेन ड्राइव / एल्बम प्राप्त करने से पूर्व शेष बकाया राशि (Net Final Due) का पूर्ण भुगतान करना अनिवार्य है।`;
 
 export function SettingsPage() {
-  const { settings, loading, update } = useSettings();
+  const { settings, loading, loadError, refresh, update } = useSettings();
   const { toast } = useToast();
   const [tab, setTab] = useState<Tab>('films');
 
@@ -164,8 +164,16 @@ export function SettingsPage() {
     toast('Settings updated successfully!', 'success');
   };
 
-  if (loading || !settings) {
+  if (loading) {
     return <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>;
+  }
+
+  if (!settings) {
+    return <div className="mx-auto max-w-xl rounded-xl border border-rose-500/30 bg-rose-500/5 p-5 text-sm text-slate-700 dark:text-slate-200">
+      <h1 className="font-semibold text-rose-600 dark:text-rose-300">Studio settings could not be loaded</h1>
+      <p className="mt-2 break-words text-slate-600 dark:text-slate-300">{loadError || 'Supabase returned no studio settings record.'}</p>
+      <button onClick={() => void refresh()} className="mt-4 rounded-lg bg-amber-500 px-4 py-2 font-medium text-slate-950 hover:bg-amber-400">Retry</button>
+    </div>;
   }
 
   const upiQrUrl = upiId
