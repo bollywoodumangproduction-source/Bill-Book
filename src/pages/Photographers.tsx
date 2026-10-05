@@ -1153,9 +1153,13 @@ function PartnerForm({
       }
       onSaved();
     } catch (err) {
-      toast(err instanceof Error && err.message.startsWith('Apply the partner ledger migration')
+      const details = err && typeof err === 'object' ? err as { message?: unknown; details?: unknown; code?: unknown } : null;
+      const message = err instanceof Error
         ? err.message
-        : 'Failed to save partner. Please try again.', 'error');
+        : typeof details?.message === 'string'
+          ? [details.message, details.details].filter((part) => typeof part === 'string' && part).join(' ')
+          : 'Failed to save partner. Please try again.';
+      toast(details?.code ? `${message} (code: ${String(details.code)})` : message, 'error');
     } finally {
       setSaving(false);
     }

@@ -736,7 +736,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
     const { data, error } = await supabase.from('bookings').upsert(payload).select().single();
     if (error) {
       setIsSubmitting(false);
-      toast('Failed to save booking. Please try again.', 'error');
+      toast(`Failed to save booking: ${error.message}`, 'error');
       return;
     }
     savedBooking = data as Booking | null;
