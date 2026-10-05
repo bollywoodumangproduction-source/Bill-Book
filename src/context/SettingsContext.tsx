@@ -54,7 +54,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       setSettings(null);
-      setLoadError(error instanceof Error ? error.message : 'Could not load settings from Supabase.');
+      const details = error && typeof error === 'object' ? error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown } : null;
+      const message = error instanceof Error
+        ? error.message
+        : typeof details?.message === 'string'
+          ? [details.message, details.details, details.hint].filter((part) => typeof part === 'string' && part).join(' ')
+          : 'Could not load settings from Supabase.';
+      setLoadError(details?.code ? `${message} (code: ${String(details.code)})` : message);
     } finally {
       setLoading(false);
     }
