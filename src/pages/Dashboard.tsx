@@ -29,6 +29,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [todaysBookings, setTodaysBookings] = useState<Booking[]>([]);
   const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([]);
   const [activeLabOrders, setActiveLabOrders] = useState<StudioLabOrder[]>([]);
+  const [labOrdersError, setLabOrdersError] = useState('');
   const [totalDue, setTotalDue] = useState(0);
   const [showClientPortal, setShowClientPortal] = useState(false);
   const [showPartnerPortal, setShowPartnerPortal] = useState(false);
@@ -38,17 +39,27 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
     const loadDashboard = async () => {
       try {
-        const [{ data: bookings }, { data: lab }] = await Promise.all([
+        const [{ data: bookings }, { data: lab, error: labError }] = await Promise.all([
           supabase.from('bookings').select('*').order('shoot_date'),
-          supabase.from('studio_lab_orders').select('*').in('order_status', ['Processing']).order('created_at'),
+          supabase.from('studio_lab_orders').select('*').order('created_at', { ascending: false }),
         ]);
 
         if (!mounted) return;
+        setLabOrdersError(labError?.message ?? '');
         const allBookings = Array.isArray(bookings) ? bookings as Booking[] : [];
         const activeBookings = allBookings.filter((b) => !b.archived_at && !b.deleted_at && (b.booking_status ?? '').toUpperCase() !== 'CANCELLED');
         setTodaysBookings(activeBookings.filter((b) => isToday(b.shoot_date)));
         setUpcomingBookings(activeBookings.filter((b) => isUpcoming(b.shoot_date)).slice(0, 5));
-        setActiveLabOrders(Array.isArray(lab) ? lab as StudioLabOrder[] : []);
+        const allLabOrders = Array.isArray(lab) ? lab as StudioLabOrder[] : [];
+        setActiveLabOrders(allLabOrders.filter((order) =>
+          order.order_status !== 'Delivered' &&
+          !order.archived_at &&
+          !order.deleted_at &&
+          !order.isDemo &&
+          !order.is_demo &&
+          !String(order.order_no ?? '').startsWith('DEMO-') &&
+          !String(order.id ?? '').startsWith('demo-')
+        ));
         setTotalDue(activeBookings.reduce((s, b) => s + Number(b.net_due ?? 0), 0));
       } catch (error) {
         console.error('Failed to load dashboard:', error);
@@ -56,6 +67,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           setTodaysBookings([]);
           setUpcomingBookings([]);
           setActiveLabOrders([]);
+          setLabOrdersError(error instanceof Error ? error.message : 'Could not load lab orders.');
           setTotalDue(0);
         }
       } finally {
@@ -159,7 +171,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
         {/* Active lab orders */}
         <Card title="Active Lab Orders" onMore={() => onNavigate('lab')}>
-          {activeLabOrders.length === 0 ? (
+          {labOrdersError ? (
+            <p className="py-8 text-center text-sm text-rose-400">Could not load lab orders: {labOrdersError}</p>
+          ) : activeLabOrders.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">No active lab orders</p>
           ) : (
             <div className="space-y-2">
