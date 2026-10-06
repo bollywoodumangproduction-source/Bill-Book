@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { LogIn, Sparkles, Lock } from 'lucide-react';
 import { useSettings } from '@/context/SettingsContext';
 import { supabase } from '@/lib/supabase';
+import { getFunctionErrorMessage } from '@/lib/functionError';
 import type { Partner } from '@/lib/types';
 import { inputClass } from '@/components/ui/Field';
 import { PinInput } from '@/components/ui/PinInput';
@@ -28,7 +29,7 @@ export function PartnerLogin() {
       body: { action: 'login', portal: 'partner', identifier: mobile.trim(), pin },
     });
     if (error || !data?.session || !data?.partner) {
-      setError(data?.error || error?.message || 'Login details are incorrect or access is disabled.');
+      setError(await getFunctionErrorMessage(error, data, 'Could not sign in'));
       setLoading(false);
       return;
     }
