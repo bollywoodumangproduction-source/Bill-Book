@@ -411,6 +411,17 @@ export function PartnerDashboardContent({
     }
   };
 
+  const returnToOrderList = () => setSearchParams((current) => {
+    const next = new URLSearchParams(current);
+    next.delete('order');
+    return next;
+  }, { replace: true });
+  const handleAppBack = () => {
+    if (selectedOrderId) returnToOrderList();
+    else if (activeTab !== 'orders') setActiveTab('orders');
+  };
+  const guardedBack = useAppBackGuard(handleAppBack, !adminPreview);
+
   if (loadingData) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -465,17 +476,6 @@ export function PartnerDashboardContent({
     );
     return Math.max(0, Number(order.master_total ?? 0) - Number(order.advance_paid ?? 0)) > 0.005 || hasClientDue;
   });
-  const returnToOrderList = () => setSearchParams((current) => {
-    const next = new URLSearchParams(current);
-    next.delete('order');
-    return next;
-  }, { replace: true });
-  const handleAppBack = () => {
-    if (selectedOrderId) returnToOrderList();
-    else if (activeTab !== 'orders') setActiveTab('orders');
-  };
-  const guardedBack = useAppBackGuard(handleAppBack, !adminPreview);
-
   return (
     <div
       className={`${adminPreview ? 'min-h-0 px-1 py-1 pb-2' : 'min-h-screen px-1 pb-4 pt-16 sm:px-4 sm:pt-20'} w-full bg-slate-950 text-white`}
