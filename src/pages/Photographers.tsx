@@ -24,6 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { getFunctionErrorMessage } from '@/lib/functionError';
 import { ImageUpload } from '@/components/ui/ImageUpload';
 import type {
   Booking,
@@ -1373,7 +1374,7 @@ function PartnerDetailModal({
     const defaultPin = partner.mobile.slice(-4);
     const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'set-pin', portal: 'partner', recordId: partner.id, pin: defaultPin } });
     setResetting(false);
-    if (error || data?.error) { toast(data?.error || 'Failed to reset PIN', 'error'); return; }
+    if (error || data?.error) { toast(await getFunctionErrorMessage(error, data, 'Failed to reset PIN'), 'error'); return; }
     onUpdated({ ...partner, password_changed: false });
     toast('PIN reset to default (last 4 digits of mobile)', 'success');
   };
@@ -1381,7 +1382,7 @@ function PartnerDetailModal({
   const saveEditedPin = async () => {
     if (editPinValue.length !== 4) { toast('PIN must be exactly 4 digits', 'error'); return; }
     const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'set-pin', portal: 'partner', recordId: partner.id, pin: editPinValue } });
-    if (error || data?.error) { toast(data?.error || 'Failed to update PIN', 'error'); return; }
+    if (error || data?.error) { toast(await getFunctionErrorMessage(error, data, 'Failed to update PIN'), 'error'); return; }
     onUpdated({ ...partner, password_changed: true });
     setEditingPin(false);
     setEditPinValue('');
