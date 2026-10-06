@@ -109,18 +109,67 @@ interface CrewBooking {
 }
 
 /** Loads all data for a partner: assigned shoots, lab orders, ledger balance, photo sessions. */
-async function fetchPartnerData(p: Partner) {
-  const [{ data: bookingPayload, error: bookingError }, { data: labOrderPayload, error: labOrderError }, { data: ledger }, { data: directTxns }] = await Promise.all([
-    supabase.functions.invoke('portal-auth', { body: { action: 'partner-bookings' } }),
-    supabase.functions.invoke('portal-auth', { body: { action: 'partner-lab-orders' } }),
-    supabase.from('photographer_ledger').select('*').eq('mobile', p.mobile),
-    supabase.from('direct_transactions').select('*').eq('partner_id', p.id),
-  ]);
-  if (bookingError) throw new Error(bookingPayload?.error || bookingError.message || 'Could not load assigned shoots.');
-  if (labOrderError) throw new Error(labOrderPayload?.error || labOrderError.message || 'Could not load lab orders.');
-  const bookings = (bookingPayload?.bookings ?? []) as CrewBooking[];
+async function fetchPartnerData(p: Partner, adminPreview = false) {
+  let bookings: CrewBooking[];
+  let labOrders: StudioLabOrder[];
+  let ledger: Array<{ entry_type: string; amount: number }> | null;
+  let directTxns: Array<{ txn_type: string; amount: number }> | null;
 
-  const activeLabOrders = ((labOrderPayload?.orders ?? []) as StudioLabOrder[]).filter((o) => !o.deleted_at && (!o.archived_at || o.order_status === 'Delivered'));
+  if (adminPreview) {
+    // The partner portal Edge Function requires a partner Auth session. Admin preview
+    // already has an authenticated admin session, so use admin RLS policies directly.
+    const [assignmentResult, orderResult, ledgerResult, transactionResult] = await Promise.all([
+      supabase.from('shoot_assignments').select('booking_id,function_name,role,reporting_time').eq('partner_id', p.id),
+      supabase.from('studio_lab_orders').select('*').eq('partner_id', p.id).order('created_at', { ascending: false }),
+      supabase.from('photographer_ledger').select('entry_type,amount').eq('mobile', p.mobile),
+      supabase.from('direct_transactions').select('txn_type,amount').eq('partner_id', p.id),
+    ]);
+    if (assignmentResult.error) throw assignmentResult.error;
+    if (orderResult.error) throw orderResult.error;
+    if (ledgerResult.error) throw ledgerResult.error;
+    if (transactionResult.error) throw transactionResult.error;
+
+    const assignments = assignmentResult.data ?? [];
+    const bookingIds = [...new Set(assignments.map((assignment) => String(assignment.booking_id ?? '')).filter(Boolean))];
+    let bookingRows: Array<Record<string, any>> = [];
+    if (bookingIds.length) {
+      const { data, error } = await supabase.from('bookings')
+        .select('id,client_name,client_mobile,event_function,shoot_date,shoot_time,venue,events')
+        .in('id', bookingIds)
+        .order('shoot_date');
+      if (error) throw error;
+      bookingRows = (data ?? []) as Array<Record<string, any>>;
+    }
+    const assignmentsByBooking = new Map<string, CrewBooking['assignments']>();
+    for (const assignment of assignments) {
+      const key = String(assignment.booking_id ?? '');
+      if (!key) continue;
+      const rows = assignmentsByBooking.get(key) ?? [];
+      rows.push({ function_name: assignment.function_name ?? '', role: assignment.role ?? '', reporting_time: assignment.reporting_time ?? '' });
+      assignmentsByBooking.set(key, rows);
+    }
+    bookings = bookingRows.map((booking) => ({ ...booking, assignments: assignmentsByBooking.get(String(booking.id)) ?? [] })) as CrewBooking[];
+    labOrders = (orderResult.data ?? []) as StudioLabOrder[];
+    ledger = ledgerResult.data;
+    directTxns = transactionResult.data;
+  } else {
+    const [{ data: bookingPayload, error: bookingError }, { data: labOrderPayload, error: labOrderError }, ledgerResult, transactionResult] = await Promise.all([
+      supabase.functions.invoke('portal-auth', { body: { action: 'partner-bookings' } }),
+      supabase.functions.invoke('portal-auth', { body: { action: 'partner-lab-orders' } }),
+      supabase.from('photographer_ledger').select('entry_type,amount').eq('mobile', p.mobile),
+      supabase.from('direct_transactions').select('txn_type,amount').eq('partner_id', p.id),
+    ]);
+    if (bookingError) throw new Error(bookingPayload?.error || bookingError.message || 'Could not load assigned shoots.');
+    if (labOrderError) throw new Error(labOrderPayload?.error || labOrderError.message || 'Could not load lab orders.');
+    if (ledgerResult.error) throw ledgerResult.error;
+    if (transactionResult.error) throw transactionResult.error;
+    bookings = (bookingPayload?.bookings ?? []) as CrewBooking[];
+    labOrders = (labOrderPayload?.orders ?? []) as StudioLabOrder[];
+    ledger = ledgerResult.data;
+    directTxns = transactionResult.data;
+  }
+
+  const activeLabOrders = labOrders.filter((o) => !o.deleted_at && (!o.archived_at || o.order_status === 'Delivered'));
 
   const ledgerEntries = (ledger ?? []) as Array<{ entry_type: string; amount: number }>;
   const directEntries = (directTxns ?? []) as Array<{ txn_type: string; amount: number }>;
@@ -199,6 +248,8 @@ export function PartnerDashboardContent({
   const [musicProjects, setMusicProjects] = useState<Array<{ id: string; client_name: string; mode: 'b2c' | 'b2b'; status: 'draft' | 'submitted' | 'locked'; locked_at: string | null; created_at: string; updated_at: string }>>([]);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [loadRevision, setLoadRevision] = useState(0);
   const [promoAds, setPromoAds] = useState<PromoAd[]>([]);
   const [photoSessionRevision, setPhotoSessionRevision] = useState(0);
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null);
@@ -215,14 +266,24 @@ export function PartnerDashboardContent({
     let cancelled = false;
     const load = async () => {
       setLoadingData(true);
-      const data = await fetchPartnerData(partner);
-      const { data: ads } = await supabase.from('promo_ads').select('*').eq('is_active', true).eq('audience', 'partners').order('sort_order');
-      if (cancelled) return;
-      setBookings(data.bookings);
-      setLabOrders(data.labOrders);
-      setBalance(data.balance);
-      setPromoAds((ads ?? []) as PromoAd[]);
-      setLoadingData(false);
+      setLoadError('');
+      try {
+        const data = await fetchPartnerData(partner, adminPreview);
+        const { data: ads, error: adsError } = await supabase.from('promo_ads').select('*').eq('is_active', true).eq('audience', 'partners').order('sort_order');
+        if (adsError) throw adsError;
+        if (cancelled) return;
+        setBookings(data.bookings);
+        setLabOrders(data.labOrders);
+        setBalance(data.balance);
+        setPromoAds((ads ?? []) as PromoAd[]);
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : 'Could not load partner portal data.';
+        setLoadError(message);
+        toast(`Partner portal could not load: ${message}`, 'error');
+      } finally {
+        if (!cancelled) setLoadingData(false);
+      }
     };
     void load();
 
@@ -258,7 +319,7 @@ export function PartnerDashboardContent({
       supabase.removeChannel(transactionsChannel);
       supabase.removeChannel(photoSessionsChannel);
     };
-  }, [partner]);
+  }, [partner, adminPreview, loadRevision, toast]);
 
   useEffect(() => {
     if (labOrders.length === 0) { setOrderSessions({}); return; }
@@ -354,6 +415,15 @@ export function PartnerDashboardContent({
     return (
       <div className="flex items-center justify-center py-20">
         <Sparkles className="h-6 w-6 animate-pulse text-amber-500" />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-xl p-8 text-center">
+        <p className="mb-4 text-sm text-rose-400">Partner portal could not load: {loadError}</p>
+        <button type="button" onClick={() => setLoadRevision((revision) => revision + 1)} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-400">Retry</button>
       </div>
     );
   }
