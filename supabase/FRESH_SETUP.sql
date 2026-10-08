@@ -1554,11 +1554,31 @@ CREATE TABLE IF NOT EXISTS music_cues (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Studio-only master references are independent from client-selected music_cues.
+CREATE TABLE IF NOT EXISTS music_master_cues (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL REFERENCES music_projects(id) ON DELETE RESTRICT,
+  song_title text NOT NULL DEFAULT '',
+  singer_artist text NOT NULL DEFAULT '',
+  genre_mood text NOT NULL DEFAULT '',
+  event_tag text NOT NULL DEFAULT '',
+  audio_url text NOT NULL DEFAULT '',
+  cue_timestamps text NOT NULL DEFAULT '',
+  special_notes text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT music_master_cues_song_title_nonempty CHECK (length(btrim(song_title)) > 0)
+);
+
 CREATE INDEX IF NOT EXISTS music_projects_client_name_idx ON music_projects (lower(client_name));
 CREATE INDEX IF NOT EXISTS music_cues_project_id_idx ON music_cues (project_id);
+CREATE INDEX IF NOT EXISTS music_master_cues_project_id_idx ON music_master_cues (project_id, created_at);
 
 ALTER TABLE music_projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE music_master_cues ENABLE ROW LEVEL SECURITY;
 ALTER TABLE music_cues ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON music_master_cues FROM PUBLIC, anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON music_master_cues TO authenticated;
 
 DROP POLICY IF EXISTS "anon_select_music_projects" ON music_projects;
 CREATE POLICY "anon_select_music_projects" ON music_projects FOR SELECT TO anon, authenticated USING (true);
@@ -2934,6 +2954,22 @@ CREATE POLICY portal_client_music_cues_select ON public.music_cues
     JOIN public.bookings b ON b.id = mp.booking_id
     WHERE mp.id = music_cues.project_id AND b.client_auth_user_id = auth.uid() AND b.is_login_allowed = true
   ));
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'music_projects') THEN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.music_projects;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'music_cues') THEN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.music_cues;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'music_master_cues') THEN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.music_master_cues;
+    END IF;
+  END IF;
+END;
+$$;
 
 CREATE POLICY portal_active_promo_ads_select ON public.promo_ads
   FOR SELECT TO anon, authenticated

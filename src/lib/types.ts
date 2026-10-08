@@ -575,6 +575,20 @@ export interface MusicCue {
   updated_at: string;
 }
 
+export interface MusicMasterCue {
+  id: string;
+  project_id: string;
+  song_title: string;
+  singer_artist: string;
+  genre_mood: string;
+  event_tag: string;
+  audio_url: string;
+  cue_timestamps: string;
+  special_notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Banner {
   id: string;
   is_demo?: boolean;
