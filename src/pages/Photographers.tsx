@@ -57,6 +57,7 @@ import { PinInput } from '@/components/ui/PinInput';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useRefresh } from '@/context/RefreshContext';
+import { bookingBillingSnapshot } from '@/lib/billing';
 
 const ENTRY_COLORS: Record<LedgerEntryType, 'rose' | 'emerald' | 'sky'> = {
   LAB_WORK_DEBIT: 'rose',
@@ -211,7 +212,7 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
       const directGiven = pDirect.filter((d) => d.txn_type === 'Given').reduce((s, d) => s + Number(d.amount ?? 0), 0);
       const directReceived = pDirect.filter((d) => d.txn_type === 'Received').reduce((s, d) => s + Number(d.amount ?? 0), 0);
       const labCredit = activeLabOrders.reduce((s, order) => s + Number(order.advance_paid ?? 0), 0);
-      const labDebit = activeLabOrders.reduce((s, order) => s + Number(order.current_order_total ?? 0) + Number(order.previous_back_due ?? order.back_due ?? 0), 0);
+      const labDebit = activeLabOrders.reduce((s, order) => s + Math.max(0, Number(order.master_total ?? (Number(order.current_order_total ?? 0) + Number(order.previous_back_due ?? order.back_due ?? 0))) - Number(order.balance_transferred_out ?? 0)), 0);
 
       const balance = totalCredit + directReceived + labCredit - totalDebit - totalSettled - directGiven - labDebit;
 
@@ -275,7 +276,7 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
       };
 
       existing.booking_ids.add(booking.id);
-      existing.debit += Number(booking.total_amount ?? 0);
+      existing.debit += bookingBillingSnapshot(booking).grandTotal;
       existing.credit += Number(booking.advance_paid ?? 0);
       existing.client_name = existing.client_name || booking.client_name || 'Client';
       existing.phone = existing.phone === '—' && booking.client_mobile ? booking.client_mobile : existing.phone;
@@ -302,6 +303,18 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
         const matchesBooking = Boolean(entry.booking_id && bookingIds.includes(entry.booking_id));
         return entry.entity_type === 'CLIENT' && (matchesClient || matchesBooking);
       });
+      const installmentEntries: BookingClientLedgerEntry[] = activeBookings
+        .filter((booking) => bookingIds.includes(booking.id))
+        .flatMap((booking) => (booking.deliverables_data?.payment_details?.payment_history ?? []).map((payment) => ({
+          id: `booking-payment:${booking.id}:${payment.id}`,
+          booking_id: booking.id,
+          entity_type: 'CLIENT',
+          entry_type: 'CREDIT',
+          amount: Number(payment.paid_amount ?? 0),
+          description: payment.custom_note || `${payment.payment_mode} payment`,
+          date: payment.payment_date,
+          created_at: payment.created_at ?? payment.payment_date,
+        })));
 
       const additionalCredit = bookingEntries
         .filter((entry) => (entry.entry_type ?? '').toUpperCase() === 'CREDIT')
@@ -309,7 +322,7 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
 
       const debit = clientSummary.debit;
       const credit = clientSummary.credit + additionalCredit;
-      const payments = [...bookingEntries].sort((a, b) => String(b.date ?? b.created_at ?? '').localeCompare(String(a.date ?? a.created_at ?? '')));
+      const payments = [...bookingEntries, ...installmentEntries].sort((a, b) => String(b.date ?? b.created_at ?? '').localeCompare(String(a.date ?? a.created_at ?? '')));
 
       const primaryBooking = activeBookings.find((booking) => booking.id === clientSummary.primary_booking_id) ?? activeBookings[0];
       const primaryEventName = primaryBooking?.event_function || clientSummary.event_name || 'Booking';
@@ -395,7 +408,6 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
     if (tab === 'recycle_bin') { setView('trash'); setCategoryFilter('all'); }
   };
 
-  const [quickPayClient, setQuickPayClient] = useState<BookingClientSummary | null>(null);
   const [statementClient, setStatementClient] = useState<BookingClientSummary | null>(null);
 
   return (
@@ -468,7 +480,7 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
       ) : activeTab === 'clients' ? (
         <BookingClientsView
           clients={filteredBookingClients}
-          onPayment={(client) => setQuickPayClient(client)}
+          onPayment={() => toast('Client payments are recorded on the Bookings page only.', 'info')}
           onViewStatement={(client) => setStatementClient(client)}
         />
       ) : view === 'main' ? (
@@ -495,17 +507,6 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
           onRestore={(id) => { updatePartnerStatus(id, 'Active'); toast('Partner restored from Recycle Bin', 'success'); }}
           onPermanentDelete={(id) => setPermanentDeleteId(id)}
           showFinancials={false}
-        />
-      )}
-
-      {quickPayClient && (
-        <BookingClientQuickPayModal
-          client={quickPayClient}
-          onClose={() => setQuickPayClient(null)}
-          onSaved={(entry) => {
-            setClientLedgerEntries((current) => [entry, ...current]);
-            setQuickPayClient(null);
-          }}
         />
       )}
 
@@ -659,7 +660,7 @@ function BookingClientsView({
               onClick={() => onPayment(client)}
               className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"
             >
-              <Plus className="h-4 w-4" /> Payment
+              <Plus className="h-4 w-4" /> Record via Bookings
             </button>
             <button
               onClick={() => onViewStatement(client)}

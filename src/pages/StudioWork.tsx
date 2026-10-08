@@ -34,6 +34,7 @@ import { useRefresh } from '@/context/RefreshContext';
 import { buildPdfFilename, downloadA4Pdf, PrintableDualCopies } from '@/lib/pdf';
 import { hasLabAlbumWork, hasLabVideoWork, labOrderOverviewStatus, visibleLabOrderDates } from '@/lib/labOrderStatus';
 import { clientPaidTotal, clientWorkTotal, labOrderPayments } from '@/lib/labBilling';
+import { calculateLabOrderBilling, labOrderBillingSnapshot } from '@/lib/billing';
 
 const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Pending: 'slate',
@@ -1058,17 +1059,22 @@ function sendLabWhatsApp(o: StudioLabOrder, settings: StudioSettings | null) {
   let phone = (o.studio_mobile ?? '').replace(/\D/g, '');
   if (phone.length === 10) phone = '91' + phone;
   const clientNames = (o.clients ?? []).map((c) => c.client_name || '—').join(', ');
+  const billing = labOrderBillingSnapshot(o, o.advance_paid);
+  const extras = (o.extra_items ?? []).map((item) => `${item.description}: ${item.quantity} × ${formatINR(item.unit_rate)} = ${formatINR(item.line_amount)}`).join('\n');
   const msg =
     `*${settings?.production_title ?? 'Bollywood Umang Production'}*\n` +
     `Bill No: ${o.order_no}\n` +
     `Studio: ${o.studio_name}\n` +
     (o.partner_name ? `Partner: ${o.partner_name}\n` : '') +
     `Clients: ${clientNames || '—'}\n\n` +
-    `Current Bill: ${formatINR(toNum(o.current_order_total))}\n` +
-    `Back Due: ${formatINR(toNum(o.previous_back_due))}\n` +
-    `Master Total: ${formatINR(toNum(o.master_total))}\n` +
-    `Advance Paid: ${formatINR(toNum(o.advance_paid))}\n` +
-    `Balance Due: ${formatINR(toNum(o.net_final_due))}\n\n` +
+    (extras ? `Extra Items:\n${extras}\n` : '') +
+    `Subtotal: ${formatINR(billing.subtotal)}\n` +
+    `Previous Balance: ${formatINR(billing.previousBalance)}\n` +
+    `Tax: ${formatINR(billing.taxAmount)}\n` +
+    `Discount: ${formatINR(billing.discountAmount)}\n` +
+    `Grand Total: ${formatINR(billing.grandTotal)}\n` +
+    `Payments: ${formatINR(billing.totalPayments)}\n` +
+    `Balance Due: ${formatINR(billing.balanceDue)}\n\n` +
     (o.payment_mode ? `Payment: ${o.payment_mode}${o.payment_note ? ` (${o.payment_note})` : ''}\n` : '') +
     `Status: ${labOrderOverviewStatus(o)} · ${[hasLabAlbumWork(o) ? `Album ${o.album_status || 'Pending'}` : '', hasLabVideoWork(o) ? `Video ${o.video_status || 'Pending'}` : ''].filter(Boolean).join(' · ')} · Delivery: ${o.delivery_mode}` +
     (o.is_emergency ? '\nEmergency priority' : '') +
@@ -1155,7 +1161,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
     album_rows: (Array.isArray(client.album_rows) ? client.album_rows : []).map((album) => ({ ...EMPTY_ALBUM_ROW, ...album, papers: Array.isArray(album.papers) ? album.papers : [] })),
   }));
   const totalPaid = paymentHistory.reduce((sum, payment) => sum + toNum(payment.amount), 0);
-  const labDue = toNum(order.master_total) - totalPaid;
+  const labDue = labOrderBillingSnapshot(order, totalPaid).balanceDue;
   const paymentClient = clients.find((client) => client.id === paymentClientId);
   const clientDue = paymentClient ? Math.max(0, clientWorkTotal(paymentClient, order.extra_items ?? [], clients) - clientPaidTotal(paymentClient, paymentHistory, clients)) : labDue;
 
@@ -1168,10 +1174,14 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
     const payment: LabPaymentInstallment = { id: uid(), amount, payment_date: paymentDate, payment_mode: paymentMode, note: paymentNote, created_at: new Date().toISOString(), ...(paymentClient ? { client_id: paymentClient.id, client_name: paymentClient.client_name } : {}) };
     const nextHistory = [...paymentHistory, payment];
     try {
-      const nextDue = Math.max(0, toNum(order.master_total) - totalPaid - amount);
-      const { error } = await supabase.from('studio_lab_orders').update({ payment_history: nextHistory, advance_paid: totalPaid + amount, net_due: nextDue, net_final_due: nextDue, payment_mode: paymentMode, payment_date: paymentDate, payment_note: paymentNote }).eq('id', order.id);
+      const { error } = await supabase.rpc('record_lab_order_payment', {
+        p_order_id: order.id, p_installment_id: payment.id, p_amount: amount,
+        p_payment_date: paymentDate, p_payment_mode: paymentMode, p_note: paymentNote,
+        p_client_id: paymentClient?.id ?? null, p_client_name: paymentClient?.client_name ?? null,
+      });
       if (error) throw error;
       setPaymentHistory(nextHistory);
+      triggerRefresh();
       setPaymentAmount('');
       setPaymentNote('');
       toast('Payment saved instantly!', 'success');
@@ -1551,29 +1561,17 @@ function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder
     if (!Number.isFinite(value) || value <= 0) { toast('Enter a valid settlement amount', 'error'); return; }
     setSaving(true);
     try {
-      const nextAdvance = toNum(order.advance_paid) + value;
-      const paymentHistory: LabPaymentInstallment[] = [...(order.payment_history ?? []), { id: uid(), amount: value, payment_date: paymentDate, payment_mode: paymentMode, note: reference.trim() || 'Balance settlement', created_at: new Date().toISOString() }];
-      const { error } = await supabase.from('studio_lab_orders').update({
-        advance_paid: nextAdvance,
-        net_due: Math.max(0, toNum(order.master_total) - nextAdvance),
-        net_final_due: Math.max(0, toNum(order.master_total) - nextAdvance),
-        payment_mode: paymentMode,
-        payment_date: paymentDate,
-        payment_note: reference.trim(),
-        payment_history: paymentHistory,
-      }).eq('id', order.id);
-      if (error) throw error;
-      toast('Lab settlement recorded instantly!', 'success');
-      onSaved({
-        ...order,
-        advance_paid: nextAdvance,
-        net_due: Math.max(0, toNum(order.master_total) - nextAdvance),
-        net_final_due: Math.max(0, toNum(order.master_total) - nextAdvance),
-        payment_mode: paymentMode,
-        payment_date: paymentDate,
-        payment_note: reference.trim(),
-        payment_history: paymentHistory,
+      const installmentId = uid();
+      const { error } = await supabase.rpc('record_lab_order_payment', {
+        p_order_id: order.id, p_installment_id: installmentId, p_amount: value,
+        p_payment_date: paymentDate, p_payment_mode: paymentMode,
+        p_note: reference.trim() || 'Balance settlement', p_client_id: null, p_client_name: null,
       });
+      if (error) throw error;
+      const { data: refreshed, error: refreshError } = await supabase.from('studio_lab_orders').select('*').eq('id', order.id).single();
+      if (refreshError) throw refreshError;
+      toast('Lab settlement recorded instantly!', 'success');
+      onSaved(refreshed as StudioLabOrder);
     } catch (error) {
       toast(getDatabaseErrorMessage(error), 'error');
     } finally {
@@ -1611,7 +1609,8 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
   const previousBackDue = Number(currentOrder.previous_back_due ?? currentOrder.back_due ?? 0);
   const orderPaid = Number(currentOrder.advance_paid || 0);
   const orderDue = Math.max(0, orderTotal - orderPaid);
-  const netDue = Number(currentOrder.net_final_due ?? currentOrder.net_due ?? Math.max(0, orderTotal + previousBackDue - orderPaid));
+  const orderBilling = labOrderBillingSnapshot(currentOrder, orderPaid);
+  const netDue = orderBilling.balanceDue;
   const paymentAmount = Number(amount || 0);
   const remainingBalance = Math.max(0, Number(currentOrder.net_due || currentOrder.net_final_due || netDue) - paymentAmount);
   const isOverPayment = paymentAmount > Number(currentOrder.net_due || currentOrder.net_final_due || netDue);
@@ -1631,67 +1630,21 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
     const trimmedNote = paymentNote.trim();
     setSaving(true);
     try {
-      const currentNetDue = Math.max(0, Number(currentOrder.master_total ?? orderTotal + previousBackDue) - Number(currentOrder.advance_paid ?? 0));
+      const currentNetDue = labOrderBillingSnapshot(currentOrder, currentOrder.advance_paid).balanceDue;
       if (currentOrder.clients.length > 0 && !paymentClientId) { toast('Select which client this payment belongs to', 'error'); return; }
       if (value > currentNetDue) { toast('Payment is greater than the remaining order balance', 'error'); return; }
       if (paymentClient && value > paymentTargetDue) { toast('Payment is greater than this client’s remaining work balance', 'error'); return; }
-      const nextAdvance = Number(currentOrder.advance_paid || 0) + value;
-      const nextNetDue = Math.max(0, currentNetDue - value);
-      const nextHistory: LabPaymentInstallment[] = [...(currentOrder.payment_history ?? []), {
-        id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : uid(),
-        amount: value,
-        payment_date: paymentDate,
-        payment_mode: selectedMode,
-        note: trimmedNote || '',
-        created_at: new Date().toISOString(),
-        ...(paymentClient ? { client_id: paymentClient.id, client_name: paymentClient.client_name } : {}),
-      }];
-
-      const nextOrder: StudioLabOrder = {
-        ...currentOrder,
-        advance_paid: nextAdvance,
-        net_due: nextNetDue,
-        net_final_due: nextNetDue,
-        payment_mode: selectedMode,
-        payment_date: paymentDate,
-        payment_note: trimmedNote,
-        payment_history: nextHistory,
-      };
-
-      const { error } = await supabase.from('studio_lab_orders').update({
-        advance_paid: nextAdvance,
-        net_due: nextNetDue,
-        net_final_due: nextNetDue,
-        payment_mode: selectedMode,
-        payment_date: paymentDate,
-        payment_note: trimmedNote,
-        payment_history: nextHistory,
-      }).eq('id', currentOrder.id);
+      const installmentId = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : uid();
+      const { error } = await supabase.rpc('record_lab_order_payment', {
+        p_order_id: currentOrder.id, p_installment_id: installmentId, p_amount: value,
+        p_payment_date: paymentDate, p_payment_mode: selectedMode, p_note: trimmedNote,
+        p_client_id: paymentClient?.id ?? null, p_client_name: paymentClient?.client_name ?? null,
+      });
       if (error) throw error;
+      const { data: refreshed, error: refreshError } = await supabase.from('studio_lab_orders').select('*').eq('id', currentOrder.id).single();
+      if (refreshError) throw refreshError;
+      const nextOrder = refreshed as StudioLabOrder;
       setCurrentOrder(nextOrder);
-
-      if (currentOrder.partner_id) {
-        const ledgerDescription = `Order #${currentOrder.order_no} (${currentOrder.project_name || 'Project'})${paymentClient ? ` · Client ${currentOrder.clients.findIndex((client) => client.id === paymentClient.id) + 1}: ${paymentClient.client_name}` : ''} payment via ${selectedMode}${trimmedNote ? ` - Note: ${trimmedNote}` : ''}`;
-        const ledgerPayload = {
-          partner_id: currentOrder.partner_id,
-          amount: value,
-          entry_type: 'CREDIT',
-          description: ledgerDescription,
-          reference_order_id: currentOrder.id,
-          date: paymentDate,
-        };
-        try {
-          const { error: ledgerError } = await supabase.from('ledger_entries').insert([ledgerPayload]);
-          if (ledgerError) throw ledgerError;
-        } catch {
-          try {
-            const { error: fallbackError } = await supabase.from('photographer_ledger').insert([{ partner_id: currentOrder.partner_id, photographer_name: currentOrder.partner_name || currentOrder.studio_name, mobile: currentOrder.studio_mobile, entry_type: 'PAYMENT_SETTLED', description: ledgerDescription, amount: value, created_at: new Date().toISOString() }]);
-            if (fallbackError) throw fallbackError;
-          } catch (ledgerError) {
-            toast(getDatabaseErrorMessage(ledgerError), 'error');
-          }
-        }
-      }
 
       toast('Payment recorded instantly!', 'success');
       onSaved(nextOrder);
@@ -1807,6 +1760,9 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
   const [studioMobile, setStudioMobile] = useDraftState<string>(`${draftKey}-studioMobile`, '');
   const [studioAddress, setStudioAddress] = useDraftState<string>(`${draftKey}-studioAddress`, '');
   const [backDue, setBackDue] = useDraftState<string>(`${draftKey}-backDue`, '');
+  const [balanceSourceOrderId, setBalanceSourceOrderId] = useDraftState<string>(`${draftKey}-balanceSourceOrderId`, '');
+  const [taxRate, setTaxRate] = useDraftState<string>(`${draftKey}-taxRate`, '0');
+  const [discountAmount, setDiscountAmount] = useDraftState<string>(`${draftKey}-discountAmount`, '0');
   const [projectName, setProjectName] = useDraftState<string>(`${draftKey}-projectName`, '');
   const [orderStatus, setOrderStatus] = useDraftState<string>(`${draftKey}-orderStatus`, 'Pending');
   const [deliveryMode, setDeliveryMode] = useDraftState<string>(`${draftKey}-deliveryMode`, 'By Hand');
@@ -1832,6 +1788,7 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
     setStudioMobile('');
     setStudioAddress('');
     setBackDue('');
+    setBalanceSourceOrderId('');
     setProjectName('');
     setOrderStatus('Pending');
     setDeliveryMode('By Hand');
@@ -1890,7 +1847,12 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
       setStudioName(editing?.studio_name ?? '');
       setStudioMobile(editing?.studio_mobile ?? '');
       setStudioAddress(editing?.studio_address ?? '');
-      setBackDue(editing && toNum(editing.previous_back_due) ? String(editing.previous_back_due) : '');
+      const linkedSource = editing?.previous_balance_source_order_id ? existing.find((candidate) => candidate.id === editing.previous_balance_source_order_id) : null;
+      const sourceDue = linkedSource ? Math.max(0, toNum(linkedSource.master_total) - toNum(linkedSource.advance_paid) - toNum(linkedSource.balance_transferred_out)) : 0;
+      setBackDue(editing ? String(toNum(editing.previous_back_due) || (editing.previous_balance_source_order_id ? sourceDue : 0)) : '');
+      setBalanceSourceOrderId(editing?.previous_balance_source_order_id ?? '');
+      setTaxRate(String(editing?.tax_rate ?? 0));
+      setDiscountAmount(String(editing?.discount_amount ?? 0));
       setProjectName(editing?.project_name ?? '');
       setOrderStatus(editing?.order_status ?? 'Pending');
       setDeliveryMode(editing?.delivery_mode ?? 'By Hand');
@@ -1932,8 +1894,8 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
       setStudioName(partner.studio_name || name);
       setStudioMobile(partnerMobile(partner));
       setStudioAddress(partner.studio_address || '');
-      const bal = ledgerBalances[partner.id] ?? 0;
-      setBackDue(bal !== 0 ? String(Math.abs(bal)) : '');
+      setBackDue('');
+      setBalanceSourceOrderId('');
     }
   };
 
@@ -2025,14 +1987,19 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
 
   const totalVideoBill = useMemo(() => clients.reduce((s, c) => s + computeClientVideoTotal(c.video_rows), 0), [clients]);
   const totalAlbumBill = useMemo(() => clients.reduce((s, c) => s + computeClientAlbumTotal(c.album_rows), 0), [clients]);
-  const extraItemsTotal = useMemo(() => extraItems.reduce((sum, item) => sum + Number(item.line_amount || 0), 0), [extraItems]);
+  const extraItemsTotal = useMemo(() => extraItems.reduce((sum, item) => sum + toNum(item.line_amount || item.quantity * item.unit_rate), 0), [extraItems]);
   const currentOrderTotal = totalVideoBill + totalAlbumBill + extraItemsTotal;
-  const masterTotal = currentOrderTotal + toNum(backDue);
-  const netFinalDue = masterTotal - toNum(advancePaid);
+  const billing = calculateLabOrderBilling({ baseSubtotal: totalVideoBill + totalAlbumBill, extraItems, previousBalance: toNum(backDue), balanceTransferredOut: toNum(editing?.balance_transferred_out), taxRate: toNum(taxRate), discountAmount: toNum(discountAmount), totalPayments: toNum(advancePaid) });
+  const pendingLinkedTransfer = Boolean(editing?.previous_balance_source_order_id && !toNum(editing.previous_back_due));
+  const persistedPreviousBalance = pendingLinkedTransfer ? 0 : editing ? toNum(backDue) : balanceSourceOrderId ? 0 : toNum(backDue);
+  const persistedGrandTotal = Math.max(0, currentOrderTotal + persistedPreviousBalance + billing.taxAmount - toNum(discountAmount));
+  const masterTotal = billing.grandTotal;
+  const netFinalDue = billing.balanceDue;
 
   const handleSave = async () => {
     if (isSubmitting) return;
     if (!studioName || !studioMobile || !projectName) { toast('Studio name, mobile, and project are required', 'error'); return; }
+    if (!editing && toNum(backDue) > 0 && !balanceSourceOrderId) { toast('Select the previous lab order that owns this balance before carrying it forward.', 'error'); return; }
     setIsSubmitting(true);
     try {
       const allVideoRows = clients.flatMap((c) => c.video_rows);
@@ -2052,10 +2019,16 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
         total_album_bill: totalAlbumBill,
         total_video_bill: totalVideoBill,
         current_order_total: currentOrderTotal,
-        previous_back_due: toNum(backDue),
-        master_total: masterTotal,
+        previous_back_due: persistedPreviousBalance,
+        previous_balance_source_order_id: (editing?.previous_balance_source_order_id ?? balanceSourceOrderId) || null,
+        balance_transferred_out: editing?.balance_transferred_out ?? 0,
+        billing_version: editing?.billing_version ?? 2,
+        tax_rate: toNum(taxRate),
+        tax_amount: billing.taxAmount,
+        discount_amount: toNum(discountAmount),
+        master_total: persistedGrandTotal,
+        net_final_due: Math.max(0, persistedGrandTotal - toNum(advancePaid) - toNum(editing?.balance_transferred_out)),
         advance_paid: toNum(advancePaid),
-        net_final_due: netFinalDue,
         payment_mode: paymentMode,
         payment_date: paymentDate,
         payment_note: paymentNote,
@@ -2087,6 +2060,21 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
       const { data, error } = await supabase.from('studio_lab_orders').upsert(payload).select().single();
       if (error) throw error;
       savedOrder = data as StudioLabOrder | null;
+      const transferSourceId = editing?.previous_balance_source_order_id ?? balanceSourceOrderId;
+      if (savedOrder && transferSourceId && toNum(backDue) > 0) {
+        const { error: transferError } = await supabase.rpc('transfer_lab_order_balance', {
+          p_source_order_id: transferSourceId, p_target_order_id: savedOrder.id, p_amount: toNum(backDue),
+        });
+        if (transferError) {
+          clearDraft();
+          onSaved(savedOrder);
+          toast('Order saved, but the previous-balance transfer did not complete. Edit this order and retry the linked transfer.', 'error');
+          return;
+        }
+        const { data: transferredOrder, error: reloadError } = await supabase.from('studio_lab_orders').select('*').eq('id', savedOrder.id).single();
+        if (reloadError) throw reloadError;
+        savedOrder = transferredOrder as StudioLabOrder;
+      }
       clearDraft();
       if (savedOrder) onSaved(savedOrder);
     } catch (err) {
@@ -2126,9 +2114,31 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
             <Field label="Studio Address">
               <input value={studioAddress} onChange={(e) => setStudioAddress(e.target.value)} className={inputClass} placeholder="Studio address" />
             </Field>
-            <Field label="Back Due (from Ledger balance)">
-              <input type="number" value={backDue} onChange={(e) => setBackDue(e.target.value)} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={inputClass} placeholder="0" />
+            <Field label={editing ? 'Previous Balance' : 'Previous Balance to Transfer'}>
+              {!editing ? <select value={balanceSourceOrderId} onChange={(e) => {
+                const source = existing.find((candidate) => candidate.id === e.target.value);
+                setBalanceSourceOrderId(e.target.value);
+                setBackDue(source ? String(Math.max(0, toNum(source.master_total) - toNum(source.advance_paid) - toNum(source.balance_transferred_out))) : '');
+              }} className={selectClass}>
+                <option value="">— No previous order balance —</option>
+                {existing.filter((candidate) => !candidate.deleted_at && !candidate.archived_at && (!selectedPartnerId || candidate.partner_id === selectedPartnerId) && toNum(candidate.master_total) - toNum(candidate.advance_paid) - toNum(candidate.balance_transferred_out) > 0).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.order_no} — {candidate.project_name || candidate.studio_name} · Due {formatINR(Math.max(0, toNum(candidate.master_total) - toNum(candidate.advance_paid) - toNum(candidate.balance_transferred_out)))}</option>)}
+              </select> : <input value={editing?.previous_balance_source_order_id ? `${editing.previous_balance_source_order_id} · linked order` : formatINR(toNum(backDue))} readOnly className={inputClass} />}
             </Field>
+            <Field label="Transfer Amount (₹)">
+              <input type="number" min="0" max={balanceSourceOrderId ? Math.max(0, toNum(existing.find((candidate) => candidate.id === balanceSourceOrderId)?.master_total) - toNum(existing.find((candidate) => candidate.id === balanceSourceOrderId)?.advance_paid) - toNum(existing.find((candidate) => candidate.id === balanceSourceOrderId)?.balance_transferred_out)) : undefined} value={backDue} onChange={(e) => setBackDue(e.target.value)} disabled={Boolean(editing?.previous_back_due)} className={inputClass} placeholder="0" />
+            </Field>
+            <Field label="Tax Rate (%) — optional">
+              <input type="number" min="0" step="0.01" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} className={inputClass} placeholder="0" />
+            </Field>
+            <Field label="Discount (₹)">
+              <input type="number" min="0" value={discountAmount} onChange={(e) => setDiscountAmount(e.target.value)} className={inputClass} placeholder="0" />
+            </Field>
+            <div className="rounded-lg border border-slate-200 p-3 text-xs dark:border-white/10">
+              <p>Base: {formatINR(totalVideoBill + totalAlbumBill)} · Extras: {formatINR(extraItemsTotal)}</p>
+              <p>Subtotal: {formatINR(currentOrderTotal)} · Tax: {formatINR(billing.taxAmount)}</p>
+              <p>Previous Balance: {formatINR(toNum(backDue))} · Discount: {formatINR(toNum(discountAmount))}</p>
+              <p className="mt-1 font-semibold text-slate-900 dark:text-white">Grand Total: {formatINR(masterTotal)} · Due: {formatINR(netFinalDue)}</p>
+            </div>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Field label="Project / Party Name"><input value={projectName} onChange={(e) => setProjectName(e.target.value)} className={inputClass} /></Field>
@@ -2444,6 +2454,8 @@ function LabOrderForm({ open, onClose, editing, existing, onSaved }: { open: boo
 
 function buildLabOrderSummaryText(o: StudioLabOrder, settings: StudioSettings | null): string {
   const clientNames = (o.clients ?? []).map((c) => c.client_name || '—').join(', ');
+  const billing = labOrderBillingSnapshot(o, o.advance_paid);
+  const extras = (o.extra_items ?? []).map((item) => `  - ${item.description}: ${item.quantity} × ${formatINR(item.unit_rate)} = ${formatINR(item.line_amount)}`).join('\n');
   return (
     `${settings?.production_title ?? 'Bollywood Umang Production'}\n` +
     `Bill No: ${o.order_no}\n` +
@@ -2455,11 +2467,14 @@ function buildLabOrderSummaryText(o: StudioLabOrder, settings: StudioSettings | 
     `Project: ${o.project_name || '—'}\n\n` +
     `Total Video Bill: ${formatINR(toNum(o.total_video_bill))}\n` +
     `Total Album Bill: ${formatINR(toNum(o.total_album_bill))}\n` +
-    `Current Order Total: ${formatINR(toNum(o.current_order_total))}\n` +
-    `Back Due: ${formatINR(toNum(o.previous_back_due))}\n` +
-    `Master Total: ${formatINR(toNum(o.master_total))}\n` +
-    `Advance Paid: ${formatINR(toNum(o.advance_paid))}\n` +
-    `Balance Due: ${formatINR(toNum(o.net_final_due))}\n` +
+    (extras ? `Extra Items:\n${extras}\n` : '') +
+    `Subtotal: ${formatINR(billing.subtotal)}\n` +
+    `Previous Balance: ${formatINR(billing.previousBalance)}\n` +
+    `Tax: ${formatINR(billing.taxAmount)}\n` +
+    `Discount: ${formatINR(billing.discountAmount)}\n` +
+    `Grand Total: ${formatINR(billing.grandTotal)}\n` +
+    `Payments: ${formatINR(billing.totalPayments)}\n` +
+    `Balance Due: ${formatINR(billing.balanceDue)}\n` +
     `Status: ${labOrderOverviewStatus(o)} · ${[hasLabAlbumWork(o) ? `Album ${o.album_status || 'Pending'}` : '', hasLabVideoWork(o) ? `Video ${o.video_status || 'Pending'}` : ''].filter(Boolean).join(' · ')} · Delivery: ${o.delivery_mode}` +
     (o.is_emergency ? '\nEmergency priority' : '') +
     (o.date_pending ? '\nDelivery date pending confirmation' : visibleLabOrderDates(o).map(({ label, date }) => `\n${label}: ${formatDate(date)}`).join('')) +
@@ -2561,9 +2576,10 @@ function LabOrderPrintTemplate({ order, settings, compact = false, termsText }: 
   const s = settings;
   const clients = order.clients ?? [];
   const orderPayments = labOrderPayments(order);
+  const billing = labOrderBillingSnapshot(order, order.advance_paid);
   const cn = compact ? 'compact-bill' : '';
   const resolvedTerms = termsText || settings?.production_terms || DEFAULT_PRODUCTION_TERMS;
-  const isFullyPaid = Number(order.net_final_due ?? 0) <= 0;
+  const isFullyPaid = billing.balanceDue <= 0;
   return (
     <div className={`bill-page bg-white text-black ${cn}`} style={{ userSelect: 'text', padding: compact ? '3mm 4mm' : undefined }}>
       {/* Header */}
@@ -2716,11 +2732,13 @@ function LabOrderPrintTemplate({ order, settings, compact = false, termsText }: 
           <div className="w-48 space-y-0.5 text-xs">
             <div className="flex justify-between"><span>Video Bill:</span><span>{formatINR(toNum(order.total_video_bill))}</span></div>
             <div className="flex justify-between"><span>Album Bill:</span><span>{formatINR(toNum(order.total_album_bill))}</span></div>
-            <div className="flex justify-between border-t border-black pt-0.5"><span>Order Total:</span><span>{formatINR(toNum(order.current_order_total))}</span></div>
-            <div className="flex justify-between"><span>Back Due:</span><span>{formatINR(toNum(order.previous_back_due))}</span></div>
-            <div className="flex justify-between"><span>Master Total:</span><span>{formatINR(toNum(order.master_total))}</span></div>
+            <div className="flex justify-between border-t border-black pt-0.5"><span>Subtotal:</span><span>{formatINR(billing.subtotal)}</span></div>
+            <div className="flex justify-between"><span>Previous Balance:</span><span>{formatINR(billing.previousBalance)}</span></div>
+            {billing.taxAmount > 0 && <div className="flex justify-between"><span>Tax:</span><span>{formatINR(billing.taxAmount)}</span></div>}
+            {billing.discountAmount > 0 && <div className="flex justify-between"><span>Discount:</span><span>- {formatINR(billing.discountAmount)}</span></div>}
+            <div className="flex justify-between"><span>Grand Total:</span><span>{formatINR(billing.grandTotal)}</span></div>
             <div className="flex justify-between"><span>Advance:</span><span>- {formatINR(toNum(order.advance_paid))}</span></div>
-            <div className="flex justify-between border-t-2 border-black pt-0.5 font-bold"><span>Net Due:</span><span>{formatINR(toNum(order.net_final_due))}</span></div>
+            <div className="flex justify-between border-t-2 border-black pt-0.5 font-bold"><span>Balance Due:</span><span>{formatINR(billing.balanceDue)}</span></div>
           </div>
         </div>
       ) : (
@@ -2729,11 +2747,13 @@ function LabOrderPrintTemplate({ order, settings, compact = false, termsText }: 
           <div className="ml-auto w-64 space-y-1 text-sm">
             <div className="flex justify-between"><span>Total Video Bill:</span><span>{formatINR(toNum(order.total_video_bill))}</span></div>
             <div className="flex justify-between"><span>Total Album Bill:</span><span>{formatINR(toNum(order.total_album_bill))}</span></div>
-            <div className="flex justify-between border-t border-black pt-1"><span>Current Order Total:</span><span>{formatINR(toNum(order.current_order_total))}</span></div>
-            <div className="flex justify-between"><span>Back Due:</span><span>{formatINR(toNum(order.previous_back_due))}</span></div>
-            <div className="flex justify-between"><span>Master Total:</span><span>{formatINR(toNum(order.master_total))}</span></div>
+            <div className="flex justify-between border-t border-black pt-1"><span>Subtotal:</span><span>{formatINR(billing.subtotal)}</span></div>
+            <div className="flex justify-between"><span>Previous Balance:</span><span>{formatINR(billing.previousBalance)}</span></div>
+            {billing.taxAmount > 0 && <div className="flex justify-between"><span>Tax:</span><span>{formatINR(billing.taxAmount)}</span></div>}
+            {billing.discountAmount > 0 && <div className="flex justify-between"><span>Discount:</span><span>- {formatINR(billing.discountAmount)}</span></div>}
+            <div className="flex justify-between"><span>Grand Total:</span><span>{formatINR(billing.grandTotal)}</span></div>
             <div className="flex justify-between"><span>Advance Paid:</span><span>- {formatINR(toNum(order.advance_paid))}</span></div>
-            <div className="flex justify-between border-t-2 border-black pt-1 font-bold"><span>Net Final Due:</span><span>{formatINR(toNum(order.net_final_due))}</span></div>
+            <div className="flex justify-between border-t-2 border-black pt-1 font-bold"><span>Balance Due:</span><span>{formatINR(billing.balanceDue)}</span></div>
           </div>
 
           {/* Payment info */}

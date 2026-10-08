@@ -36,6 +36,7 @@ import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { formatINR, formatDate, formatDateTime, formatPhone } from '@/lib/format';
 import { formatDeliverablesList } from '@/components/BillInvoice';
+import { bookingBillingSnapshot, labOrderBillingSnapshot } from '@/lib/billing';
 import { getClientSession, clearClientSession, isLabSession, getLabSessionId } from '@/pages/ClientLogin';
 import { Modal } from '@/components/ui/Modal';
 import { Field } from '@/components/ui/Field';
@@ -235,7 +236,8 @@ export function ClientDashboard() {
   const deliveryReceipts = safeDeliverables.delivery_receipts ?? [];
   const deliveryReceivedCount = delivList.filter((_item, index) => deliveryReceipts.some((receipt) => receipt.item_key === deliveryItemKey(delivList, index))).length;
   const allDeliverablesReceived = delivList.length > 0 && deliveryReceivedCount === delivList.length;
-  const netDue = Number(booking.net_due ?? 0);
+  const bookingBilling = bookingBillingSnapshot(booking);
+  const netDue = bookingBilling.balanceDue;
   const paymentHistory: BookingPaymentInstallment[] = booking.deliverables_data?.payment_details?.payment_history ?? [];
   const whatsappNumber = (settings?.studio_whatsapp || settings?.whatsapp_number || '').replace(/\D/g, '');
   const callNumber = (settings?.studio_call_number || settings?.phone || '').replace(/\D/g, '');
@@ -378,8 +380,8 @@ export function ClientDashboard() {
           </h2>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center dark:border-white/10 dark:bg-white/5">
-              <p className="text-xs text-slate-500 dark:text-slate-400">Total Package</p>
-              <p className="mt-0.5 text-base font-bold text-slate-900 dark:text-white">{formatINR(Number(booking.total_amount))}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Grand Total</p>
+              <p className="mt-0.5 text-base font-bold text-slate-900 dark:text-white">{formatINR(bookingBilling.grandTotal)}</p>
             </div>
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center dark:border-emerald-500/20 dark:bg-emerald-500/5">
               <p className="text-xs text-slate-500 dark:text-slate-400">Advance Paid</p>
@@ -387,7 +389,7 @@ export function ClientDashboard() {
             </div>
             <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-center dark:border-sky-500/20 dark:bg-sky-500/5">
               <p className="text-xs text-slate-500 dark:text-slate-400">Discount</p>
-              <p className="mt-0.5 text-base font-bold text-sky-600 dark:text-sky-400">{formatINR(Number(booking.discount))}</p>
+              <p className="mt-0.5 text-base font-bold text-sky-600 dark:text-sky-400">{formatINR(bookingBilling.discountAmount)}</p>
             </div>
             <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-center dark:border-rose-500/20 dark:bg-rose-500/5">
               <p className="text-xs text-slate-500 dark:text-slate-400">Balance Due</p>
@@ -664,8 +666,9 @@ function LabOrderDashboard({
   setShowPinModal: (v: boolean) => void;
 }) {
   const totalPaid = Number(order.advance_paid ?? 0);
-  const masterTotal = Number(order.master_total ?? 0);
-  const netDue = Math.max(0, masterTotal - totalPaid);
+  const billing = labOrderBillingSnapshot(order, totalPaid);
+  const masterTotal = billing.grandTotal;
+  const netDue = billing.balanceDue;
   const [labPhotoSession, setLabPhotoSession] = useState<ClientSelectionSession | null>(null);
 
   useEffect(() => {
@@ -775,8 +778,11 @@ function LabOrderDashboard({
             <Wallet className="h-4 w-4 text-amber-500" /> Bill Summary
           </h2>
           <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-            <div><span className="text-slate-500 dark:text-slate-400">Work subtotal</span><p className="font-semibold text-slate-900 dark:text-white">{formatINR(Number(order.current_order_total))}</p></div>
-            <div><span className="text-slate-500 dark:text-slate-400">Previous balance</span><p className="font-semibold text-slate-900 dark:text-white">{formatINR(Number(order.previous_back_due))}</p></div>
+            <div><span className="text-slate-500 dark:text-slate-400">Subtotal</span><p className="font-semibold text-slate-900 dark:text-white">{formatINR(billing.subtotal)}</p></div>
+            <div><span className="text-slate-500 dark:text-slate-400">Previous balance</span><p className="font-semibold text-slate-900 dark:text-white">{formatINR(billing.previousBalance)}</p></div>
+            {billing.taxAmount > 0 && <div><span className="text-slate-500 dark:text-slate-400">Tax</span><p className="font-semibold text-slate-900 dark:text-white">{formatINR(billing.taxAmount)}</p></div>}
+            {billing.discountAmount > 0 && <div><span className="text-slate-500 dark:text-slate-400">Discount</span><p className="font-semibold text-slate-900 dark:text-white">- {formatINR(billing.discountAmount)}</p></div>}
+            <div><span className="text-slate-500 dark:text-slate-400">Grand Total</span><p className="font-semibold text-slate-900 dark:text-white">{formatINR(masterTotal)}</p></div>
             <div><span className="text-slate-500 dark:text-slate-400">Paid</span><p className="font-semibold text-emerald-600 dark:text-emerald-400">{formatINR(totalPaid)}</p></div>
             <div><span className="text-slate-500 dark:text-slate-400">Balance due</span><p className="font-bold text-rose-600 dark:text-rose-400">{formatINR(netDue)}</p></div>
           </div>

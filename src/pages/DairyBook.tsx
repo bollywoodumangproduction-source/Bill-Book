@@ -17,6 +17,7 @@ import { useRefresh } from '@/context/RefreshContext';
 
 const ENTRY_TYPE_LABELS: Record<DairyEntryType, string> = {
   B2C_CASH_IN: 'B2C Cash In (Booking)',
+  B2B_CASH_IN: 'B2B Cash In (Lab Order / Partner / Rental)',
   B2B_CASH_OUT: 'B2B Cash Out (Lab/Vendor)',
   MANUAL_EXPENSE: 'Extra Kharcha',
   MANUAL_INCOME: 'Extra Income',
@@ -24,6 +25,7 @@ const ENTRY_TYPE_LABELS: Record<DairyEntryType, string> = {
 
 const ENTRY_TYPE_COLORS: Record<DairyEntryType, 'emerald' | 'rose' | 'orange' | 'sky'> = {
   B2C_CASH_IN: 'emerald',
+  B2B_CASH_IN: 'emerald',
   B2B_CASH_OUT: 'rose',
   MANUAL_EXPENSE: 'orange',
   MANUAL_INCOME: 'sky',
@@ -106,13 +108,13 @@ export function DairyBook() {
       const matchesType = typeFilter === 'all' || e.entry_type === typeFilter;
       const matchesFrom = !dateFrom || (e.entry_date ?? '') >= dateFrom;
       const matchesTo = !dateTo || (e.entry_date ?? '') <= dateTo;
-      return matchesSearch && matchesType && matchesFrom && matchesTo;
+      return !e.deleted_at && matchesSearch && matchesType && matchesFrom && matchesTo;
     });
   }, [entries, search, typeFilter, dateFrom, dateTo]);
 
   const totals = useMemo(() => {
     const totalKamai = filtered
-      .filter((e) => e.entry_type === 'B2C_CASH_IN' || e.entry_type === 'MANUAL_INCOME')
+      .filter((e) => e.entry_type === 'B2C_CASH_IN' || e.entry_type === 'B2B_CASH_IN' || e.entry_type === 'MANUAL_INCOME')
       .reduce((s, e) => s + Number(e.amount ?? 0), 0);
     const totalB2BLab = filtered
       .filter((e) => e.entry_type === 'B2B_CASH_OUT')
@@ -142,8 +144,11 @@ export function DairyBook() {
 
   const handleDelete = async () => {
     if (!deleteId) return;
-    await supabase.from('dairy_book_entries').delete().eq('id', deleteId);
-    toast('Entry deleted', 'success');
+    const target = entries.find((entry) => entry.id === deleteId);
+    if (target?.is_auto) { toast('Automatically synced entries are managed from their source payment.', 'error'); setDeleteId(null); return; }
+    const { error } = await supabase.from('dairy_book_entries').update({ deleted_at: new Date().toISOString() }).eq('id', deleteId);
+    if (error) { toast(`Could not archive entry: ${error.message}`, 'error'); return; }
+    toast('Entry archived', 'success');
     setDeleteId(null);
     load();
   };
@@ -297,6 +302,7 @@ export function DairyBook() {
         <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={`${selectClass} w-40`}>
           <option value="all">All Types</option>
           <option value="B2C_CASH_IN">{ENTRY_TYPE_LABELS.B2C_CASH_IN}</option>
+          <option value="B2B_CASH_IN">{ENTRY_TYPE_LABELS.B2B_CASH_IN}</option>
           <option value="B2B_CASH_OUT">{ENTRY_TYPE_LABELS.B2B_CASH_OUT}</option>
           <option value="MANUAL_EXPENSE">{ENTRY_TYPE_LABELS.MANUAL_EXPENSE}</option>
           <option value="MANUAL_INCOME">{ENTRY_TYPE_LABELS.MANUAL_INCOME}</option>
@@ -341,7 +347,7 @@ export function DairyBook() {
         <>
         <div className="space-y-2 md:hidden">
           {filtered.map((e) => {
-            const isIn = e.entry_type === 'B2C_CASH_IN' || e.entry_type === 'MANUAL_INCOME';
+            const isIn = e.entry_type === 'B2C_CASH_IN' || e.entry_type === 'B2B_CASH_IN' || e.entry_type === 'MANUAL_INCOME';
             return (
               <div key={e.id} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900/60">
                 <div className="flex items-start justify-between gap-2">
@@ -379,7 +385,7 @@ export function DairyBook() {
               </thead>
               <tbody>
                 {filtered.map((e) => {
-                  const isIn = e.entry_type === 'B2C_CASH_IN' || e.entry_type === 'MANUAL_INCOME';
+                  const isIn = e.entry_type === 'B2C_CASH_IN' || e.entry_type === 'B2B_CASH_IN' || e.entry_type === 'MANUAL_INCOME';
                   return (
                     <tr key={e.id} className="border-t border-slate-100 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/5">
                       <td className="px-2.5 py-2">

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Search, Sparkles, Trash2, Wallet, TrendingUp, Calendar, IndianRupee } from 'lucide-react';
+import { Search, Sparkles, Trash2, Wallet, TrendingUp, Calendar, IndianRupee } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { Payment, PaymentMode, PaymentSource } from '@/lib/types';
-import { formatINR, formatDate, todayISO } from '@/lib/format';
+import type { Booking, StudioLabOrder } from '@/lib/types';
+import { formatINR, formatDate, formatDateTime, todayISO } from '@/lib/format';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useDraftState } from '@/lib/useDraftState';
@@ -17,13 +18,19 @@ import { MasterPinDialog } from '@/components/ui/MasterPinDialog';
 const MODE_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Cash: 'amber',
   UPI: 'emerald',
-  Bank: 'sky',
+  'Bank Transfer': 'sky',
+  NetBanking: 'sky',
+  Other: 'slate',
 };
 
 const SOURCE_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Booking: 'sky',
   'Lab Order': 'amber',
   Photographer: 'slate',
+  Partner: 'emerald',
+  'Equipment Rental': 'amber',
+  'Manual Income': 'emerald',
+  'Manual Expense': 'amber',
 };
 
 export function Payments() {
@@ -32,18 +39,24 @@ export function Payments() {
   const { refreshToken } = useRefresh();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [modeFilter, setModeFilter] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [showForm, setShowForm] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [view, setView] = useState<'active' | 'recycle'>('active');
   const [showPin, setShowPin] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<'soft' | 'permanent'>('soft');
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from('payments').select('*').order('date', { ascending: false });
+    const { data, error } = await supabase.from('payments').select('*').order('date', { ascending: false });
+    if (error) {
+      setLoadError(error.message);
+      setLoading(false);
+      return;
+    }
+    setLoadError('');
     setPayments((data ?? []) as Payment[]);
     setLoading(false);
   }, []);
@@ -60,26 +73,29 @@ export function Payments() {
   });
 
   const activePayments = payments.filter((p) => !p.deleted_at);
-  const todayTotal = activePayments.filter((p) => p.date === todayISO()).reduce((s, p) => s + Number(p.amount ?? 0), 0);
+  const todayTotal = activePayments.filter((p) => p.date === todayISO() && paymentDirection(p) === 'IN').reduce((s, p) => s + Number(p.amount ?? 0), 0);
   const thisMonth = new Date().toISOString().slice(0, 7);
-  const monthTotal = activePayments.filter((p) => (p.date ?? '').startsWith(thisMonth)).reduce((s, p) => s + Number(p.amount ?? 0), 0);
-  const allTotal = activePayments.reduce((s, p) => s + Number(p.amount ?? 0), 0);
+  const monthTotal = activePayments.filter((p) => (p.date ?? '').startsWith(thisMonth) && paymentDirection(p) === 'IN').reduce((s, p) => s + Number(p.amount ?? 0), 0);
+  const totalOut = activePayments.filter((p) => paymentDirection(p) === 'OUT').reduce((s, p) => s + Number(p.amount ?? 0), 0);
 
   const handleDelete = async () => {
     if (!deleteId) return;
-    await supabase.from('payments').update({ deleted_at: new Date().toISOString() }).eq('id', deleteId);
+    const { error } = await supabase.from('payments').update({ deleted_at: new Date().toISOString() }).eq('id', deleteId);
+    if (error) { toast(`Could not move payment to Recycle Bin: ${error.message}`, 'error'); return; }
     toast('Payment moved to Recycle Bin', 'success');
     setDeleteId(null); setShowPin(false); load();
   };
 
   const restorePayment = async (id: string) => {
-    await supabase.from('payments').update({ deleted_at: null }).eq('id', id);
+    const { error } = await supabase.from('payments').update({ deleted_at: null }).eq('id', id);
+    if (error) { toast(`Could not restore payment: ${error.message}`, 'error'); return; }
     toast('Payment restored', 'success'); load();
   };
 
   const permanentlyDeletePayment = async () => {
     if (!deleteId) return;
-    await supabase.from('payments').delete().eq('id', deleteId);
+    const { error } = await supabase.from('payments').delete().eq('id', deleteId);
+    if (error) { toast(`Could not permanently delete payment: ${error.message}`, 'error'); return; }
     toast('Payment permanently deleted', 'success'); setDeleteId(null); setShowPin(false); load();
   };
 
@@ -88,18 +104,12 @@ export function Payments() {
       <div className="sticky top-0 z-30 flex w-full items-center justify-between gap-2 bg-[#0B1121]/90 px-0 py-2 shadow-md backdrop-blur-md sm:px-4">
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">Payments</h1>
-          <p className="hidden truncate text-xs text-slate-400 sm:block">Transaction log — all incoming payments</p>
+          <p className="hidden truncate text-xs text-slate-400 sm:block">Read-only master audit log — payments are entered from source records</p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          aria-label="Record Payment"
-          title="Record Payment"
-          className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-500 px-2 py-1.5 text-[11px] font-medium text-slate-900 transition-colors hover:bg-amber-400 sm:px-3 sm:text-xs"
-        >
-          <Plus className="h-4 w-4" /><span className="hidden sm:inline">Record Payment</span>
-        </button>
+        <p className="text-right text-[11px] text-slate-400 sm:text-xs">Read-only audit log · payments are entered from their source record</p>
       </div>
       <div className="w-full space-y-2 px-0 sm:px-3 md:px-4">
+      {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300"><span>Could not load payments: {loadError}</span><button onClick={() => { setLoading(true); void load(); }} className="font-semibold underline">Retry</button></div>}
       <div className="flex gap-2"><button onClick={() => setView('active')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'active' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Active</button><button onClick={() => setView('recycle')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'recycle' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Recycle Bin</button></div>
 
       {/* Summary cards */}
@@ -132,8 +142,8 @@ export function Payments() {
               <Wallet className="h-5 w-5 text-blue-500" />
             </div>
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Total Collection</p>
-              <p className="text-lg font-bold text-slate-900 dark:text-white">{formatINR(allTotal)}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Total Cash Out</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{formatINR(totalOut)}</p>
             </div>
           </div>
         </div>
@@ -161,7 +171,7 @@ export function Payments() {
       {loading ? (
         <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
       ) : filtered.length === 0 ? (
-        <EmptyState icon={IndianRupee} title="No payments found" subtitle="Record a payment to get started" />
+        <EmptyState icon={IndianRupee} title="No payments found" subtitle="Payments recorded from bookings, lab orders, and manual Dairy Book entries will appear here" />
       ) : (
         <>
         <div className="space-y-2 md:hidden">
@@ -170,15 +180,17 @@ export function Payments() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="break-all text-xs font-semibold text-slate-900 dark:text-white">{p.receipt_no ?? ''}</p>
-                  <p className="mt-0.5 break-words text-sm font-medium text-slate-700 dark:text-slate-200">{p.party_name ?? ''}</p>
+              <p className="mt-0.5 break-words text-sm font-medium text-slate-700 dark:text-slate-200">{p.party_name ?? ''}</p>
+              {p.note && <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{p.note}</p>}
                 </div>
                 <p className="shrink-0 text-right text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatINR(Number(p.amount ?? 0))}</p>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
                 <Badge color={SOURCE_COLORS[p.source] ?? 'slate'}>{p.source ?? ''}</Badge>
+                <Badge color={paymentDirection(p) === 'IN' ? 'emerald' : 'rose'}>{paymentDirection(p) === 'IN' ? 'Received' : 'Paid'}</Badge>
                 <Badge color={MODE_COLORS[p.mode] ?? 'slate'}>{p.mode ?? ''}</Badge>
-                <span className="text-slate-500 dark:text-slate-400">{formatDate(p.date)}</span>
-                {view === 'active' ? <button onClick={() => { setDeleteId(p.id); setPendingDelete('soft'); setShowPin(true); }} aria-label="Delete payment" className="ml-auto p-1 text-slate-400 hover:text-rose-500"><Trash2 className="h-4 w-4" /></button> : <div className="ml-auto flex gap-2"><button onClick={() => restorePayment(p.id)} className="text-xs text-emerald-600 hover:text-emerald-500">Restore</button><button onClick={() => { setDeleteId(p.id); setPendingDelete('permanent'); setShowPin(true); }} className="text-xs text-rose-500 hover:text-rose-400">Delete</button></div>}
+                <span className="text-slate-500 dark:text-slate-400">{formatDate(p.date)} · {formatDateTime(p.created_at)}</span>
+                <span className="ml-auto text-[10px] text-slate-500">Audit record{p.source ? ` · ${p.source}` : ''}</span>
               </div>
             </div>
           ))}
@@ -190,9 +202,12 @@ export function Payments() {
                 <th className="px-3 py-2.5">Receipt</th>
                 <th className="px-3 py-2.5">Party</th>
                 <th className="px-3 py-2.5">Source</th>
+                <th className="px-3 py-2.5">Direction</th>
                 <th className="px-3 py-2.5">Mode</th>
                 <th className="px-3 py-2.5 text-right">Amount</th>
-                <th className="px-3 py-2.5">Date</th>
+                <th className="px-3 py-2.5">Txn Date</th>
+                <th className="px-3 py-2.5">Recorded At</th>
+                <th className="px-3 py-2.5">Note</th>
                 <th className="px-3 py-2.5"></th>
               </tr>
             </thead>
@@ -202,11 +217,14 @@ export function Payments() {
                   <td className="px-3 py-2.5 font-medium text-slate-900 dark:text-white">{p.receipt_no ?? ''}</td>
                   <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">{p.party_name ?? ''}</td>
                   <td className="px-3 py-2.5"><Badge color={SOURCE_COLORS[p.source] ?? 'slate'}>{p.source ?? ''}</Badge></td>
+                  <td className="px-3 py-2.5"><Badge color={paymentDirection(p) === 'IN' ? 'emerald' : 'rose'}>{paymentDirection(p) === 'IN' ? 'Received' : 'Paid'}</Badge></td>
                   <td className="px-3 py-2.5"><Badge color={MODE_COLORS[p.mode] ?? 'slate'}>{p.mode ?? ''}</Badge></td>
                   <td className="px-3 py-2.5 text-right font-semibold text-emerald-600 dark:text-emerald-400">{formatINR(Number(p.amount ?? 0))}</td>
                   <td className="px-3 py-2.5 text-slate-500 dark:text-slate-400">{formatDate(p.date)}</td>
+                  <td className="px-3 py-2.5 text-slate-500 dark:text-slate-400">{formatDateTime(p.created_at)}</td>
+                  <td className="max-w-[220px] truncate px-3 py-2.5 text-slate-500 dark:text-slate-400" title={p.note ?? ''}>{p.note || '—'}</td>
                   <td className="px-3 py-2.5">
-                    {view === 'active' ? <button onClick={() => { setDeleteId(p.id); setPendingDelete('soft'); setShowPin(true); }} className="text-slate-400 hover:text-rose-500"><Trash2 className="h-4 w-4" /></button> : <div className="flex gap-2"><button onClick={() => restorePayment(p.id)} className="text-xs text-emerald-600 hover:text-emerald-500">Restore</button><button onClick={() => { setDeleteId(p.id); setPendingDelete('permanent'); setShowPin(true); }} className="text-xs text-rose-500 hover:text-rose-400">Delete</button></div>}
+                    <span className="text-[10px] text-slate-500">Read only</span>
                   </td>
                 </tr>
               ))}
@@ -216,9 +234,6 @@ export function Payments() {
         </>
       )}
 
-      <PaymentForm open={showForm} onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); load(); }} existing={payments} />
-
-      <MasterPinDialog open={showPin} settings={settings} onClose={() => { setShowPin(false); setDeleteId(null); }} onVerified={() => { if (pendingDelete === 'permanent') permanentlyDeletePayment(); else handleDelete(); }} />
       </div>
     </div>
   );
@@ -226,14 +241,26 @@ export function Payments() {
 
 function nextReceiptNo(existing: Payment[]): string {
   const max = existing.reduce((m, p) => {
-    const n = parseInt(p.receipt_no.replace(/\D/g, ''), 10);
+    const match = /^RCP-(\d+)$/i.exec(p.receipt_no ?? '');
+    const n = match ? Number(match[1]) : NaN;
     return isNaN(n) ? m : Math.max(m, n);
   }, 0);
   return `RCP-${String(max + 1).padStart(3, '0')}`;
 }
 
+function paymentDirection(payment: Payment): 'IN' | 'OUT' {
+  // Lab orders are B2B receivables: this payment is money received by the studio.
+  return payment.direction ?? (payment.source === 'Photographer' || payment.source === 'Manual Expense' ? 'OUT' : 'IN');
+}
+
 function PaymentForm({ open, onClose, onSaved, existing }: { open: boolean; onClose: () => void; onSaved: () => void; existing: Payment[] }) {
   const { toast } = useToast();
+  const [isSaving, setIsSaving] = useState(false);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [labOrders, setLabOrders] = useState<StudioLabOrder[]>([]);
+  const [targetId, setTargetId] = useDraftState<string>('payment-targetId', '');
+  const [targetError, setTargetError] = useState('');
+  const [installmentId, setInstallmentId] = useState(() => crypto.randomUUID());
   const [source, setSource] = useDraftState<PaymentSource>('payment-source', 'Booking');
   const [partyName, setPartyName] = useDraftState<string>('payment-partyName', '');
   const [partyMobile, setPartyMobile] = useDraftState<string>('payment-partyMobile', '');
@@ -242,33 +269,80 @@ function PaymentForm({ open, onClose, onSaved, existing }: { open: boolean; onCl
   const [date, setDate] = useDraftState<string>('payment-date', todayISO());
   const [note, setNote] = useDraftState<string>('payment-note', '');
 
+  useEffect(() => {
+    if (open && source === 'Photographer') setSource('Booking');
+  }, [open, source, setSource]);
+
+  useEffect(() => {
+    if (!open || source === 'Photographer') return;
+    let cancelled = false;
+    const loadTargets = async () => {
+      setTargetError('');
+      if (source === 'Booking') {
+        const { data, error } = await supabase.from('bookings').select('id,booking_no,client_name,client_mobile,total_amount,discount,advance_paid,deleted_at,archived_at').is('deleted_at', null).is('archived_at', null).order('created_at', { ascending: false });
+        if (cancelled) return;
+        if (error) { setTargetError(error.message); return; }
+        setBookings((data ?? []) as Booking[]);
+      } else {
+        const { data, error } = await supabase.from('studio_lab_orders').select('id,order_no,project_name,studio_name,studio_mobile,master_total,current_order_total,advance_paid,net_due,deleted_at,archived_at').is('deleted_at', null).is('archived_at', null).order('created_at', { ascending: false });
+        if (cancelled) return;
+        if (error) { setTargetError(error.message); return; }
+        setLabOrders((data ?? []) as StudioLabOrder[]);
+      }
+    };
+    void loadTargets();
+    return () => { cancelled = true; };
+  }, [open, source]);
+
+  const selectedBooking = bookings.find((item) => item.id === targetId);
+  const selectedLabOrder = labOrders.find((item) => item.id === targetId);
+  const remainingDue = source === 'Booking' && selectedBooking
+    ? Math.max(0, Number(selectedBooking.total_amount || 0) - Number(selectedBooking.discount || 0) - Number(selectedBooking.advance_paid || 0))
+    : source === 'Lab Order' && selectedLabOrder
+      ? Math.max(0, Number(selectedLabOrder.net_due ?? (Number(selectedLabOrder.master_total || 0) - Number(selectedLabOrder.advance_paid || 0))))
+      : null;
+
   const clearDraft = () => {
     setSource('Booking');
+    setTargetId('');
     setPartyName('');
     setPartyMobile('');
     setMode('Cash');
     setAmount('');
     setDate(todayISO());
     setNote('');
+    setInstallmentId(crypto.randomUUID());
   };
 
   const handleSave = async () => {
+    if (isSaving) return;
     const amt = Number(amount);
-    if (!partyName || isNaN(amt) || amt <= 0) { toast('Name and amount are required', 'error'); return; }
-    const payload = {
-      receipt_no: nextReceiptNo(existing),
-      source,
-      party_name: partyName,
-      party_mobile: partyMobile,
-      mode,
-      amount: amt,
-      date,
-      note,
-    };
-    await supabase.from('payments').insert(payload);
-    toast('Payment recorded', 'success');
-    clearDraft();
-    onSaved();
+    const linkedTarget = source === 'Booking' ? selectedBooking : source === 'Lab Order' ? selectedLabOrder : null;
+    const resolvedName = source === 'Booking' ? selectedBooking?.client_name : source === 'Lab Order' ? (selectedLabOrder?.project_name || selectedLabOrder?.studio_name) : partyName;
+    if (source !== 'Photographer' && !linkedTarget) { toast('Select a booking or lab order first', 'error'); return; }
+    if (source === 'Photographer' && !partyName.trim()) { toast('Name is required', 'error'); return; }
+    if (isNaN(amt) || amt <= 0) { toast('Enter a valid payment amount', 'error'); return; }
+    if (remainingDue !== null && amt > remainingDue) { toast(`Amount exceeds remaining balance (${formatINR(remainingDue)})`, 'error'); return; }
+    setIsSaving(true);
+    try {
+      if (source === 'Booking' && selectedBooking) {
+        const { error } = await supabase.rpc('record_booking_payment', { p_booking_id: selectedBooking.id, p_installment_id: installmentId, p_amount: amt, p_payment_date: date, p_payment_mode: mode, p_note: note });
+        if (error) throw error;
+      } else if (source === 'Lab Order' && selectedLabOrder) {
+        const { error } = await supabase.rpc('record_lab_order_payment', { p_order_id: selectedLabOrder.id, p_installment_id: installmentId, p_amount: amt, p_payment_date: date, p_payment_mode: mode, p_note: note });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('payments').insert({ receipt_no: nextReceiptNo(existing), source, direction: source === 'Photographer' ? 'OUT' : 'IN', party_name: partyName.trim(), party_mobile: partyMobile.trim(), mode, amount: amt, date, note });
+        if (error) throw error;
+      }
+      toast('Payment recorded', 'success');
+      clearDraft();
+      onSaved();
+    } catch (error) {
+      toast(error instanceof Error ? `Could not record payment: ${error.message}` : 'Could not record payment', 'error');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleClose = () => {
@@ -281,8 +355,8 @@ function PaymentForm({ open, onClose, onSaved, existing }: { open: boolean; onCl
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <Field label="Source">
-            <select value={source} onChange={(e) => setSource(e.target.value as PaymentSource)} className={selectClass}>
-              {PAYMENT_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+            <select value={source} onChange={(e) => { setSource(e.target.value as PaymentSource); setTargetId(''); }} className={selectClass}>
+              {PAYMENT_SOURCES.filter((s) => s !== 'Photographer').map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </Field>
           <Field label="Mode">
@@ -291,16 +365,15 @@ function PaymentForm({ open, onClose, onSaved, existing }: { open: boolean; onCl
             </select>
           </Field>
         </div>
-        <Field label="Party Name"><input value={partyName} onChange={(e) => setPartyName(e.target.value)} className={inputClass} placeholder="Client / Studio / Photographer" /></Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Mobile"><input value={partyMobile} onChange={(e) => setPartyMobile(e.target.value)} className={inputClass} /></Field>
-          <Field label="Amount (₹)"><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={inputClass} placeholder="0" /></Field>
-        </div>
+        {source === 'Booking' ? <Field label="Booking"><select value={targetId} onChange={(e) => { const booking = bookings.find((item) => item.id === e.target.value); setTargetId(e.target.value); if (booking) { setPartyName(booking.client_name); setPartyMobile(booking.client_mobile); } }} className={selectClass}><option value="">Select booking</option>{bookings.map((booking) => <option key={booking.id} value={booking.id}>{booking.booking_no} — {booking.client_name} (Due {formatINR(Math.max(0, Number(booking.total_amount || 0) - Number(booking.discount || 0) - Number(booking.advance_paid || 0)))})</option>)}</select></Field> : source === 'Lab Order' ? <Field label="Lab Order"><select value={targetId} onChange={(e) => { const order = labOrders.find((item) => item.id === e.target.value); setTargetId(e.target.value); if (order) { setPartyName(order.project_name || order.studio_name); setPartyMobile(order.studio_mobile); } }} className={selectClass}><option value="">Select lab order</option>{labOrders.map((order) => <option key={order.id} value={order.id}>{order.order_no} — {order.project_name || order.studio_name} (Due {formatINR(Math.max(0, Number(order.net_due ?? (Number(order.master_total || 0) - Number(order.advance_paid || 0)))))})</option>)}</select></Field> : <><Field label="Party Name"><input value={partyName} onChange={(e) => setPartyName(e.target.value)} className={inputClass} placeholder="Photographer / Partner" /></Field><Field label="Mobile"><input value={partyMobile} onChange={(e) => setPartyMobile(e.target.value)} className={inputClass} /></Field></>}
+        {targetError && <p role="alert" className="text-xs text-rose-400">Could not load {source.toLowerCase()} list: {targetError}</p>}
+        {remainingDue !== null && <p className="text-xs text-slate-400">Remaining balance: <strong className="text-amber-300">{formatINR(remainingDue)}</strong></p>}
+        <Field label="Amount (₹)"><input type="number" min="0.01" max={remainingDue ?? undefined} value={amount} onChange={(e) => setAmount(e.target.value)} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={inputClass} placeholder="0" /></Field>
         <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} /></Field>
         <Field label="Note"><textarea value={note} onChange={(e) => setNote(e.target.value)} className={textareaClass} placeholder="Optional note..." /></Field>
         <div className="flex justify-end gap-3 pt-2">
-          <button onClick={handleClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
-          <button onClick={handleSave} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 hover:bg-amber-400">Record Payment</button>
+          <button onClick={handleClose} disabled={isSaving} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
+          <button onClick={handleSave} disabled={isSaving} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 hover:bg-amber-400 disabled:cursor-wait disabled:opacity-60">{isSaving ? 'Saving…' : 'Record Payment'}</button>
         </div>
       </div>
     </Modal>

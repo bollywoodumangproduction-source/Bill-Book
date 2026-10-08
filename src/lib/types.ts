@@ -172,7 +172,11 @@ export interface Booking {
   venue: string;
   booking_status: string;
   base_amount: number;
+  /** Subtotal before discount; kept in total_amount for legacy compatibility. */
   total_amount: number;
+  billing_version?: number;
+  tax_rate?: number;
+  tax_amount?: number;
   discount: number;
   advance_paid: number;
   net_due: number;
@@ -284,7 +288,14 @@ export interface StudioLabOrder {
   total_album_bill: number;
   total_video_bill: number;
   current_order_total: number;
+  /** Current order subtotal, including separately itemized extra_items. */
+  billing_version?: number;
+  tax_rate?: number;
+  tax_amount?: number;
+  discount_amount?: number;
   previous_back_due: number;
+  previous_balance_source_order_id?: string | null;
+  balance_transferred_out?: number;
   master_total: number;
   advance_paid: number;
   net_due?: number;
@@ -336,8 +347,8 @@ export interface PhotographerLedgerEntry {
   deleted_at?: string | null;
 }
 
-export type PaymentMode = 'Cash' | 'UPI' | 'Bank';
-export type PaymentSource = 'Booking' | 'Lab Order' | 'Photographer';
+export type PaymentMode = 'Cash' | 'UPI' | 'Bank Transfer' | 'NetBanking' | 'Other';
+export type PaymentSource = 'Booking' | 'Lab Order' | 'Photographer' | 'Partner' | 'Equipment Rental' | 'Manual Income' | 'Manual Expense';
 
 export interface Payment {
   id: string;
@@ -345,6 +356,8 @@ export interface Payment {
   isDemo?: boolean;
   receipt_no: string;
   source: PaymentSource;
+  /** IN is money received; OUT is a settlement or expense paid. */
+  direction?: 'IN' | 'OUT';
   party_name: string;
   party_mobile: string;
   mode: PaymentMode;
@@ -353,6 +366,8 @@ export interface Payment {
   note: string;
   created_at: string;
   deleted_at?: string | null;
+  /** Stable link to an installment in a booking or lab-order payment history. */
+  source_id?: string | null;
 }
 
 export type PartnerCategory = 'Studio Freelancer' | 'Photographer Freelancer' | 'Other';
@@ -399,6 +414,8 @@ export interface LabPaymentInstallment {
   created_at?: string;
   client_id?: string;
   client_name?: string;
+  /** Identifies the originating order and installment in the central audit log. */
+  source_id?: string;
 }
 
 export interface LabExtraCharge {
@@ -428,7 +445,7 @@ export interface DirectTransaction {
   created_at: string;
 }
 
-export type DairyEntryType = 'B2C_CASH_IN' | 'B2B_CASH_OUT' | 'MANUAL_EXPENSE' | 'MANUAL_INCOME';
+export type DairyEntryType = 'B2C_CASH_IN' | 'B2B_CASH_IN' | 'B2B_CASH_OUT' | 'MANUAL_EXPENSE' | 'MANUAL_INCOME';
 
 export interface DairyBookEntry {
   id: string;
@@ -447,6 +464,7 @@ export interface DairyBookEntry {
   entry_date: string;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 }
 
 export interface DairyOpeningBalance {

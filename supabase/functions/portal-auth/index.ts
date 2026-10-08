@@ -187,11 +187,18 @@ async function findLoginTargets(portal: 'partner' | 'client', identifier: string
   ];
 }
 
+function storedPinValue(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
+  return null;
+}
+
 async function verifyPin(portal: Portal, id: string, stored: unknown, input: string): Promise<'ok' | 'migrate' | 'invalid'> {
-  if (typeof stored !== 'string' || !stored) return 'invalid';
-  if (stored.startsWith('v1$')) return stored === await pinHash(portal, id, input) ? 'ok' : 'invalid';
-  if (stored.startsWith('enc$1$')) return await decryptPin(portal, id, stored) === input ? 'ok' : 'invalid';
-  return stored === input ? 'migrate' : 'invalid';
+  const value = storedPinValue(stored);
+  if (!value) return 'invalid';
+  if (value.startsWith('v1$')) return value === await pinHash(portal, id, input) ? 'ok' : 'invalid';
+  if (value.startsWith('enc$1$')) return await decryptPin(portal, id, value) === input ? 'ok' : 'invalid';
+  return value === input ? 'migrate' : 'invalid';
 }
 
 function legacyDefaultPin(portal: Portal, row: PortalRecord): string {
@@ -274,8 +281,8 @@ async function handleLogin(request: Request, body: Record<string, unknown>) {
   let target: Awaited<ReturnType<typeof findLoginTargets>>[number] | null = null;
   for (const candidate of targets) {
     if (!candidate.row.is_login_allowed || (candidate.portal === 'partner' && candidate.row.status && candidate.row.status !== 'Active')) continue;
-    const storedPin = candidate.row[candidate.pinColumn];
-    const result = typeof storedPin === 'string' && storedPin && !storedPin.startsWith('v1$') && !storedPin.startsWith('enc$1$') && storedPin.length > 4
+    const storedPin = storedPinValue(candidate.row[candidate.pinColumn]);
+    const result = storedPin && !storedPin.startsWith('v1$') && !storedPin.startsWith('enc$1$') && storedPin.length > 4
       ? (pin === legacyDefaultPin(candidate.portal, candidate.row) ? 'migrate' : 'invalid')
       : await verifyPin(candidate.portal, candidate.row.id, storedPin, pin);
     if (result !== 'invalid') {
@@ -360,9 +367,9 @@ async function handleAdminPinGet(request: Request, body: Record<string, unknown>
     return json(request, { error: 'Could not look up the selected account PIN: ' + detail }, 500);
   }
   if (!target) return json(request, { error: 'Account was not found.' }, 404);
-  const stored = target.row[target.pinColumn];
+  const stored = storedPinValue(target.row[target.pinColumn]);
   const encryptedPin = await decryptPin(portal, recordId, stored);
-  const legacyPin = typeof stored === 'string' && /^\d{4}$/.test(stored) ? stored : null;
+  const legacyPin = stored && /^\d{4}$/.test(stored) ? stored : null;
   return json(request, { pin: encryptedPin ?? legacyPin, needsReset: !encryptedPin && !legacyPin });
 }
 

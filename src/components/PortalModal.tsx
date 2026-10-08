@@ -27,6 +27,7 @@ import type { Booking, Partner, PromoAd, PromoAdAudience, ClientSelectionSession
 import { photoSessionFromDatabase } from '@/lib/types';
 import { formatINR, formatDate, formatPhone } from '@/lib/format';
 import { inputClass } from '@/components/ui/Field';
+import { bookingBillingSnapshot } from '@/lib/billing';
 import { PhoneInput } from '@/components/ui/PhoneInput';
 import { PinInput } from '@/components/ui/PinInput';
 import { Modal } from '@/components/ui/Modal';
@@ -382,6 +383,7 @@ function LoginView({ portalType, settings, mobile, loading, error, onMobileChang
 }
 
 function ClientDetailView({ booking, settings, ads, photoSession }: { booking: Booking; settings: ReturnType<typeof useSettings>['settings']; ads: PromoAd[]; photoSession: ClientSelectionSession | null }) {
+  const billing = bookingBillingSnapshot(booking);
   const whatsappNumber = (settings?.studio_whatsapp || settings?.whatsapp_number || '').replace(/\D/g, '');
   const callNumber = (settings?.studio_call_number || settings?.phone || '').replace(/\D/g, '');
   const instaUrl = settings?.studio_instagram_url || (settings?.films_insta ? `https://instagram.com/${settings.films_insta.replace('@', '')}` : '');
@@ -456,8 +458,8 @@ function ClientDetailView({ booking, settings, ads, photoSession }: { booking: B
             <h3 className="text-lg font-bold text-slate-900 dark:text-white">{booking.client_name}</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">{booking.booking_no} · {booking.event_function}</p>
           </div>
-          <span className={`rounded-full px-3 py-1 text-xs font-medium ${booking.net_due > 0 ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400' : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'}`}>
-            {booking.net_due > 0 ? 'Balance Due' : 'Fully Paid'}
+          <span className={`rounded-full px-3 py-1 text-xs font-medium ${billing.balanceDue > 0 ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400' : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'}`}>
+            {billing.balanceDue > 0 ? 'Balance Due' : 'Fully Paid'}
           </span>
         </div>
 
@@ -465,7 +467,7 @@ function ClientDetailView({ booking, settings, ads, photoSession }: { booking: B
           <InfoRow icon={Calendar} label="Shoot Date" value={formatDate(booking.shoot_date)} />
           <InfoRow icon={Clock} label="Shoot Time" value={booking.shoot_time || 'TBD'} />
           <InfoRow icon={MapPin} label="Venue" value={booking.venue || 'TBD'} />
-          <InfoRow icon={Package} label="Package" value={formatINR(Number(booking.total_amount))} />
+          <InfoRow icon={Package} label="Grand Total" value={formatINR(billing.grandTotal)} />
         </div>
 
         {/* Events */}
@@ -493,21 +495,21 @@ function ClientDetailView({ booking, settings, ads, photoSession }: { booking: B
         <div className="mt-4 grid grid-cols-3 gap-3 border-t border-slate-100 pt-3 dark:border-white/5">
           <div className="rounded-lg bg-emerald-50 p-3 text-center dark:bg-emerald-500/10">
             <p className="text-xs text-slate-500 dark:text-slate-400">Advance Paid</p>
-            <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatINR(Number(booking.advance_paid))}</p>
+            <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatINR(billing.totalPayments)}</p>
           </div>
           <div className="rounded-lg bg-amber-50 p-3 text-center dark:bg-amber-500/10">
             <p className="text-xs text-slate-500 dark:text-slate-400">Total</p>
-            <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{formatINR(Number(booking.total_amount))}</p>
+            <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{formatINR(billing.grandTotal)}</p>
           </div>
           <div className="rounded-lg bg-rose-50 p-3 text-center dark:bg-rose-500/10">
             <p className="text-xs text-slate-500 dark:text-slate-400">Remaining</p>
-            <p className="text-sm font-bold text-rose-600 dark:text-rose-400">{formatINR(Number(booking.net_due))}</p>
+            <p className="text-sm font-bold text-rose-600 dark:text-rose-400">{formatINR(billing.balanceDue)}</p>
           </div>
         </div>
 
         {/* Delivery Status */}
         <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3 dark:border-white/5">
-          <CheckCircle2 className={`h-4 w-4 ${booking.net_due <= 0 ? 'text-emerald-500' : 'text-slate-300 dark:text-slate-600'}`} />
+          <CheckCircle2 className={`h-4 w-4 ${billing.balanceDue <= 0 ? 'text-emerald-500' : 'text-slate-300 dark:text-slate-600'}`} />
           <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
             {booking.booking_status || 'Processing'}
           </span>

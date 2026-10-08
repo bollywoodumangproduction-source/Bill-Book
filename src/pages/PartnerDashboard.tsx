@@ -41,6 +41,7 @@ import { getVisiblePromoAds } from '@/lib/promo';
 import { useSettings } from '@/context/SettingsContext';
 import { hasLabAlbumWork, hasLabVideoWork, labOrderOverviewStatus, visibleLabOrderDates } from '@/lib/labOrderStatus';
 import { clientPaidTotal, clientWorkTotal, labOrderPayments, unallocatedPaidTotal } from '@/lib/labBilling';
+import { labOrderBillingSnapshot } from '@/lib/billing';
 
 const PARTNER_SESSION_KEY = 'buf_partner_session';
 const LEGACY_PARTNER_SESSION_KEY = 'bup_partner_session';
@@ -470,11 +471,12 @@ export function PartnerDashboardContent({
   const visibleLabOrders = selectedOrder ? [selectedOrder] : filteredLabOrders;
   const dueLabOrders = labOrders.filter((order) => {
     const payments = labOrderPayments(order);
+    const billing = labOrderBillingSnapshot(order, order.advance_paid);
     const hasClientDue = (order.clients ?? []).some((client) =>
       clientWorkTotal(client, order.extra_items ?? [], order.clients ?? [])
         - clientPaidTotal(client, payments, order.clients ?? []) > 0.005,
     );
-    return Math.max(0, Number(order.master_total ?? 0) - Number(order.advance_paid ?? 0)) > 0.005 || hasClientDue;
+    return billing.balanceDue > 0.005 || hasClientDue;
   });
   return (
     <div
@@ -603,7 +605,7 @@ export function PartnerDashboardContent({
                       <span className="flex shrink-0 items-center gap-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${overviewStatus === 'Delivered' ? 'bg-emerald-500/10 text-emerald-400' : overviewStatus === 'Ready for Delivery' ? 'bg-sky-500/10 text-sky-400' : overviewStatus === 'Pending' ? 'bg-amber-500/10 text-amber-400' : 'bg-cyan-500/10 text-cyan-300'}`}>{overviewStatus}</span><ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} /></span>
                     </button>
 
-                    <div className="mt-2 text-right text-[11px] text-slate-400">Balance due <span className="font-semibold text-amber-300">{formatINR(Math.max(0, Number(order.master_total ?? 0) - Number(order.advance_paid ?? 0)))}</span></div>
+                    <div className="mt-2 text-right text-[11px] text-slate-400">Balance due <span className="font-semibold text-amber-300">{formatINR(labOrderBillingSnapshot(order, order.advance_paid).balanceDue)}</span></div>
 
                     {isExpanded && <>
 
@@ -634,9 +636,9 @@ export function PartnerDashboardContent({
                     <div className="mt-2 rounded-md border border-white/10 bg-slate-950/40 p-2.5 text-xs sm:mt-3 sm:p-3">
                       <p className="mb-2 font-medium text-slate-200">Order bill · {order.order_no} · {partnerOrderTitle(order)}</p>
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-400 sm:grid-cols-4">
-                        <span>Order total: <b className="text-slate-200">{formatINR(Number(order.current_order_total ?? 0))}</b></span>
-                        <span>Previous balance: <b className="text-slate-200">{formatINR(Number(order.previous_back_due ?? 0))}</b></span>
-                        <span>Total bill: <b className="text-slate-200">{formatINR(Number(order.master_total ?? 0))}</b></span>
+                        <span>Subtotal: <b className="text-slate-200">{formatINR(labOrderBillingSnapshot(order, order.advance_paid).subtotal)}</b></span>
+                        <span>Previous balance: <b className="text-slate-200">{formatINR(labOrderBillingSnapshot(order, order.advance_paid).previousBalance)}</b></span>
+                        <span>Grand total: <b className="text-slate-200">{formatINR(labOrderBillingSnapshot(order, order.advance_paid).grandTotal)}</b></span>
                         <span>Paid: <b className="text-emerald-300">{formatINR(Number(order.advance_paid ?? 0))}</b></span>
                       </div>
                       {(order.clients ?? []).map((client, ci) => <div key={client.id || ci} className="mt-2 border-t border-white/10 pt-2">

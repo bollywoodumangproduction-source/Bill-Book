@@ -46,6 +46,7 @@ import type {
 } from '@/lib/types';
 import { WORK_STATUSES, WORK_STATUS_LABELS } from '@/lib/types';
 import { formatINR, formatDate, formatDateTime, todayISO, formatPhone, defaultPinFromPhone } from '@/lib/format';
+import { calculateBookingBilling, bookingBillingSnapshot, bookingBaseSubtotal } from '@/lib/billing';
 import { logDeliveryNotification, logPaymentNotification, logWorkStatusNotification } from '@/lib/notifications';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
@@ -93,8 +94,7 @@ function sanitizePayload<T>(payload: T): T {
   return JSON.parse(JSON.stringify(payload)) as T;
 }
 
-const bookingDue = (booking: Pick<Booking, 'total_amount' | 'discount' | 'advance_paid'>) =>
-  Math.max(0, toNum(booking.total_amount) - toNum(booking.discount) - toNum(booking.advance_paid));
+const bookingDue = (booking: Booking) => bookingBillingSnapshot(booking).balanceDue;
 
 function recycleDaysRemaining(deletedAt: string | null | undefined): number {
   if (!deletedAt) return 90;
@@ -439,6 +439,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
   const [deliverables, setDeliverables] = useDraftState<BookingDeliverables>(`${draftKey}-deliverables`, { ...DEFAULT_DELIVERABLES });
   const [baseAmount, setBaseAmount] = useDraftState<string>(`${draftKey}-baseAmount`, '');
   const [totalAmount, setTotalAmount] = useDraftState<string>(`${draftKey}-totalAmount`, '');
+  const [taxRate, setTaxRate] = useDraftState<string>(`${draftKey}-taxRate`, '0');
   const [discount, setDiscount] = useDraftState<string>(`${draftKey}-discount`, '');
   const [advancePaid, setAdvancePaid] = useDraftState<string>(`${draftKey}-advancePaid`, '');
   const [paymentMode, setPaymentMode] = useDraftState<string>(`${draftKey}-paymentMode`, 'Cash');
@@ -534,7 +535,9 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
         final_delivered_at: d.final_delivered_at,
       });
       setBaseAmount(editing && Number(editing.base_amount) ? String(editing.base_amount) : '');
-      setTotalAmount(editing && Number(editing.total_amount) ? String(editing.total_amount) : '');
+      const existingExtras = (d.custom_items ?? []).reduce((sum, item) => sum + toNum(item.amount || toNum(item.qty) * toNum(item.rate)), 0);
+      setTotalAmount(editing && Number(editing.total_amount) ? String(Math.max(0, Number(editing.total_amount) - existingExtras)) : '');
+      setTaxRate(String(editing?.tax_rate ?? 0));
       setDiscount(editing && Number(editing.discount) ? String(editing.discount) : '');
       setAdvancePaid(editing && Number(editing.advance_paid) ? String(editing.advance_paid) : '');
       const payment = d.payment_details;
@@ -670,13 +673,14 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
   const lineItemsTotal = useMemo(() => {
     const albumTotal = albumRows.reduce((s, r) => s + computeAlbumTotal(r), 0);
     const videoTotal = videoRows.reduce((s, r) => s + computeVideoTotal(r), 0);
-    const customItemsTotal = customItems.reduce((s, item) => s + toNum(item.amount), 0);
-    return albumTotal + videoTotal + customItemsTotal;
-  }, [albumRows, videoRows, customItems]);
+    return albumTotal + videoTotal;
+  }, [albumRows, videoRows]);
 
-  const computedTotal = lineItemsTotal;
-  const totalAmountNum = totalAmount !== '' ? toNum(totalAmount) : computedTotal;
-  const netDue = Math.max(0, totalAmountNum - toNum(discount) - toNum(advancePaid));
+  const baseSubtotal = totalAmount !== '' ? toNum(totalAmount) : lineItemsTotal;
+  const bookingBilling = calculateBookingBilling({ baseSubtotal, extraItems: customItems, taxRate: toNum(taxRate), discountAmount: toNum(discount), totalPayments: paymentHistory.reduce((sum, payment) => sum + toNum(payment.paid_amount), 0) });
+  const computedTotal = bookingBilling.subtotal;
+  const totalAmountNum = bookingBilling.subtotal;
+  const netDue = bookingBilling.balanceDue;
 
   const eventFunctionLabel = events.length > 0
     ? events.map((e) => e.name === 'Custom' && e.customName ? e.customName : e.name).join(', ')
@@ -707,7 +711,10 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       booking_status: bookingStatus,
       archived_at: bookingStatus === 'COMPLETED' || bookingStatus === 'CANCELLED' ? (editing?.archived_at ?? new Date().toISOString()) : null,
       total_amount: totalAmountNum,
-      discount: toNum(discount),
+      billing_version: 2,
+      tax_rate: bookingBilling.taxRate,
+      tax_amount: bookingBilling.taxAmount,
+      discount: bookingBilling.discountAmount,
       advance_paid: paymentHistory.reduce((sum, payment) => sum + toNum(payment.paid_amount), 0),
       deliverables_data: {
         ...deliverables,
@@ -1286,13 +1293,13 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
         <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
           <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">Billing Summary</h3>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Field label="Total Package (₹)">
+            <Field label="Base Subtotal (₹)">
               <input
                 type="number"
                 value={totalAmount}
                 onChange={(e) => setTotalAmount(e.target.value)}
                 onFocus={(e) => { if (toNum(e.target.value) === 0) e.target.value = ''; }}
-                placeholder={String(computedTotal || '')}
+                placeholder={String(lineItemsTotal || '')}
                 className={inputClass}
               />
             </Field>
@@ -1304,6 +1311,9 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
                 onFocus={(e) => { if (toNum(e.target.value) === 0) e.target.value = ''; }}
                 className={inputClass}
               />
+            </Field>
+            <Field label="Tax Rate (%) — optional">
+              <input type="number" min="0" step="0.01" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} className={inputClass} placeholder="0" />
             </Field>
             <Field label="Advance Paid (₹)">
               <input
@@ -1317,6 +1327,13 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
             <Field label="Net Final Due (₹)">
               <input type="number" value={netDue} className={`${inputClass} font-semibold text-rose-600 dark:text-rose-400`} readOnly />
             </Field>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 border-t border-slate-200 pt-3 text-xs text-slate-500 dark:border-white/10 dark:text-slate-400">
+            <span>Base subtotal: {formatINR(bookingBilling.baseSubtotal)}</span>
+            <span>Extra items: {formatINR(bookingBilling.extraTotal)}</span>
+            <span>Subtotal: {formatINR(bookingBilling.subtotal)}</span>
+            <span>Tax: {formatINR(bookingBilling.taxAmount)}</span>
+            <strong className="text-slate-800 dark:text-slate-200">Grand Total: {formatINR(bookingBilling.grandTotal)}</strong>
           </div>
           <div className="mt-3 border-t border-slate-200 pt-3 dark:border-white/10">
             <div className="max-w-[200px]">
@@ -1518,6 +1535,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
   const [assignments, setAssignments] = useState<ShootAssignment[]>([]);
   const [assignmentPartner, setAssignmentPartner] = useState('');
   const [assignmentFunction, setAssignmentFunction] = useState('');
+  const [savingQuickPay, setSavingQuickPay] = useState(false);
   const [assignmentRole, setAssignmentRole] = useState('Traditional Photo');
   const [reportingTime, setReportingTime] = useState('');
   const [isBillPreviewOpen, setIsBillPreviewOpen] = useState(false);
@@ -1889,64 +1907,38 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
             </div>
             <button
               onClick={async () => {
+                if (savingQuickPay) return;
                 const amtInput = document.getElementById(`quick-pay-${booking.id}`) as HTMLInputElement | null;
                 const modeInput = document.getElementById(`quick-pay-mode-${booking.id}`) as HTMLSelectElement | null;
                 const amt = Number(amtInput?.value ?? 0);
                 const mode = modeInput?.value ?? 'Cash';
                 if (amt <= 0) { toast('Enter a valid amount', 'error'); return; }
-                const newAdvance = Number(booking.advance_paid) + amt;
-                const newDue = Math.max(0, Number(booking.total_amount) - Number(booking.discount) - newAdvance);
-                const existingDetails = booking.deliverables_data?.payment_details ?? {
-                  payment_mode: '', payment_date: '', custom_note: '', paid_amount: '', payment_history: [],
-                };
-                const existingHistory: BookingPaymentInstallment[] = existingDetails.payment_history ?? (Number(booking.advance_paid) > 0 ? [{
-                  id: uid(),
-                  payment_date: existingDetails.payment_date || todayISO(),
-                  payment_mode: existingDetails.payment_mode || 'Cash',
-                  custom_note: existingDetails.custom_note || 'Existing payment',
-                  paid_amount: String(booking.advance_paid),
-                  created_at: existingDetails.payment_date || new Date().toISOString(),
-                }] : []);
                 const paymentDate = todayISO();
-                const nextHistory: BookingPaymentInstallment[] = [...existingHistory, {
-                  id: uid(),
-                  payment_date: paymentDate,
-                  payment_mode: mode,
-                  custom_note: 'Quick payment',
-                  paid_amount: String(amt),
-                  created_at: new Date().toISOString(),
-                }];
-                const nextDeliverables: BookingDeliverables = {
-                  ...(booking.deliverables_data ?? DEFAULT_DELIVERABLES),
-                  payment_details: {
-                    ...existingDetails,
-                    payment_mode: mode,
-                    payment_date: paymentDate,
-                    custom_note: 'Quick payment',
-                    paid_amount: String(newAdvance),
-                    payment_history: nextHistory,
-                  },
-                };
+                setSavingQuickPay(true);
                 try {
-                  const { data, error } = await supabase.from('bookings').update({
-                    advance_paid: newAdvance,
-                    net_due: newDue,
-                    deliverables_data: nextDeliverables,
-                  }).eq('id', booking.id).select('*').single();
+                  const { error } = await supabase.rpc('record_booking_payment', {
+                    p_booking_id: booking.id, p_installment_id: uid(), p_amount: amt,
+                    p_payment_date: paymentDate, p_payment_mode: mode, p_note: 'Quick payment',
+                  });
                   if (error) throw error;
+                  const { data, error: refreshError } = await supabase.from('bookings').select('*').eq('id', booking.id).single();
+                  if (refreshError) throw refreshError;
                   const updated = data as Booking;
                   onUpdated(updated);
-                  await logPaymentNotification(booking.id, amt, newDue);
+                  await logPaymentNotification(booking.id, amt, Number(updated.net_due));
                   triggerRefresh();
                   toast(`Payment of ${formatINR(amt)} recorded`, 'success');
                   if (amtInput) amtInput.value = '';
                 } catch (error) {
                   toast(error instanceof Error ? error.message : 'Could not record payment', 'error');
+                } finally {
+                  setSavingQuickPay(false);
                 }
               }}
+              disabled={savingQuickPay}
               className="rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-600"
             >
-              Record Payment
+              {savingQuickPay ? 'Saving…' : 'Record Payment'}
             </button>
           </div>
         </div>
@@ -2127,6 +2119,8 @@ function buildBookingSummaryText(booking: Booking, settings: StudioSettings | nu
       }).join('\n')
     : `  - ${booking.event_function}: ${formatDate(booking.shoot_date)} ${booking.shoot_time || ''}`;
   const delivText = dl.length > 0 ? dl.map((d) => `  - ${d}`).join('\n') : '  None';
+  const billing = bookingBillingSnapshot(booking);
+  const extraLines = (booking.deliverables_data?.custom_items ?? []).map((item) => `  - ${item.name || 'Extra item'}: ${toNum(item.qty) || 1} × ${formatINR(toNum(item.rate))} = ${formatINR(toNum(item.amount))}`).join('\n');
   return (
     `${settings?.films_title ?? 'Bollywood Umang Films'}\n` +
     `Booking: ${booking.booking_no}\n` +
@@ -2141,10 +2135,13 @@ function buildBookingSummaryText(booking: Booking, settings: StudioSettings | nu
     `Functions:\n${fnList}\n\n` +
     `Delivery Data:\n${delivText}\n\n` +
     `Base Amount: ${formatINR(Number(booking.base_amount))}\n` +
-    `Total Package: ${formatINR(Number(booking.total_amount))}\n` +
-    `Discount: ${formatINR(Number(booking.discount))}\n` +
-    `Advance Paid: ${formatINR(Number(booking.advance_paid))}\n` +
-    `Balance Due: ${formatINR(Number(booking.net_due))}\n`
+    (extraLines ? `Extra Items:\n${extraLines}\n` : '') +
+    `Subtotal: ${formatINR(billing.subtotal)}\n` +
+    `Tax: ${formatINR(billing.taxAmount)}\n` +
+    `Discount: ${formatINR(billing.discountAmount)}\n` +
+    `Grand Total: ${formatINR(billing.grandTotal)}\n` +
+    `Payments: ${formatINR(billing.totalPayments)}\n` +
+    `Balance Due: ${formatINR(billing.balanceDue)}\n`
   );
 }
 
@@ -2168,6 +2165,8 @@ function BookingSuccessModal({ booking, onClose, onView }: { booking: Booking; o
           return `${label} — ${formatDate(e.date)} ${e.time || ''}`;
         }).join('\n')
       : `${booking.event_function} — ${formatDate(booking.shoot_date)} ${booking.shoot_time || ''}`;
+    const billing = bookingBillingSnapshot(booking);
+    const extraLines = (booking.deliverables_data?.custom_items ?? []).map((item) => `${item.name || 'Extra item'}: ${toNum(item.qty) || 1} × ${formatINR(toNum(item.rate))} = ${formatINR(toNum(item.amount))}`).join('\n');
     const msg =
       `*${settings?.films_title ?? 'Bollywood Umang Films'}*\n` +
       `Booking: ${booking.booking_no}\n\n` +
@@ -2178,10 +2177,13 @@ function BookingSuccessModal({ booking, onClose, onView }: { booking: Booking; o
       `*Venue:* ${booking.venue || '—'}\n\n` +
       `*Functions:*\n${fnList}\n\n` +
       `*Deliverables:*\n${delivList.length > 0 ? delivList.join('\n') : 'None'}\n\n` +
-      `*Total Package:* ${formatINR(Number(booking.total_amount))}\n` +
-      `*Discount:* ${formatINR(Number(booking.discount))}\n` +
-      `*Advance Paid:* ${formatINR(Number(booking.advance_paid))}\n` +
-      `*Balance Due:* ${formatINR(Number(booking.net_due))}\n\n` +
+      (extraLines ? `*Extra Items:*\n${extraLines}\n` : '') +
+      `*Subtotal:* ${formatINR(billing.subtotal)}\n` +
+      `*Tax:* ${formatINR(billing.taxAmount)}\n` +
+      `*Discount:* ${formatINR(billing.discountAmount)}\n` +
+      `*Grand Total:* ${formatINR(billing.grandTotal)}\n` +
+      `*Payments:* ${formatINR(billing.totalPayments)}\n` +
+      `*Balance Due:* ${formatINR(billing.balanceDue)}\n\n` +
       `Thank you for choosing ${settings?.films_title ?? 'Bollywood Umang Films'}!`;
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
     window.open(url, '_blank', 'noopener,noreferrer');

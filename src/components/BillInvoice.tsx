@@ -1,5 +1,6 @@
 import { formatINR, formatDate, formatDateTime, formatPhone } from '@/lib/format';
 import type { Booking, StudioSettings, BookingDeliverables } from '@/lib/types';
+import { bookingBillingSnapshot } from '@/lib/billing';
 
 const toNum = (v: string | number | undefined) => { const n = Number(v); return isNaN(n) ? 0 : n; };
 
@@ -44,7 +45,7 @@ export function formatDeliverablesList(d: BookingDeliverables): string[] {
   }
   if (d.custom_items?.length) {
     d.custom_items.forEach((item) => {
-      if (item.name) items.push(`Additional: ${item.name} x${toNum(item.qty) || 1} (${formatINR(toNum(item.amount))})`);
+      if (item.name) items.push(`Additional: ${item.name} x${toNum(item.qty) || 1} (${formatINR(toNum(item.amount) || toNum(item.qty) * toNum(item.rate))})`);
     });
   }
   if (d.raw_video) items.push('Raw Video');
@@ -62,10 +63,11 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
   const hasEventVenues = safeEvents.some((e) => e.venue);
   const hasEventSides = safeEvents.some((e) => e.side);
   const delivList = formatDeliverablesList(booking.deliverables_data ?? DEFAULT_DELIVERABLES);
-  const totalAmount = bookingNumber(booking.total_amount);
-  const discount = bookingNumber(booking.discount);
-  const advancePaid = bookingNumber(booking.advance_paid);
-  const netDue = Math.max(0, totalAmount - discount - advancePaid);
+  const billing = bookingBillingSnapshot(booking);
+  const totalAmount = billing.subtotal;
+  const discount = billing.discountAmount;
+  const advancePaid = billing.totalPayments;
+  const netDue = billing.balanceDue;
   const paymentHistory = booking.deliverables_data?.payment_details?.payment_history ?? [];
   const extraItems = booking.deliverables_data?.custom_items ?? [];
   const cn = compact ? 'compact-bill' : '';
@@ -152,7 +154,7 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
           <p className={compact ? "mb-0.5 text-xs font-bold" : "mb-1 text-sm font-bold"}>Itemized Extra Charges</p>
           <table className="w-full border-collapse border border-black text-xs">
             <thead><tr className="bg-gray-100"><th className="border border-black px-2 py-1 text-left">Item / Description</th><th className="border border-black px-2 py-1 text-right">Qty</th><th className="border border-black px-2 py-1 text-right">Unit Rate</th><th className="border border-black px-2 py-1 text-right">Line Total</th></tr></thead>
-            <tbody>{extraItems.map((item, index) => <tr key={item.id || index}><td className="border border-black px-2 py-1">{item.name || 'Additional service'}</td><td className="border border-black px-2 py-1 text-right">{bookingNumber(item.qty) || 1}</td><td className="border border-black px-2 py-1 text-right">{formatINR(bookingNumber(item.rate))}</td><td className="border border-black px-2 py-1 text-right">{formatINR(bookingNumber(item.amount))}</td></tr>)}</tbody>
+            <tbody>{extraItems.map((item, index) => <tr key={item.id || index}><td className="border border-black px-2 py-1">{item.name || 'Additional service'}</td><td className="border border-black px-2 py-1 text-right">{bookingNumber(item.qty) || 1}</td><td className="border border-black px-2 py-1 text-right">{formatINR(bookingNumber(item.rate))}</td><td className="border border-black px-2 py-1 text-right">{formatINR(bookingNumber(item.amount) || bookingNumber(item.qty) * bookingNumber(item.rate))}</td></tr>)}</tbody>
           </table>
         </div>
       )}
@@ -180,7 +182,9 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
           )}
           <div className="w-44 space-y-0.5 text-xs">
             <div className="flex justify-between"><span>Base:</span><span>{formatINR(bookingNumber(booking.base_amount))}</span></div>
-            <div className="flex justify-between"><span>Subtotal:</span><span>{formatINR(totalAmount)}</span></div>
+            <div className="flex justify-between"><span>Subtotal:</span><span>{formatINR(billing.subtotal)}</span></div>
+            {billing.taxAmount > 0 && <div className="flex justify-between"><span>Tax:</span><span>{formatINR(billing.taxAmount)}</span></div>}
+            <div className="flex justify-between font-semibold"><span>Grand Total:</span><span>{formatINR(billing.grandTotal)}</span></div>
             <div className="flex justify-between"><span>Discount:</span><span>- {formatINR(discount)}</span></div>
             <div className="flex justify-between"><span>Advance:</span><span>- {formatINR(advancePaid)}</span></div>
             <div className="flex justify-between border-t border-black pt-0.5 font-bold"><span>Balance:</span><span>{formatINR(netDue)}</span></div>
@@ -211,7 +215,9 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
 
           <div className="ml-auto w-56 space-y-1 text-sm">
             <div className="flex justify-between"><span>Base Amount:</span><span>{formatINR(bookingNumber(booking.base_amount))}</span></div>
-            <div className="flex justify-between"><span>Subtotal:</span><span>{formatINR(totalAmount)}</span></div>
+            <div className="flex justify-between"><span>Subtotal:</span><span>{formatINR(billing.subtotal)}</span></div>
+            {billing.taxAmount > 0 && <div className="flex justify-between"><span>Tax:</span><span>{formatINR(billing.taxAmount)}</span></div>}
+            <div className="flex justify-between font-semibold"><span>Grand Total:</span><span>{formatINR(billing.grandTotal)}</span></div>
             <div className="flex justify-between"><span>Discount:</span><span>- {formatINR(discount)}</span></div>
             <div className="flex justify-between"><span>Advance Paid:</span><span>- {formatINR(advancePaid)}</span></div>
             <div className="flex justify-between border-t-2 border-black pt-1 font-bold"><span>Balance Due:</span><span>{formatINR(netDue)}</span></div>
