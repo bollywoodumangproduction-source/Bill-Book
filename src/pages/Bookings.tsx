@@ -27,6 +27,7 @@ import {
   Heart,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { getFunctionErrorMessage } from '@/lib/functionError';
 import type {
   Booking,
   EventFunction,
@@ -1552,7 +1553,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
   const resetPin = async () => {
     const defaultPin = defaultPinFromPhone(booking.client_mobile);
     const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'set-pin', portal: 'client_booking', recordId: booking.id, pin: defaultPin } });
-    if (error || data?.error) { toast(data?.error || 'Failed to reset PIN', 'error'); return; }
+    if (error || data?.error) { toast(await getFunctionErrorMessage(error, data, 'Failed to reset PIN'), 'error'); return; }
     setCurrentPin(defaultPin);
     setShowAccessPin(true);
     onUpdated({ ...booking, access_pin: defaultPin, pin_changed: false });
@@ -1563,7 +1564,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
   const saveEditedPin = async () => {
     if (editPinValue.length !== 4) { toast('PIN must be exactly 4 digits', 'error'); return; }
     const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'set-pin', portal: 'client_booking', recordId: booking.id, pin: editPinValue } });
-    if (error || data?.error) { toast(data?.error || 'Failed to update PIN', 'error'); return; }
+    if (error || data?.error) { toast(await getFunctionErrorMessage(error, data, 'Failed to update PIN'), 'error'); return; }
     setCurrentPin(editPinValue);
     setShowAccessPin(true);
     onUpdated({ ...booking, access_pin: editPinValue, pin_changed: true });
