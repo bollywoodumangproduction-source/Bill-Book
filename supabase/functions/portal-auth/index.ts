@@ -18,6 +18,18 @@ function cleanPhone(value: unknown): string {
   return String(value ?? '').replace(/\D/g, '').slice(-10);
 }
 
+function errorDetail(error: unknown, fallback: string): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string' && error) return error;
+  if (error && typeof error === 'object') {
+    const value = error as Record<string, unknown>;
+    const parts = [value.message, value.code, value.details, value.hint]
+      .filter((part): part is string => typeof part === 'string' && part.length > 0);
+    if (parts.length) return parts.join(' — ');
+  }
+  return fallback;
+}
+
 function json(request: Request, body: unknown, status = 200): Response {
   const origin = request.headers.get('origin') || '';
   const corsOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0] || 'null';
@@ -43,6 +55,46 @@ async function hmacHex(value: string): Promise<string> {
 
 async function pinHash(portal: Portal, id: string, pin: string): Promise<string> {
   return `v1$${await hmacHex(`pin:${portal}:${id}:${pin}`)}`;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+}
+
+async function pinEncryptionKey(): Promise<CryptoKey> {
+  if (!pinPepper) throw new Error('Portal security secret is not configured.');
+  const material = await crypto.subtle.digest('SHA-256', encoder.encode(`portal-pin-encryption:${pinPepper}`));
+  return crypto.subtle.importKey('raw', material, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+async function encryptPin(portal: Portal, id: string, pin: string): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = encoder.encode(JSON.stringify({ portal, id, pin }));
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await pinEncryptionKey(), plaintext);
+  return `enc$1$${bytesToBase64(iv)}$${bytesToBase64(new Uint8Array(encrypted))}`;
+}
+
+async function decryptPin(portal: Portal, id: string, stored: unknown): Promise<string | null> {
+  if (typeof stored !== 'string' || !stored.startsWith('enc$1$')) return null;
+  const [, , ivValue, encryptedValue] = stored.split('$');
+  if (!ivValue || !encryptedValue) return null;
+  try {
+    const plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: base64ToBytes(ivValue) },
+      await pinEncryptionKey(),
+      base64ToBytes(encryptedValue),
+    );
+    const payload = JSON.parse(new TextDecoder().decode(plaintext)) as { portal?: unknown; id?: unknown; pin?: unknown };
+    return payload.portal === portal && payload.id === id && typeof payload.pin === 'string' && /^\d{4}$/.test(payload.pin)
+      ? payload.pin
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 async function authPassword(portal: Portal, id: string, pin: string): Promise<string> {
@@ -85,7 +137,10 @@ async function getTarget(portal: Portal, id: string): Promise<{ table: string; p
       ? { table: 'bookings', pinColumn: 'access_pin', userColumn: 'client_auth_user_id' }
       : { table: 'studio_lab_orders', pinColumn: 'access_pin', userColumn: 'client_auth_user_id' };
   const { data, error } = await admin.from(config.table).select('*').eq('id', id).maybeSingle();
-  if (error || !data) return null;
+  // Keep a database/configuration failure distinct from a genuinely missing
+  // row. Callers can then report "Account was not found" only for no match.
+  if (error) throw error;
+  if (!data) return null;
   return { ...config, row: data as PortalRecord };
 }
 
@@ -135,6 +190,7 @@ async function findLoginTargets(portal: 'partner' | 'client', identifier: string
 async function verifyPin(portal: Portal, id: string, stored: unknown, input: string): Promise<'ok' | 'migrate' | 'invalid'> {
   if (typeof stored !== 'string' || !stored) return 'invalid';
   if (stored.startsWith('v1$')) return stored === await pinHash(portal, id, input) ? 'ok' : 'invalid';
+  if (stored.startsWith('enc$1$')) return await decryptPin(portal, id, stored) === input ? 'ok' : 'invalid';
   return stored === input ? 'migrate' : 'invalid';
 }
 
@@ -185,7 +241,7 @@ async function createOrUpdatePortalAuth(target: { portal: Portal; table: string;
     userId = data.user.id;
   }
   const { error: linkError } = await admin.from(target.table).update({
-    [target.pinColumn]: await pinHash(target.portal, target.row.id, pin),
+    [target.pinColumn]: await encryptPin(target.portal, target.row.id, pin),
     [target.userColumn]: userId,
     ...(target.portal === 'partner' ? { password_changed: true } : { pin_changed: true }),
   }).eq('id', target.row.id);
@@ -219,7 +275,7 @@ async function handleLogin(request: Request, body: Record<string, unknown>) {
   for (const candidate of targets) {
     if (!candidate.row.is_login_allowed || (candidate.portal === 'partner' && candidate.row.status && candidate.row.status !== 'Active')) continue;
     const storedPin = candidate.row[candidate.pinColumn];
-    const result = typeof storedPin === 'string' && storedPin && !storedPin.startsWith('v1$') && storedPin.length > 4
+    const result = typeof storedPin === 'string' && storedPin && !storedPin.startsWith('v1$') && !storedPin.startsWith('enc$1$') && storedPin.length > 4
       ? (pin === legacyDefaultPin(candidate.portal, candidate.row) ? 'migrate' : 'invalid')
       : await verifyPin(candidate.portal, candidate.row.id, storedPin, pin);
     if (result !== 'invalid') {
@@ -268,10 +324,46 @@ async function handleAdminPinSet(request: Request, body: Record<string, unknown>
   if (!['partner', 'client_booking', 'client_lab'].includes(portal) || !recordId || !/^\d{4}$/.test(pin)) {
     return json(request, { error: 'Choose a record and enter a 4-digit PIN.' }, 400);
   }
-  const target = await getTarget(portal, recordId);
+  let target: Awaited<ReturnType<typeof getTarget>>;
+  try {
+    target = await getTarget(portal, recordId);
+  } catch (error) {
+    const detail = errorDetail(error, 'Unknown database error.');
+    console.error('portal-auth PIN account lookup failed:', detail);
+    return json(request, { error: `Could not look up the selected account in Supabase: ${detail}` }, 500);
+  }
   if (!target) return json(request, { error: 'Account was not found.' }, 404);
-  await createOrUpdatePortalAuth({ ...target, portal }, pin);
+  try {
+    await createOrUpdatePortalAuth({ ...target, portal }, pin);
+  } catch (error) {
+    const detail = errorDetail(error, 'Unknown authentication update error.');
+    console.error('portal-auth PIN update failed:', detail);
+    return json(request, { error: 'Could not save the selected account PIN: ' + detail }, 500);
+  }
   return json(request, { success: true, recordId });
+}
+
+async function handleAdminPinGet(request: Request, body: Record<string, unknown>) {
+  const user = await requireUser(request);
+  if (user.app_metadata?.role !== 'admin') return json(request, { error: 'Administrator access is required.' }, 403);
+  const portal = body.portal as Portal;
+  const recordId = String(body.recordId ?? '');
+  if (!['partner', 'client_booking', 'client_lab'].includes(portal) || !recordId) {
+    return json(request, { error: 'Choose a valid account to view its PIN.' }, 400);
+  }
+  let target: Awaited<ReturnType<typeof getTarget>>;
+  try {
+    target = await getTarget(portal, recordId);
+  } catch (error) {
+    const detail = errorDetail(error, 'Unknown database error.');
+    console.error('portal-auth PIN view failed:', detail);
+    return json(request, { error: 'Could not look up the selected account PIN: ' + detail }, 500);
+  }
+  if (!target) return json(request, { error: 'Account was not found.' }, 404);
+  const stored = target.row[target.pinColumn];
+  const encryptedPin = await decryptPin(portal, recordId, stored);
+  const legacyPin = typeof stored === 'string' && /^\d{4}$/.test(stored) ? stored : null;
+  return json(request, { pin: encryptedPin ?? legacyPin, needsReset: !encryptedPin && !legacyPin });
 }
 
 async function handlePartnerBookings(request: Request) {
@@ -340,6 +432,7 @@ Deno.serve(async (request) => {
       case 'login': return await handleLogin(request, body);
       case 'change-pin': return await handlePinChange(request, body);
       case 'set-pin': return await handleAdminPinSet(request, body);
+      case 'get-pin': return await handleAdminPinGet(request, body);
       case 'partner-bookings': return await handlePartnerBookings(request);
       case 'partner-lab-orders': return await handlePartnerLabOrders(request);
       default: return json(request, { error: 'Unsupported portal authentication action.' }, 400);

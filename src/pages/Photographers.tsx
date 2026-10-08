@@ -1368,6 +1368,23 @@ function PartnerDetailModal({
   const [togglingLogin, setTogglingLogin] = useState(false);
   const [editingPin, setEditingPin] = useState(false);
   const [editPinValue, setEditPinValue] = useState('');
+  const [currentPin, setCurrentPin] = useState('');
+  const [showPin, setShowPin] = useState(false);
+
+  useEffect(() => {
+    if (!profileOnly) return;
+    let active = true;
+    setCurrentPin('');
+    void supabase.functions.invoke('portal-auth', {
+      body: { action: 'get-pin', portal: 'partner', recordId: partner.id },
+    }).then(({ data, error }) => {
+      if (!active) return;
+      setCurrentPin(!error && !data?.error && typeof data?.pin === 'string' ? data.pin : '');
+    }).catch(() => {
+      if (active) setCurrentPin('');
+    });
+    return () => { active = false; };
+  }, [profileOnly, partner.id]);
 
   const handleResetPassword = async () => {
     setResetting(true);
@@ -1375,6 +1392,8 @@ function PartnerDetailModal({
     const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'set-pin', portal: 'partner', recordId: partner.id, pin: defaultPin } });
     setResetting(false);
     if (error || data?.error) { toast(await getFunctionErrorMessage(error, data, 'Failed to reset PIN'), 'error'); return; }
+    setCurrentPin(defaultPin);
+    setShowPin(true);
     onUpdated({ ...partner, password_changed: false });
     toast('PIN reset to default (last 4 digits of mobile)', 'success');
   };
@@ -1383,6 +1402,8 @@ function PartnerDetailModal({
     if (editPinValue.length !== 4) { toast('PIN must be exactly 4 digits', 'error'); return; }
     const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'set-pin', portal: 'partner', recordId: partner.id, pin: editPinValue } });
     if (error || data?.error) { toast(await getFunctionErrorMessage(error, data, 'Failed to update PIN'), 'error'); return; }
+    setCurrentPin(editPinValue);
+    setShowPin(true);
     onUpdated({ ...partner, password_changed: true });
     setEditingPin(false);
     setEditPinValue('');
@@ -1488,13 +1509,18 @@ function PartnerDetailModal({
                     </button>
                   </div>
                 ) : (
-                  <p className="font-mono text-sm text-slate-900 dark:text-white">•••• · PIN is never displayed</p>
+                  <p className="font-mono text-sm text-slate-900 dark:text-white">
+                    {currentPin ? (showPin ? currentPin : '••••') : 'Reset PIN to create a viewable PIN'}
+                  </p>
                 )}
               </div>
             </div>
             {!editingPin && (
               <div className="flex items-center gap-2">
-                <button onClick={() => { setEditPinValue(''); setEditingPin(true); }} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5" title="Set new PIN">
+                {currentPin && <button onClick={() => setShowPin(!showPin)} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5" title={showPin ? 'Hide PIN' : 'View PIN'}>
+                  {showPin ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>}
+                <button onClick={() => { setEditPinValue(currentPin); setEditingPin(true); }} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/5" title="Set new PIN">
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
                 <button

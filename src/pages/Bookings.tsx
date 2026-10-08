@@ -1511,6 +1511,8 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
   const [loginAllowed, setLoginAllowed] = useState(booking.is_login_allowed ?? false);
   const [editingPin, setEditingPin] = useState(false);
   const [editPinValue, setEditPinValue] = useState('');
+  const [currentPin, setCurrentPin] = useState('');
+  const [showAccessPin, setShowAccessPin] = useState(false);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [assignments, setAssignments] = useState<ShootAssignment[]>([]);
   const [assignmentPartner, setAssignmentPartner] = useState('');
@@ -1519,6 +1521,20 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
   const [reportingTime, setReportingTime] = useState('');
   const [isBillPreviewOpen, setIsBillPreviewOpen] = useState(false);
   const [isDualPrintOpen, setIsDualPrintOpen] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setCurrentPin('');
+    void supabase.functions.invoke('portal-auth', {
+      body: { action: 'get-pin', portal: 'client_booking', recordId: booking.id },
+    }).then(({ data, error }) => {
+      if (!active) return;
+      setCurrentPin(!error && !data?.error && typeof data?.pin === 'string' ? data.pin : '');
+    }).catch(() => {
+      if (active) setCurrentPin('');
+    });
+    return () => { active = false; };
+  }, [booking.id]);
 
   const toggleLoginAccess = async () => {
     const newVal = !loginAllowed;
@@ -1537,7 +1553,9 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
     const defaultPin = defaultPinFromPhone(booking.client_mobile);
     const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'set-pin', portal: 'client_booking', recordId: booking.id, pin: defaultPin } });
     if (error || data?.error) { toast(data?.error || 'Failed to reset PIN', 'error'); return; }
-    onUpdated({ ...booking, pin_changed: false });
+    setCurrentPin(defaultPin);
+    setShowAccessPin(true);
+    onUpdated({ ...booking, access_pin: defaultPin, pin_changed: false });
     triggerRefresh();
     toast('PIN reset to default (last 4 digits of mobile)', 'success');
   };
@@ -1546,7 +1564,9 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
     if (editPinValue.length !== 4) { toast('PIN must be exactly 4 digits', 'error'); return; }
     const { data, error } = await supabase.functions.invoke('portal-auth', { body: { action: 'set-pin', portal: 'client_booking', recordId: booking.id, pin: editPinValue } });
     if (error || data?.error) { toast(data?.error || 'Failed to update PIN', 'error'); return; }
-    onUpdated({ ...booking, pin_changed: true });
+    setCurrentPin(editPinValue);
+    setShowAccessPin(true);
+    onUpdated({ ...booking, access_pin: editPinValue, pin_changed: true });
     triggerRefresh();
     setEditingPin(false);
     setEditPinValue('');
@@ -1976,10 +1996,19 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
             ) : (
               <>
                 <span className="text-sm text-slate-600 dark:text-slate-300">
-                  Access PIN: <span className="font-mono font-medium text-slate-900 dark:text-white">••••</span>
+                  Access PIN: <span className="font-mono font-medium text-slate-900 dark:text-white">
+                    {currentPin ? (showAccessPin ? currentPin : '••••') : 'Reset PIN to make it viewable'}
+                  </span>
                 </span>
+                {currentPin && <button
+                  onClick={() => setShowAccessPin(!showAccessPin)}
+                  className="text-slate-400 hover:text-amber-500"
+                  title={showAccessPin ? 'Hide PIN' : 'View PIN'}
+                >
+                  {showAccessPin ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>}
                 <button
-                  onClick={() => { setEditPinValue(''); setEditingPin(true); }}
+                  onClick={() => { setEditPinValue(currentPin); setEditingPin(true); }}
                   className="text-slate-400 hover:text-amber-500"
                   title="Edit PIN"
                 >
