@@ -13,7 +13,7 @@ function Dot({ status }: { status: 'online' | 'offline' }) {
   );
 }
 
-export function SyncBadges() {
+export function SyncBadges({ compact = false }: { compact?: boolean }) {
   let syncState = null as ReturnType<typeof useSync> | null;
   try {
     syncState = useSync();
@@ -28,23 +28,23 @@ export function SyncBadges() {
   const statusLabel = supa === 'online' ? 'Supabase connected' : 'Supabase not connected';
 
   return (
-    <div className="flex items-center gap-2">
+    <div className={`flex items-center ${compact ? 'gap-1' : 'gap-2'}`}>
       <div
-        className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-white/10 dark:bg-slate-800/60"
+        className={`flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white py-1 dark:border-white/10 dark:bg-slate-800/60 ${compact ? 'px-1.5' : 'px-2'}`}
         title={statusLabel}
       >
         <Database className="h-3.5 w-3.5 text-sky-500" />
-        <span className="text-[10px] font-semibold tracking-wide text-slate-500 dark:text-slate-400">SUPABASE</span>
+        {!compact && <span className="text-[10px] font-semibold tracking-wide text-slate-500 dark:text-slate-400">SUPABASE</span>}
         <Dot status={supa} />
       </div>
 
       <button
         onClick={triggerSync}
-        className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 transition-colors hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800/60 dark:hover:bg-white/5"
+        className={`flex items-center rounded-lg border border-slate-200 bg-white py-1 transition-colors hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800/60 dark:hover:bg-white/5 ${compact ? 'px-1.5' : 'gap-1.5 px-2'}`}
         title={syncing ? 'Checking Supabase…' : statusLabel}
       >
         <RefreshCw className={`h-3.5 w-3.5 text-slate-500 dark:text-slate-400 ${syncing ? 'animate-spin' : ''}`} />
-        <span className="hidden text-[10px] font-medium text-slate-500 dark:text-slate-400 sm:inline">
+        <span className={`${compact ? 'hidden' : 'hidden text-[10px] font-medium text-slate-500 dark:text-slate-400 sm:inline'}`}>
           {syncing ? 'Checking…' : supa === 'online' ? 'Connected' : 'Offline'}
         </span>
       </button>

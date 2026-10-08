@@ -104,7 +104,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             <Camera className="h-4 w-4 text-slate-900 sm:h-5 sm:w-5" />
           </div>
           <div className="min-w-0">
-            <p className="whitespace-nowrap text-[11px] font-bold leading-tight text-slate-900 sm:text-sm dark:text-white">Client Portal</p>
+            <p className="text-[11px] font-bold leading-tight text-slate-900 sm:text-sm dark:text-white">Client Portal</p>
             <p className="hidden text-xs text-slate-500 sm:block dark:text-slate-400">View booking details &amp; dues</p>
           </div>
         </button>
@@ -116,7 +116,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             <Users className="h-4 w-4 text-white sm:h-5 sm:w-5" />
           </div>
           <div className="min-w-0">
-            <p className="whitespace-nowrap text-[11px] font-bold leading-tight text-slate-900 sm:text-sm dark:text-white">Lab / Partner Portal</p>
+            <p className="text-[11px] font-bold leading-tight text-slate-900 sm:text-sm dark:text-white">Lab / Partner Portal</p>
             <p className="hidden text-xs text-slate-500 sm:block dark:text-slate-400">View jobs &amp; ledger balance</p>
           </div>
         </button>

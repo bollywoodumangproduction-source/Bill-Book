@@ -235,27 +235,27 @@ export function Bookings() {
           <div className="flex shrink-0 items-center justify-end gap-2">
             <button
               onClick={() => { setEditing(null); setShowForm(true); }}
-              className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-500 px-2 py-1 text-[10px] font-medium text-slate-900 transition-colors hover:bg-amber-400 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-xs"
+              className="flex min-h-9 shrink-0 items-center gap-1 rounded-lg bg-amber-500 px-2.5 py-1.5 text-xs font-semibold text-slate-900 transition-colors hover:bg-amber-400 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-xs"
             >
               <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> New Booking
             </button>
           </div>
         </div>
-        <div className="grid grid-cols-[minmax(0,1fr)_96px] items-center gap-1 md:hidden">
+        <div className="grid grid-cols-[minmax(0,1fr)_112px] items-center gap-1.5 md:hidden">
           <div className="relative min-w-0">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by client, event, or booking no..."
-              className={`${inputClass} h-7 py-0.5 pl-8 pr-1 text-[10px]`}
+              placeholder="Search bookings..."
+              className={`${inputClass} h-9 min-w-0 py-1 pl-8 pr-1 text-xs`}
             />
           </div>
           <select
             value={view}
             onChange={(event) => setView(event.target.value as typeof view)}
             aria-label="Booking status"
-            className={`${inputClass} h-7 appearance-auto px-2 py-0 text-[10px]`}
+            className={`${inputClass} h-9 min-w-0 appearance-auto px-2 py-1 text-xs`}
           >
             <option value="active">Active</option>
             <option value="archived">Archived</option>

@@ -428,7 +428,7 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
             title="Add Partner"
             className="flex shrink-0 items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20 sm:px-3 sm:text-xs"
           >
-            <Plus className="h-4 w-4" /><span className="hidden sm:inline">Add Partner</span>
+            <Plus className="h-4 w-4" /><span>Add Partner</span>
           </button>}
           {mode === 'ledger' && <button
             type="button"
@@ -463,12 +463,12 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or mobile..."
-            className={`${inputClass} !h-8 !py-1.5 !text-xs`}
+            placeholder="Search partners..."
+            className={`${inputClass} !h-9 !py-1.5 !text-xs`}
             style={{ paddingLeft: '3rem' }}
           />
         </div>
-        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className={`${selectClass} h-8 !w-32 shrink-0 !py-1.5 !text-xs sm:!w-48`}>
+        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className={`${selectClass} h-9 !w-28 shrink-0 !py-1.5 !text-xs sm:!w-48`}>
           <option value="all">All Categories</option>
           {PARTNER_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>

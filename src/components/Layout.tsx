@@ -160,25 +160,25 @@ export function Layout({ current, onNavigate, onBack, children }: LayoutProps) {
       </aside>
 
       {/* Mobile top bar */}
-      <header className="no-print fixed top-0 left-0 right-0 z-50 flex items-center justify-between border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur-xl md:hidden dark:border-white/10 dark:bg-slate-900/80">
-        <div className="flex items-center gap-2">
+      <header className="no-print fixed left-0 right-0 top-0 z-50 flex h-14 items-center justify-between gap-2 border-b border-slate-200 bg-white/95 px-2.5 backdrop-blur-xl md:hidden dark:border-white/10 dark:bg-slate-900/95">
+        <div className="flex min-w-0 items-center gap-1.5">
           {settings?.films_logo_url ? (
-            <img src={settings.films_logo_url} alt="logo" className="h-8 w-8 rounded-lg object-cover" />
+            <img src={settings.films_logo_url} alt="logo" className="h-7 w-7 shrink-0 rounded-lg object-cover" />
           ) : (
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-orange-500">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-orange-500">
               <Sparkles className="h-4 w-4 text-slate-900" />
             </div>
           )}
-          <span className="text-sm font-bold text-slate-900 dark:text-white">Bollywood Umang</span>
+          <span className="whitespace-nowrap text-xs font-bold text-slate-900 dark:text-white">Bollywood Umang</span>
         </div>
-        <div className="flex items-center gap-2">
-          <SyncBadges />
-          <ThemeToggle />
+        <div className="flex shrink-0 items-center gap-1">
+          <SyncBadges compact />
+          <div className="[&_button]:h-9 [&_button]:w-9 [&_button]:justify-center [&_button]:px-0"><ThemeToggle /></div>
           <button
             onClick={logout}
             aria-label="Admin logout"
             title="Admin logout"
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-rose-500/20 text-rose-500 transition-colors hover:bg-rose-500/10 dark:text-rose-300"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-rose-500/20 text-rose-500 transition-colors hover:bg-rose-500/10 dark:text-rose-300"
           >
             <LogOut className="h-4 w-4" />
           </button>
@@ -187,7 +187,7 @@ export function Layout({ current, onNavigate, onBack, children }: LayoutProps) {
 
       {/* Main content */}
       <main
-        className="min-h-screen pb-20 pt-14 md:ml-60 md:pb-0 md:pt-0"
+        className="min-h-screen pb-[calc(5rem+env(safe-area-inset-bottom))] pt-14 md:ml-60 md:pb-0 md:pt-0"
         onTouchStart={(event) => {
           if ((event.target as HTMLElement).closest('.no-print')) return;
           const touch = event.touches[0];
@@ -201,11 +201,11 @@ export function Layout({ current, onNavigate, onBack, children }: LayoutProps) {
           if (isRightEdgeBackSwipe(start, { x: touch.clientX, y: touch.clientY }, window.innerWidth)) onBack();
         }}
       >
-        <div className={['lab', 'rentals', 'bookings', 'partners', 'dairy', 'promo', 'music', 'teaser', 'invitation', 'photo-selection', 'ledger', 'payments'].includes(current) ? 'w-full px-1 md:px-0' : 'w-full p-1 sm:p-6 lg:p-8'}>{children}</div>
+        <div className={['lab', 'rentals', 'bookings', 'partners', 'dairy', 'promo', 'music', 'teaser', 'invitation', 'photo-selection', 'ledger', 'payments'].includes(current) ? 'w-full px-1 md:px-0' : 'w-full p-3 sm:p-6 lg:p-8'}>{children}</div>
       </main>
 
       {/* Mobile bottom nav */}
-      <nav className="no-print fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around border-t border-slate-200 bg-white/95 px-2 py-2 backdrop-blur-xl md:hidden dark:border-white/10 dark:bg-slate-900/95">
+      <nav className="no-print fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around border-t border-slate-200 bg-white/95 px-1.5 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl md:hidden dark:border-white/10 dark:bg-slate-900/95">
         {mobileNav.map((item) => {
           const Icon = item.icon;
           const active = current === item.key;
