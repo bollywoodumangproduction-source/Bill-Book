@@ -21,6 +21,8 @@ import {
   EyeOff,
   KeyRound,
   CheckCircle2,
+  Copy,
+  MessageCircle,
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -41,6 +43,7 @@ import { formatINR, formatDate, formatDateTime, todayISO } from '@/lib/format';
 import { clientPaidTotal, clientWorkTotal, labOrderPayments, unallocatedPaidTotal } from '@/lib/labBilling';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
+import { copyToClipboard } from '@/lib/clipboard';
 import {
   LEDGER_ENTRY_TYPES,
   LEDGER_ENTRY_LABELS,
@@ -58,6 +61,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useRefresh } from '@/context/RefreshContext';
 import { bookingBillingSnapshot } from '@/lib/billing';
+import { calculatePartnerBalance, partnerLabOrderHistory, type PartnerBalance } from '@/lib/partnerBilling';
 
 const ENTRY_COLORS: Record<LedgerEntryType, 'rose' | 'emerald' | 'sky'> = {
   LAB_WORK_DEBIT: 'rose',
@@ -124,25 +128,13 @@ function purgeExpiredPartners(allPartners: Partner[]): Partner[] {
   });
 }
 
-interface PartnerBalance {
-  partner: Partner;
-  totalCredit: number;
-  totalDebit: number;
-  totalSettled: number;
-  directGiven: number;
-  directReceived: number;
-  labCredit: number;
-  labDebit: number;
-  balance: number;
-}
-
-export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
+export function Ledger({ mode = 'ledger', onOpenLabOrder }: { mode?: 'partners' | 'ledger'; onOpenLabOrder?: (orderId: string) => void }) {
   const { toast } = useToast();
   const { settings } = useSettings();
   const { refreshToken } = useRefresh();
   const [partners, setPartners] = useState<Partner[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [labOrders, setLabOrders] = useState<any[]>([]);
+  const [labOrders, setLabOrders] = useState<StudioLabOrder[]>([]);
   const [ledgerEntries, setLedgerEntries] = useState<PhotographerLedgerEntry[]>([]);
   const [directTxns, setDirectTxns] = useState<DirectTransaction[]>([]);
   const [clientLedgerEntries, setClientLedgerEntries] = useState<BookingClientLedgerEntry[]>([]);
@@ -184,7 +176,7 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
     const surviving = expired.length > 0 ? purgeExpiredPartners(allPartners) : allPartners;
     setPartners(surviving);
     setBookings((bookingData ?? []) as Booking[]);
-    setLabOrders((labData ?? []) as any[]);
+    setLabOrders((labData ?? []) as StudioLabOrder[]);
     setLedgerEntries((le ?? []) as PhotographerLedgerEntry[]);
     setDirectTxns((dt ?? []) as DirectTransaction[]);
     setClientLedgerEntries((clientLedgerData ?? []) as BookingClientLedgerEntry[]);
@@ -194,30 +186,7 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
   useEffect(() => { load(); }, [load, refreshToken]);
 
   const balances = useMemo<PartnerBalance[]>(() => {
-    return partners.map((partner) => {
-      const mobile = partner.mobile;
-      const pLedger = ledgerEntries.filter((e) => e.partner_id ? e.partner_id === partner.id : e.mobile === mobile);
-      const pDirect = directTxns.filter((d) => d.partner_id === partner.id);
-      const partnerName = (partner.name ?? '').trim().toLowerCase();
-      const activeLabOrders = (labOrders ?? []).filter((order) => {
-        if (order.deleted_at || order.archived_at) return false;
-        if (order.partner_id && partner.id && order.partner_id === partner.id) return true;
-        const orderPartner = (order.partner_name ?? order.studio_name ?? '').trim().toLowerCase();
-        return !!orderPartner && orderPartner === partnerName;
-      });
-
-      const totalCredit = pLedger.filter((e) => e.entry_type === 'SHOOT_DUTY_CREDIT').reduce((s, e) => s + Number(e.amount ?? 0), 0);
-      const totalDebit = pLedger.filter((e) => e.entry_type === 'LAB_WORK_DEBIT').reduce((s, e) => s + Number(e.amount ?? 0), 0);
-      const totalSettled = pLedger.filter((e) => e.entry_type === 'PAYMENT_SETTLED').reduce((s, e) => s + Number(e.amount ?? 0), 0);
-      const directGiven = pDirect.filter((d) => d.txn_type === 'Given').reduce((s, d) => s + Number(d.amount ?? 0), 0);
-      const directReceived = pDirect.filter((d) => d.txn_type === 'Received').reduce((s, d) => s + Number(d.amount ?? 0), 0);
-      const labCredit = activeLabOrders.reduce((s, order) => s + Number(order.advance_paid ?? 0), 0);
-      const labDebit = activeLabOrders.reduce((s, order) => s + Math.max(0, Number(order.master_total ?? (Number(order.current_order_total ?? 0) + Number(order.previous_back_due ?? order.back_due ?? 0))) - Number(order.balance_transferred_out ?? 0)), 0);
-
-      const balance = totalCredit + directReceived + labCredit - totalDebit - totalSettled - directGiven - labDebit;
-
-      return { partner, totalCredit, totalDebit, totalSettled, directGiven, directReceived, labCredit, labDebit, balance };
-    });
+    return partners.map((partner) => calculatePartnerBalance(partner, ledgerEntries, directTxns, labOrders));
   }, [partners, ledgerEntries, directTxns, labOrders]);
 
   const filteredBalances = useMemo(() => {
@@ -535,16 +504,14 @@ export function Ledger({ mode = 'ledger' }: { mode?: 'partners' | 'ledger' }) {
       {detailPartner && (
         <PartnerDetailModal
           partner={detailPartner}
+          partnerBalance={balances.find((item) => item.partner.id === detailPartner.id)!}
           directTxns={partnerDirectTxns(detailPartner.id)}
           ledgerEntries={partnerLedger(detailPartner.id, detailPartner.mobile)}
-          labOrders={labOrders.filter((order) => {
-            if (order.partner_id === detailPartner.id) return true;
-            const orderPartner = String(order.partner_name ?? order.studio_name ?? '').trim().toLowerCase();
-            return !!orderPartner && orderPartner === String(detailPartner.name ?? '').trim().toLowerCase();
-          })}
+          labOrders={partnerLabOrderHistory(labOrders, detailPartner)}
           profileOnly={mode === 'partners'}
           onClose={() => setDetailPartner(null)}
           onSettle={() => setSettlePartner(detailPartner)}
+          onOpenLabOrder={(orderId) => onOpenLabOrder?.(orderId)}
           onUpdated={(p) => { setDetailPartner(p); load(); }}
         />
       )}
@@ -1347,24 +1314,29 @@ function DirectTxnModal({
 
 function PartnerDetailModal({
   partner,
+  partnerBalance,
   directTxns,
   ledgerEntries,
   labOrders,
   profileOnly,
   onClose,
   onSettle,
+  onOpenLabOrder,
   onUpdated,
 }: {
   partner: Partner;
+  partnerBalance: PartnerBalance;
   directTxns: DirectTransaction[];
   ledgerEntries: PhotographerLedgerEntry[];
   labOrders: StudioLabOrder[];
   profileOnly: boolean;
   onClose: () => void;
   onSettle: () => void;
+  onOpenLabOrder?: (orderId: string) => void;
   onUpdated: (p: Partner) => void;
 }) {
   const { toast } = useToast();
+  const { settings } = useSettings();
   const [resetting, setResetting] = useState(false);
   const [togglingLogin, setTogglingLogin] = useState(false);
   const [editingPin, setEditingPin] = useState(false);
@@ -1411,6 +1383,22 @@ function PartnerDetailModal({
     toast('Access PIN updated', 'success');
   };
 
+  const copyPartnerPortalLink = async () => {
+    const link = `${window.location.origin}/partner/login`;
+    const copied = await copyToClipboard(link);
+    toast(copied ? 'Partner portal link copied!' : 'Could not copy partner link', copied ? 'success' : 'error');
+  };
+
+  const sharePartnerPortalAccess = () => {
+    if (!currentPin) { toast('Reset or set the partner PIN before sharing access', 'error'); return; }
+    const phone = partner.mobile.replace(/\D/g, '');
+    const whatsappPhone = phone.length === 10 ? `91${phone}` : phone;
+    const link = `${window.location.origin}/partner/login`;
+    const studioName = settings?.films_title ?? settings?.studio_name ?? 'Bollywood Umang Films';
+    const message = `*${studioName} Partner Portal Access*\nPartner: ${partner.name}\nPortal Link: ${link}\nRegistered Mobile: ${partner.mobile}\nAccess PIN: ${currentPin}`;
+    window.open(`https://wa.me/${whatsappPhone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+  };
+
   const handleToggleLogin = async () => {
     setTogglingLogin(true);
     const newVal = !partner.is_login_allowed;
@@ -1452,9 +1440,9 @@ function PartnerDetailModal({
     return [...direct, ...ledger].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   }, [directTxns, ledgerEntries]);
 
-  const totalCredit = entries.filter((e) => e.positive).reduce((s, e) => s + e.amount, 0);
-  const totalDebit = entries.filter((e) => !e.positive).reduce((s, e) => s + e.amount, 0);
-  const balance = totalCredit - totalDebit;
+  const totalCredit = partnerBalance.totalCredit + partnerBalance.directReceived + partnerBalance.labCredit;
+  const totalDebit = partnerBalance.totalDebit + partnerBalance.totalSettled + partnerBalance.directGiven + partnerBalance.labDebit;
+  const balance = partnerBalance.balance;
   let runningBalance = 0;
 
   return (
@@ -1535,6 +1523,14 @@ function PartnerDetailModal({
             )}
           </div>
         </div>}
+        {profileOnly && <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => void copyPartnerPortalLink()} disabled={!partner.is_login_allowed} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
+            <Copy className="h-3.5 w-3.5" /> Copy Partner Link
+          </button>
+          <button type="button" onClick={sharePartnerPortalAccess} disabled={!partner.is_login_allowed || !partner.mobile || !currentPin} className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">
+            <MessageCircle className="h-3.5 w-3.5" /> WhatsApp Link
+          </button>
+        </div>}
 
         {!profileOnly && <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg border border-slate-200 p-3 text-center dark:border-white/10">
@@ -1572,13 +1568,13 @@ function PartnerDetailModal({
             )}
           </div>
         </div>}
-        {!profileOnly && <PermanentLabOrderHistory orders={labOrders} />}
+        {!profileOnly && <PermanentLabOrderHistory orders={labOrders} onOpenLabOrder={onOpenLabOrder} />}
       </div>
     </Modal>
   );
 }
 
-function PermanentLabOrderHistory({ orders }: { orders: StudioLabOrder[] }) {
+function PermanentLabOrderHistory({ orders, onOpenLabOrder }: { orders: StudioLabOrder[]; onOpenLabOrder?: (orderId: string) => void }) {
   const history = [...orders].sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
   return (
     <section className="border-t border-slate-200 pt-3 dark:border-white/10">
@@ -1594,6 +1590,9 @@ function PermanentLabOrderHistory({ orders }: { orders: StudioLabOrder[] }) {
                 <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 p-3">
                   <span className="min-w-0"><b className="text-xs text-slate-800 dark:text-slate-100">{order.order_no} · {order.project_name || order.work_type}</b><span className="mt-0.5 block text-[10px] text-slate-500 dark:text-slate-400">{order.created_at ? formatDate(order.created_at) : 'Date not recorded'} · {order.order_status || 'Status unavailable'}{order.archived_at ? ' · Archived' : ''}{order.deleted_at ? ' · Deleted (retained)' : ''}</span></span>
                   <span className="shrink-0 text-right text-[11px] text-slate-600 dark:text-slate-300">Bill {formatINR(Number(order.master_total ?? 0))} · Paid {formatINR(Number(order.advance_paid ?? 0))}<b className="block text-rose-600 dark:text-rose-400">Due {formatINR(totalDue)}</b></span>
+                  {onOpenLabOrder && <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onOpenLabOrder(order.id); }} className="inline-flex shrink-0 items-center gap-1 rounded-md border border-sky-500/30 px-2.5 py-1.5 text-[11px] font-medium text-sky-700 hover:bg-sky-500/10 dark:text-sky-300">
+                    <ArrowUpRight className="h-3.5 w-3.5" /> Open Order
+                  </button>}
                 </summary>
                 <div className="space-y-2 border-t border-slate-200 p-3 text-[11px] dark:border-white/10">
                   <div className="grid grid-cols-2 gap-2 text-slate-600 dark:text-slate-300 sm:grid-cols-4"><span>Work total: {formatINR(Number(order.current_order_total ?? 0))}</span><span>Previous balance: {formatINR(Number(order.previous_back_due ?? order.back_due ?? 0))}</span><span>Combined bill: {formatINR(Number(order.master_total ?? 0))}</span><span>Paid: {formatINR(Number(order.advance_paid ?? 0))}</span></div>

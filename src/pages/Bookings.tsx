@@ -1592,6 +1592,22 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
     toast('Access PIN updated', 'success');
   };
 
+  const copyClientPortalLink = async () => {
+    const link = `${window.location.origin}/client/login`;
+    const copied = await copyToClipboard(link);
+    toast(copied ? 'Portal link copied!' : 'Could not copy portal link', copied ? 'success' : 'error');
+  };
+
+  const shareClientPortalAccess = () => {
+    if (!currentPin) { toast('Reset or set the client PIN before sharing access', 'error'); return; }
+    const phone = booking.client_mobile.replace(/\D/g, '');
+    const whatsappPhone = phone.length === 10 ? `91${phone}` : phone;
+    const link = `${window.location.origin}/client/login`;
+    const studioName = settings?.films_title ?? settings?.studio_name ?? 'Bollywood Umang Films';
+    const message = `*${studioName} Client Portal Access*\nBooking: ${booking.booking_no}\nPortal Link: ${link}\nMobile / Booking Reference: ${booking.client_mobile} / ${booking.booking_no}\nAccess PIN: ${currentPin}`;
+    window.open(`https://wa.me/${whatsappPhone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+  };
+
   useEffect(() => {
     const loadAssignments = async () => {
       const [{ data: partnerData }, { data: assignmentData }] = await Promise.all([
@@ -2021,6 +2037,14 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
         {!loginAllowed && (
           <p className="mt-2 text-xs text-slate-400">This client cannot log into the portal until login is enabled above.</p>
         )}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" onClick={() => void copyClientPortalLink()} disabled={!loginAllowed} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
+            <Copy className="h-3.5 w-3.5" /> Copy Portal Link
+          </button>
+          <button type="button" onClick={shareClientPortalAccess} disabled={!loginAllowed || !booking.client_mobile || !currentPin} className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">
+            <MessageCircle className="h-3.5 w-3.5" /> Share Portal Access via WhatsApp
+          </button>
+        </div>
       </div>
 
       {/* Actions */}

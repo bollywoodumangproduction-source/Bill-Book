@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, TriangleAlert as AlertTriangle, Zap, CalendarClock, Images, HardDrive, FolderOpen } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { photoSessionFromDatabase } from '@/lib/types';
-import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabExtraCharge, LabClientDeliveryStatus, StorageLocation } from '@/lib/types';
+import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabExtraCharge, LabClientDeliveryStatus, StorageLocation, PageKey } from '@/lib/types';
 import { formatINR, formatDate, formatDateTime, todayISO, defaultPinFromPhone } from '@/lib/format';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -247,7 +247,8 @@ function sortOrdersByPriority(orders: StudioLabOrder[], deadlineAlerts: Array<{ 
   });
 }
 
-export function LabOrders() {
+export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: () => void; onNavigate?: (page: PageKey) => void } = {}) {
+  const { openOrderId, onOrderOpened } = props;
   const { toast } = useToast();
   const { settings } = useSettings();
   const { refreshToken } = useRefresh();
@@ -590,8 +591,21 @@ export function LabOrders() {
     setSelectedPartner(partnerKey);
     setSelectedDeliveryYear(null);
     setSelectedOrder(order);
+    setView(order.deleted_at ? 'recycle' : order.archived_at ? 'archived' : 'active');
     setActiveTab('partners');
   };
+
+  useEffect(() => {
+    if (!openOrderId || loading) return;
+    const order = orders.find((item) => item.id === openOrderId || item.order_no === openOrderId);
+    if (!order) {
+      toast(`Lab order ${openOrderId} could not be found.`, 'error');
+      onOrderOpened?.();
+      return;
+    }
+    openPartnerLocation(order);
+    onOrderOpened?.();
+  }, [openOrderId, loading, orders, onOrderOpened]);
 
   const renderOrderCard = (o: StudioLabOrder, stationView = false) => {
     const clientCount = (o.clients ?? []).length;
