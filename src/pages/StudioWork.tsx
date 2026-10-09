@@ -2347,19 +2347,20 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                           {/* Paper sub-rows */}
                           <div className="mt-2 space-y-1.5 border-l-2 border-amber-200 pl-3 dark:border-amber-500/20">
                             {r.papers.map((p, pi) => (
-                              <div key={p.id} className="flex flex-nowrap items-center gap-2 overflow-x-auto">
-                                <select value={p.paper_type} onChange={(e) => { updatePaperRow(ci, ai, pi, { paper_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[145px] flex-[1_1_165px] ${p.paper_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+                              <div key={p.id} className="grid min-w-[560px] grid-cols-[minmax(150px,2fr)_minmax(90px,1fr)_minmax(110px,1.25fr)_minmax(70px,.8fr)_36px] items-center gap-2">
+                                <select value={p.paper_type} onChange={(e) => { updatePaperRow(ci, ai, pi, { paper_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 ${p.paper_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                                   <option value="">Paper</option>
                                   {LAB_ALBUM_PAPERS.map((pp) => <option key={pp} value={pp}>{pp}</option>)}
                                 </select>
-                                <input type="number" value={p.sheets || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { sheets: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-24 shrink-0`} placeholder="Sheets" />
-                                <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[110px] !min-w-[110px] shrink-0`} placeholder="Rate/Sheet" />
-                                <span className="flex min-w-[90px] items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(p.total))}</span>
+                                <input type="number" value={p.sheets || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { sheets: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} min-w-0`} placeholder="Sheets" />
+                                <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-full !min-w-[110px]`} placeholder="Rate/Sheet" />
+                                <span className="flex min-w-0 items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(p.total))}</span>
                                 {r.papers.length > 1 && (
-                                  <button onClick={() => removePaperRow(ci, ai, pi)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500">
+                                  <button onClick={() => removePaperRow(ci, ai, pi)} className="flex h-10 w-9 items-center justify-center text-slate-400 hover:text-rose-500">
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </button>
                                 )}
+                                {r.papers.length === 1 && <span className="h-10 w-9" aria-hidden="true" />}
                               </div>
                             ))}
                             <button onClick={() => addPaperRow(ci, ai)} className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400">

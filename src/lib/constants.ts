@@ -48,7 +48,7 @@ export const LAB_ALBUM_BOXES = [
   'Bag',
 ] as const;
 
-export const LAB_ALBUM_SIZES = ['12x36', '14x40', '12x30', '10x30', '12x24'] as const;
+export const LAB_ALBUM_SIZES = ['12x36', '13x40', '14x40', '12x30', '10x30', '12x24', '8x12', '5x7', '4x6'] as const;
 
 export const LAB_ALBUM_PAPERS = ['Glossy', 'Silk Matte', 'Matt', 'NTR', 'Metallic', 'Transparent', 'Silk'] as const;
 
@@ -112,10 +112,14 @@ export const BOOKING_ALBUM_TYPES = [
 
 export const BOOKING_ALBUM_SIZES = [
   '12x36',
+  '13x40',
   '14x40',
   '12x30',
   '10x30',
   '12x24',
+  '8x12',
+  '5x7',
+  '4x6',
 ] as const;
 
 export const BOOKING_ALBUM_PAPERS = [
