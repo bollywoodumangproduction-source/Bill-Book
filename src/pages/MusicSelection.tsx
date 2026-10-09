@@ -26,6 +26,8 @@ import { inputClass, selectClass, textareaClass, Field } from '@/components/ui/F
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { copyToClipboard } from '@/lib/clipboard';
+import { resolveMediaUrl } from '@/lib/mediaResolver';
+import { UniversalMediaPreview } from '@/components/UniversalMediaPreview';
 
 const CATEGORIES = ['Teaser', 'Haldi', 'Entry', 'Jaymala', 'Vidai', 'Reception', 'Wedding/Barat', 'Custom'];
 const PRIORITIES: { value: MusicCuePriority; label: string }[] = [
@@ -52,31 +54,6 @@ function shareUrl(projectId: string): string {
   const url = new URL('/music-selection', window.location.origin);
   url.searchParams.set('project', projectId);
   return url.toString();
-}
-
-function isAudioUrl(value: string): boolean {
-  return /\.(mp3|wav|m4a|ogg|aac)(\?.*)?$/i.test(value);
-}
-
-function safeExternalUrl(value: string): URL | null {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url : null;
-  } catch { return null; }
-}
-
-function songEmbedUrl(value: string): string | null {
-  const url = safeExternalUrl(value);
-  if (!url) return null;
-  if (['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'www.youtu.be'].includes(url.hostname)) {
-    const videoId = url.hostname.includes('youtu.be') ? url.pathname.split('/').filter(Boolean)[0] : url.searchParams.get('v') ?? url.pathname.match(/^\/(?:embed|shorts)\/([^/]+)/)?.[1];
-    return videoId ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}` : null;
-  }
-  if (url.hostname === 'open.spotify.com' || url.hostname === 'www.open.spotify.com') {
-    const match = url.pathname.match(/^\/(track|album|playlist|episode|show)\/([a-zA-Z0-9]+)/);
-    return match ? `https://open.spotify.com/embed/${match[1]}/${match[2]}` : null;
-  }
-  return null;
 }
 
 function masterCueShareText(cue: MusicMasterCue): string {
@@ -306,13 +283,13 @@ function AdminProject({ project, cues, masterCues, onSaveMasterCue, onAddCue, on
 }
 
 function CueCard({ cue, locked, onRemove }: { cue: MusicCue; locked: boolean; onRemove: () => void }) {
-  return <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/5"><div className="flex items-start gap-2"><div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400"><Music2 className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-slate-900 dark:text-white">{cue.track_title || 'Untitled song'}</p><Badge color={PRIORITY_COLORS[cue.priority]}>{cue.priority.replace('_', ' ')}</Badge></div><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{cue.category}{cue.start_time ? ` · starts at ${cue.start_time}` : ''}</p>{cue.usage_notes && <p className="mt-1.5 text-sm leading-5 text-slate-700 dark:text-slate-300">{cue.usage_notes}</p>}{cue.track_url && <a href={cue.track_url} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex max-w-full items-center gap-1 truncate text-xs text-sky-600 hover:text-sky-500 dark:text-sky-400"><ExternalLink className="h-3 w-3 shrink-0" /> Open reference link</a>}{cue.track_url && isAudioUrl(cue.track_url) && <audio className="mt-2 h-8 w-full max-w-md" controls src={cue.track_url} />}</div>{!locked && <button onClick={onRemove} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-500/10" title="Remove song"><X className="h-4 w-4" /></button>}</div></div>;
+  const media = resolveMediaUrl(cue.track_url, 'audio');
+  return <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/5"><div className="flex items-start gap-2"><div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400"><Music2 className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-slate-900 dark:text-white">{cue.track_title || 'Untitled song'}</p><Badge color={PRIORITY_COLORS[cue.priority]}>{cue.priority.replace('_', ' ')}</Badge></div><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{cue.category}{cue.start_time ? ` · starts at ${cue.start_time}` : ''}</p>{cue.usage_notes && <p className="mt-1.5 text-sm leading-5 text-slate-700 dark:text-slate-300">{cue.usage_notes}</p>}{cue.track_url && media && <><a href={media.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-1.5 inline-flex max-w-full items-center gap-1 truncate text-xs text-sky-600 hover:text-sky-500 dark:text-sky-400"><ExternalLink className="h-3 w-3 shrink-0" /> Open reference link</a><UniversalMediaPreview url={cue.track_url} kind="audio" className="mt-2 max-w-md" /></>}{cue.track_url && !media && <p className="mt-1.5 text-xs text-rose-300">This link is invalid. Edit the song choice and enter an http(s) link.</p>}</div>{!locked && <button onClick={onRemove} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-500/10" title="Remove song"><X className="h-4 w-4" /></button>}</div></div>;
 }
 
 function MasterCueCard({ cue, onEdit }: { cue: MusicMasterCue; onEdit: () => void }) {
   const { toast } = useToast();
-  const safeUrl = safeExternalUrl(cue.audio_url);
-  const embedUrl = songEmbedUrl(cue.audio_url);
+  const media = resolveMediaUrl(cue.audio_url, 'audio');
   const copyLink = async () => {
     const ok = await copyToClipboard(cue.audio_url);
     toast(ok ? 'Audio link copied' : 'Could not copy the audio link', ok ? 'success' : 'error');
@@ -320,7 +297,7 @@ function MasterCueCard({ cue, onEdit }: { cue: MusicMasterCue; onEdit: () => voi
   const shareCard = async () => {
     const text = masterCueShareText(cue);
     try {
-      if (navigator.share) await navigator.share({ title: cue.song_title, text, url: safeUrl?.toString() });
+      if (navigator.share) await navigator.share({ title: cue.song_title, text, url: media?.sourceUrl });
       else {
         const ok = await copyToClipboard(text);
         toast(ok ? 'Song details copied for sharing' : 'Could not copy song details', ok ? 'success' : 'error');
@@ -331,7 +308,7 @@ function MasterCueCard({ cue, onEdit }: { cue: MusicMasterCue; onEdit: () => voi
       toast(ok ? 'Song details copied for sharing' : 'Could not share song details', ok ? 'success' : 'error');
     }
   };
-  return <article className="rounded-xl border border-white/10 bg-white/[0.04] p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="truncate font-semibold text-white">{cue.song_title || 'Untitled song reference'}</h4><p className="mt-1 text-sm text-slate-300">{cue.singer_artist || 'Artist not specified'}{cue.genre_mood ? ` · ${cue.genre_mood}` : ''}</p></div><div className="flex shrink-0 gap-1.5"><button onClick={() => void shareCard()} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-white/10"><Share2 className="h-3.5 w-3.5" /> Share</button><button onClick={onEdit} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-white/10">Edit</button></div></div><div className="mt-3 flex flex-wrap gap-2">{cue.event_tag && <Badge color="sky">{cue.event_tag}</Badge>}{cue.genre_mood && <Badge color="slate">{cue.genre_mood}</Badge>}</div>{cue.audio_url && <div className="mt-3 space-y-2">{safeUrl ? <div className="flex items-center gap-2"><a href={safeUrl.toString()} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-xs text-sky-300 hover:text-sky-200"><ExternalLink className="mr-1 inline h-3 w-3" />{cue.audio_url}</a><button type="button" onClick={() => void copyLink()} aria-label="Copy audio link" className="rounded-md p-1.5 text-slate-300 hover:bg-white/10"><Copy className="h-3.5 w-3.5" /></button></div> : <p className="break-all text-xs text-rose-300">This link is invalid. Edit the card and enter an http(s) link.</p>}{safeUrl && isAudioUrl(safeUrl.toString()) && <audio controls preload="none" src={safeUrl.toString()} className="h-8 w-full" />}{safeUrl && embedUrl && <iframe title={`Preview ${cue.song_title}`} src={embedUrl} className="mt-2 aspect-video w-full rounded-lg border-0" loading="lazy" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" referrerPolicy="strict-origin-when-cross-origin" />}{safeUrl && !isAudioUrl(safeUrl.toString()) && !embedUrl && <p className="text-[11px] text-slate-500">This service does not support an embedded player here. Open the link to listen, or paste a YouTube, Spotify, or direct audio link.</p>}</div>}{cue.cue_timestamps && <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-amber-200"><span className="font-semibold text-amber-300">Mixing cues: </span>{cue.cue_timestamps}</p>}{cue.special_notes && <p className="mt-2 whitespace-pre-wrap text-sm leading-5 text-slate-300">{cue.special_notes}</p>}</article>;
+  return <article className="rounded-xl border border-white/10 bg-white/[0.04] p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="truncate font-semibold text-white">{cue.song_title || 'Untitled song reference'}</h4><p className="mt-1 text-sm text-slate-300">{cue.singer_artist || 'Artist not specified'}{cue.genre_mood ? ` · ${cue.genre_mood}` : ''}</p></div><div className="flex shrink-0 gap-1.5"><button onClick={() => void shareCard()} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-white/10"><Share2 className="h-3.5 w-3.5" /> Share</button><button onClick={onEdit} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-white/10">Edit</button></div></div><div className="mt-3 flex flex-wrap gap-2">{cue.event_tag && <Badge color="sky">{cue.event_tag}</Badge>}{cue.genre_mood && <Badge color="slate">{cue.genre_mood}</Badge>}</div>{cue.audio_url && <div className="mt-3 space-y-2">{media ? <div className="flex items-center gap-2"><a href={media.sourceUrl} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate text-xs text-sky-300 hover:text-sky-200"><ExternalLink className="mr-1 inline h-3 w-3" />{cue.audio_url}</a><button type="button" onClick={() => void copyLink()} aria-label="Copy audio link" className="rounded-md p-1.5 text-slate-300 hover:bg-white/10"><Copy className="h-3.5 w-3.5" /></button></div> : <p className="break-all text-xs text-rose-300">This link is invalid. Edit the card and enter an http(s) link.</p>}{media && <UniversalMediaPreview url={cue.audio_url} kind="audio" />}</div>}{cue.cue_timestamps && <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-amber-200"><span className="font-semibold text-amber-300">Mixing cues: </span>{cue.cue_timestamps}</p>}{cue.special_notes && <p className="mt-2 whitespace-pre-wrap text-sm leading-5 text-slate-300">{cue.special_notes}</p>}</article>;
 }
 
 function MasterCueModal({ projectId, existing, onClose, onSave }: { projectId: string; existing?: MusicMasterCue; onClose: () => void; onSave: (cue: Omit<MusicMasterCue, 'id' | 'created_at' | 'updated_at'>) => Promise<void> }) {

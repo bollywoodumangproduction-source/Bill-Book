@@ -26,6 +26,8 @@ import { inputClass, selectClass, Field } from '@/components/ui/Field';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { copyToClipboard } from '@/lib/clipboard';
+import { resolveMediaUrl } from '@/lib/mediaResolver';
+import { UniversalMediaPreview } from '@/components/UniversalMediaPreview';
 
 const STATUS_LABELS: Record<TeaserStatus, string> = {
   editing: 'Editing in Progress',
@@ -180,7 +182,7 @@ export function TeaserPreview() {
                 <h3 className="mb-3 font-semibold text-slate-900 dark:text-white">Cinematic Preview</h3>
                 {selected.video_url ? (
                   <div className="relative overflow-hidden rounded-xl bg-black">
-                    <video className="h-auto w-full" controls src={selected.video_url} />
+                    <UniversalMediaPreview url={selected.video_url} kind="video" />
                     {selected.watermark_text && <div className="pointer-events-none absolute right-3 top-3 rounded-lg bg-black/60 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur">{selected.watermark_text}</div>}
                   </div>
                 ) : <EmptyState icon={Play} title="No video uploaded yet" subtitle="Add a video URL in the settings below" />}
@@ -213,7 +215,7 @@ export function TeaserPreview() {
                       <div className="mt-4 space-y-3">
                         <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-white p-3 text-xs text-emerald-700 dark:border-emerald-500/20 dark:bg-white/5 dark:text-emerald-300"><ShieldCheck className="h-4 w-4 shrink-0" /> Payment cleared. Download links are unlocked below.</div>
                         <Field label="Google Drive / Download URL"><input value={selected.drive_url} onChange={(event) => updateProject(selected.id, { drive_url: event.target.value })} className={inputClass} placeholder="https://drive.google.com/..." /></Field>
-                        {selected.drive_url && <a href={selected.drive_url} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-600"><Download className="h-4 w-4" /> Download Full HD Files</a>}
+                        {selected.drive_url && (() => { const media = resolveMediaUrl(selected.drive_url, 'video'); return media && <a href={media.downloadUrl ?? media.sourceUrl} download={media.provider === 'youtube' ? undefined : true} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-600"><Download className="h-4 w-4" /> Download Full HD Files</a>; })()}
                       </div>
                     )}
                   </>
@@ -304,7 +306,7 @@ export function PublicTeaserPreview() {
           <h3 className="mb-3 font-semibold">Cinematic Teaser</h3>
           {project.video_url ? (
             <div className="relative overflow-hidden rounded-xl bg-black">
-              <video className="h-auto w-full" controls src={project.video_url} />
+              <UniversalMediaPreview url={project.video_url} kind="video" />
               {project.watermark_text && <div className="pointer-events-none absolute right-3 top-3 rounded-lg bg-black/60 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur">{project.watermark_text}</div>}
             </div>
           ) : <div className="rounded-xl border border-dashed border-white/10 py-12 text-center"><Play className="mx-auto mb-3 h-7 w-7 text-slate-500" /><p className="text-sm text-slate-300">Video not yet uploaded</p></div>}
@@ -329,7 +331,7 @@ export function PublicTeaserPreview() {
             ) : (
               <div className="mt-4 space-y-3">
                 <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-white/5 p-3 text-xs text-emerald-300"><ShieldCheck className="h-4 w-4 shrink-0" /> Payment cleared. Your download links are ready.</div>
-                {project.drive_url && <a href={project.drive_url} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-600"><Download className="h-4 w-4" /> Download Full HD Files</a>}
+                {project.drive_url && (() => { const media = resolveMediaUrl(project.drive_url, 'video'); return media && <a href={media.downloadUrl ?? media.sourceUrl} download={media.provider === 'youtube' ? undefined : true} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-600"><Download className="h-4 w-4" /> Download Full HD Files</a>; })()}
               </div>
             )}
           </div>

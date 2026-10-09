@@ -18,6 +18,8 @@ import type { PromoAd, PromoAdAudience } from '@/lib/types';
 import { useToast } from '@/context/ToastContext';
 import { Field, inputClass } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
+import { UniversalMediaPreview } from '@/components/UniversalMediaPreview';
+import { isSupportedMediaUrl } from '@/lib/mediaResolver';
 
 type Section = 'banners' | 'popups' | 'coupons' | 'broadcasts';
 
@@ -25,6 +27,7 @@ interface Banner {
   id: string;
   text: string;
   link: string;
+  audience: 'all' | 'clients' | 'partners';
   is_active: boolean;
   created_at: string;
 }
@@ -33,6 +36,7 @@ interface Popup {
   id: string;
   title: string;
   message: string;
+  audience: 'all' | 'clients' | 'partners';
   is_active: boolean;
   created_at: string;
 }
@@ -42,6 +46,7 @@ interface Coupon {
   code: string;
   percentage: number;
   valid_until: string;
+  audience: 'all' | 'clients' | 'partners';
   is_active: boolean;
   created_at: string;
 }
@@ -81,13 +86,16 @@ export function PromoManagement() {
 
   const [bannerText, setBannerText] = useState('');
   const [bannerLink, setBannerLink] = useState('');
+  const [bannerAudience, setBannerAudience] = useState<'all' | 'clients' | 'partners'>('all');
 
   const [popupTitle, setPopupTitle] = useState('');
   const [popupMessage, setPopupMessage] = useState('');
+  const [popupAudience, setPopupAudience] = useState<'all' | 'clients' | 'partners'>('all');
 
   const [couponCode, setCouponCode] = useState('');
   const [couponPct, setCouponPct] = useState('');
   const [couponValid, setCouponValid] = useState('');
+  const [couponAudience, setCouponAudience] = useState<'all' | 'clients' | 'partners'>('all');
 
   const [broadcastTitle, setBroadcastTitle] = useState('');
   const [broadcastCategory, setBroadcastCategory] = useState('all');
@@ -128,9 +136,10 @@ export function PromoManagement() {
 
   const addBanner = async () => {
     if (!bannerText.trim()) { toast('Banner text is required', 'error'); return; }
-    const banner: Banner = { id: uid(), text: bannerText.trim(), link: bannerLink.trim(), is_active: true, created_at: isoNow() };
-    await supabase.from('promo_banners').insert(banner);
-    setBannerText(''); setBannerLink('');
+    const banner: Banner = { id: uid(), text: bannerText.trim(), link: bannerLink.trim(), audience: bannerAudience, is_active: true, created_at: isoNow() };
+    const { error } = await supabase.from('promo_banners').insert(banner);
+    if (error) { toast('Could not add banner. Apply the latest portal marketing migration first.', 'error'); return; }
+    setBannerText(''); setBannerLink(''); setBannerAudience('all');
     loadBanners();
     toast('Banner created', 'success');
   };
@@ -148,9 +157,10 @@ export function PromoManagement() {
 
   const addPopup = async () => {
     if (!popupTitle.trim()) { toast('Popup title is required', 'error'); return; }
-    const popup: Popup = { id: uid(), title: popupTitle.trim(), message: popupMessage.trim(), is_active: true, created_at: isoNow() };
-    await supabase.from('promo_popups').insert(popup);
-    setPopupTitle(''); setPopupMessage('');
+    const popup: Popup = { id: uid(), title: popupTitle.trim(), message: popupMessage.trim(), audience: popupAudience, is_active: true, created_at: isoNow() };
+    const { error } = await supabase.from('promo_popups').insert(popup);
+    if (error) { toast('Could not add popup. Apply the latest portal marketing migration first.', 'error'); return; }
+    setPopupTitle(''); setPopupMessage(''); setPopupAudience('all');
     loadPopups();
     toast('Popup created', 'success');
   };
@@ -169,9 +179,10 @@ export function PromoManagement() {
   const addCoupon = async () => {
     if (!couponCode.trim()) { toast('Coupon code is required', 'error'); return; }
     if (Number(couponPct) <= 0 || Number(couponPct) > 100) { toast('Enter a valid percentage (1-100)', 'error'); return; }
-    const coupon: Coupon = { id: uid(), code: couponCode.trim().toUpperCase(), percentage: Number(couponPct), valid_until: couponValid, is_active: true, created_at: isoNow() };
-    await supabase.from('promo_coupons').insert(coupon);
-    setCouponCode(''); setCouponPct(''); setCouponValid('');
+    const coupon: Coupon = { id: uid(), code: couponCode.trim().toUpperCase(), percentage: Number(couponPct), valid_until: couponValid, audience: couponAudience, is_active: true, created_at: isoNow() };
+    const { error } = await supabase.from('promo_coupons').insert(coupon);
+    if (error) { toast('Could not add coupon. Apply the latest portal marketing migration first.', 'error'); return; }
+    setCouponCode(''); setCouponPct(''); setCouponValid(''); setCouponAudience('all');
     loadCoupons();
     toast('Coupon created', 'success');
   };
@@ -190,10 +201,11 @@ export function PromoManagement() {
   const addBroadcast = async () => {
     if (!broadcastTitle.trim()) { toast('Broadcast title is required', 'error'); return; }
     const bc: Broadcast = { id: uid(), title: broadcastTitle.trim(), category: broadcastCategory, message: broadcastMessage.trim(), created_at: isoNow() };
-    await supabase.from('promo_broadcasts').insert(bc);
+    const { error } = await supabase.from('promo_broadcasts').insert(bc);
+    if (error) { toast('Could not publish broadcast', 'error'); return; }
     setBroadcastTitle(''); setBroadcastCategory('all'); setBroadcastMessage('');
     loadBroadcasts();
-    toast('Broadcast sent', 'success');
+    toast('Broadcast published to portal notifications', 'success');
   };
 
   const deleteBroadcast = async (id: string) => {
@@ -257,12 +269,17 @@ export function PromoManagement() {
             <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
               <Megaphone className="h-4 w-4 text-amber-500" /> Create Announcement Banner
             </h2>
-            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]">
+            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(130px,0.8fr)_auto]">
               <Field label="Banner Text">
                 <input value={bannerText} onChange={(e) => setBannerText(e.target.value)} className={inputClass} placeholder="e.g., Monsoon Wedding Offer — 20% off!" />
               </Field>
               <Field label="Link (optional)">
                 <input value={bannerLink} onChange={(e) => setBannerLink(e.target.value)} className={inputClass} placeholder="https://..." />
+              </Field>
+              <Field label="Show to">
+                <select value={bannerAudience} onChange={(e) => setBannerAudience(e.target.value as typeof bannerAudience)} className={inputClass}>
+                  <option value="all">Clients &amp; Partners</option><option value="clients">Clients only</option><option value="partners">Partners only</option>
+                </select>
               </Field>
               <button onClick={addBanner} className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-slate-900 transition-colors hover:bg-amber-400">
                 <Plus className="h-4 w-4" /> Add Banner
@@ -302,12 +319,17 @@ export function PromoManagement() {
             <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
               <Bell className="h-4 w-4 text-amber-500" /> Create In-App Popup
             </h2>
-            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_1.5fr_auto]">
+            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(140px,0.8fr)_auto]">
               <Field label="Popup Title">
                 <input value={popupTitle} onChange={(e) => setPopupTitle(e.target.value)} className={inputClass} placeholder="e.g., Festive Season Special" />
               </Field>
               <Field label="Popup Message">
                 <textarea value={popupMessage} onChange={(e) => setPopupMessage(e.target.value)} className={`${inputClass} min-h-[42px]`} placeholder="Popup message content..." />
+              </Field>
+              <Field label="Show to">
+                <select value={popupAudience} onChange={(e) => setPopupAudience(e.target.value as typeof popupAudience)} className={inputClass}>
+                  <option value="all">Clients &amp; Partners</option><option value="clients">Clients only</option><option value="partners">Partners only</option>
+                </select>
               </Field>
               <button onClick={addPopup} className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-slate-900 transition-colors hover:bg-amber-400">
                 <Plus className="h-4 w-4" /> Add Popup
@@ -347,7 +369,7 @@ export function PromoManagement() {
             <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
               <Tag className="h-4 w-4 text-amber-500" /> Create Discount Coupon
             </h2>
-            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
+            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[repeat(3,minmax(0,1fr))_minmax(140px,0.8fr)_auto]">
               <Field label="Coupon Code">
                 <input value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())} className={`${inputClass} font-mono`} placeholder="MONSOON20" />
               </Field>
@@ -356,6 +378,11 @@ export function PromoManagement() {
               </Field>
               <Field label="Valid Until">
                 <input type="date" value={couponValid} onChange={(e) => setCouponValid(e.target.value)} className={inputClass} />
+              </Field>
+              <Field label="Show to">
+                <select value={couponAudience} onChange={(e) => setCouponAudience(e.target.value as typeof couponAudience)} className={inputClass}>
+                  <option value="all">Clients &amp; Partners</option><option value="clients">Clients only</option><option value="partners">Partners only</option>
+                </select>
               </Field>
               <button onClick={addCoupon} className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-slate-900 transition-colors hover:bg-amber-400">
                 <Plus className="h-4 w-4" /> Add Coupon
@@ -417,7 +444,7 @@ export function PromoManagement() {
                 <textarea value={broadcastMessage} onChange={(e) => setBroadcastMessage(e.target.value)} className={`${inputClass} min-h-[42px]`} placeholder="Broadcast message..." />
               </Field>
               <button onClick={addBroadcast} className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-slate-900 transition-colors hover:bg-amber-400">
-                <Send className="h-4 w-4" /> Send Broadcast
+                <Send className="h-4 w-4" /> Publish to Portal
               </button>
             </div>
           </div>
@@ -466,6 +493,7 @@ export function PromoManagement() {
               <div key={ad.id} className="overflow-hidden rounded-xl border border-slate-200 dark:border-white/10">
                 {ad.image_url && <img src={ad.image_url} alt={ad.title} className="h-32 w-full object-cover" />}
                 <div className="p-3">
+                  {isSupportedMediaUrl(ad.action_link) && <UniversalMediaPreview url={ad.action_link} kind="video" className="mb-3 overflow-hidden rounded-lg bg-black" showDownload />}
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-900 dark:text-white">{ad.title}</p>

@@ -42,7 +42,7 @@ function restorablePortalPath(pathname: string, search: string): string | null {
     || pathname === '/client/dashboard' || pathname === '/client-login'
     || pathname === '/partner' || pathname === '/partner/login' || pathname === '/partner/dashboard'
     || pathname === '/music-selection' || pathname === '/teaser-preview'
-    || pathname === '/invitation-hub' || /^\/(select|view)\/[a-z\d-]+$/i.test(pathname);
+    || pathname === '/invitation-hub' || /^\/(invite|select|view)\/[a-z\d-]+$/i.test(pathname);
   return isPortalPath ? `${pathname}${search}` : null;
 }
 
@@ -351,6 +351,7 @@ export default function App() {
                   <Route path="/music-selection" element={<PublicMusicSelection />} />
                   <Route path="/teaser-preview" element={<PublicTeaserPreview />} />
                   <Route path="/invitation-hub" element={<PublicInvitationHub />} />
+                  <Route path="/invite/:projectId" element={<PublicInvitationHub />} />
                   <Route path="/photo-selection" element={<PhotoSelection />} />
                   <Route path="/select/:sessionId" element={<PublicPhotoSelection />} />
                   <Route path="/view/:bookingId" element={<PublicInvoice />} />

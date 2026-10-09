@@ -15,7 +15,6 @@ import {
   Phone,
   Truck,
   FileText,
-  Megaphone,
   ExternalLink,
   MessageCircle,
   Instagram,
@@ -30,7 +29,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { Booking, PromoAd, StudioLabOrder, TeaserProject, InvitationProject, MusicProject, ClientSelectionSession, BookingPaymentInstallment } from '@/lib/types';
+import type { Booking, StudioLabOrder, TeaserProject, InvitationProject, MusicProject, ClientSelectionSession, BookingPaymentInstallment } from '@/lib/types';
 import { photoSessionFromDatabase } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
@@ -45,6 +44,7 @@ import { Badge } from '@/components/ui/Badge';
 import { NotificationBell } from '@/components/NotificationBell';
 import { isRightEdgeBackSwipe, type TouchStartPoint } from '@/lib/touchNavigation';
 import { useAppBackGuard } from '@/lib/useAppBackGuard';
+import { PortalMarketingFeed } from '@/components/PortalMarketingFeed';
 
 function innerSheetCount(session: ClientSelectionSession): number {
   return (session.proofSheets ?? []).filter((sheet) => Number(sheet.sheetNumber) > 0).length;
@@ -61,7 +61,6 @@ function selectionExtra(session: ClientSelectionSession): { sheets: number; amou
   return { sheets, amount: sheets * Number(session.extraSheetRate ?? 0) };
 }
 import { ProjectTimeline } from '@/components/ProjectTimeline';
-import { getVisiblePromoAds } from '@/lib/promo';
 import { hasLabAlbumWork, hasLabVideoWork, labOrderOverviewStatus, visibleLabOrderDates } from '@/lib/labOrderStatus';
 
 const DEFAULT_DELIVERABLES = {
@@ -91,7 +90,6 @@ export function ClientDashboard() {
   const [labOrder, setLabOrder] = useState<StudioLabOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [showPinModal, setShowPinModal] = useState(false);
-  const [promoAds, setPromoAds] = useState<PromoAd[]>([]);
   const [teaserProject, setTeaserProject] = useState<TeaserProject | null>(null);
   const [invitationProject, setInvitationProject] = useState<InvitationProject | null>(null);
   const [musicProject, setMusicProject] = useState<MusicProject | null>(null);
@@ -122,9 +120,6 @@ export function ClientDashboard() {
     if (data) {
       const b = data as Booking;
       setBooking(b);
-      const { data: ads } = await supabase.from('promo_ads').select('*').eq('is_active', true).eq('audience', 'clients').order('sort_order');
-      setPromoAds((ads ?? []) as PromoAd[]);
-
       const [teaserRes, inviteRes, musicRes, photoRes] = await Promise.all([
         supabase.from('teaser_projects').select('*').eq('booking_id', b.id).maybeSingle(),
         supabase.from('invitation_projects').select('*').eq('booking_id', b.id).maybeSingle(),
@@ -244,7 +239,6 @@ export function ClientDashboard() {
   const instaUrl = settings?.studio_instagram_url || (settings?.films_insta ? `https://instagram.com/${settings.films_insta.replace('@', '')}` : '');
   const hasCreativePortals = teaserProject || invitationProject || musicProject || photoSession;
   const heroImage = settings?.films_logo_url || settings?.production_logo_url || settings?.stamp_image_url || '';
-  const dashboardPromos = getVisiblePromoAds(promoAds, 'b2c_dashboard', 'clients', booking.id).slice(0, 3);
 
   return (
     <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.16),_transparent_22%),linear-gradient(160deg,#020617_0%,#111827_35%,#0f172a_100%)] text-slate-100">
@@ -277,6 +271,7 @@ export function ClientDashboard() {
       </header>
 
       <div className="mx-auto max-w-5xl space-y-5 px-4 py-6">
+        <PortalMarketingFeed audience="clients" identityId={booking.id} />
         <div className="relative overflow-hidden rounded-[30px] border border-white/10 bg-slate-900/70 shadow-[0_24px_80px_rgba(2,6,23,0.6)] backdrop-blur-xl">
           {heroImage ? (
             <img src={heroImage} alt="studio banner" className="absolute inset-0 h-full w-full object-cover opacity-25" />
@@ -485,7 +480,7 @@ export function ClientDashboard() {
                 icon={Mail}
                 title="Invitation Hub"
                 description={invitationProject ? `${invitationProject.groom_name || invitationProject.client_name}${invitationProject.bride_name ? ` & ${invitationProject.bride_name}` : ''}` : 'Digital wedding invitation'}
-                href={invitationProject ? `/invitation-hub?project=${invitationProject.id}` : null}
+                href={invitationProject ? `/invite/${encodeURIComponent(invitationProject.id)}` : null}
                 badgeColor={invitationProject ? 'sky' : undefined}
                 badgeText={invitationProject ? 'Active' : undefined}
               />
@@ -543,38 +538,6 @@ export function ClientDashboard() {
             {allDeliverablesReceived && safeDeliverables.final_delivered_at && (
               <p className="mt-3 text-xs font-medium text-emerald-600 dark:text-emerald-400">Final delivery date: {formatDate(safeDeliverables.final_delivered_at)}</p>
             )}
-          </div>
-        )}
-
-        {/* Promo & Marketing — strictly separated from booked client timeline */}
-        {dashboardPromos.length > 0 && (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5 dark:border-amber-500/20 dark:bg-amber-500/5">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-              <Megaphone className="h-4 w-4 text-amber-500" /> Offers &amp; Add-Ons
-            </h2>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {dashboardPromos.map((ad) => (
-                <div key={ad.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900">
-                  {ad.image_url && (
-                    <img src={ad.image_url} alt={ad.title} className="h-32 w-full object-cover" />
-                  )}
-                  <div className="p-3">
-                    <p className="text-sm font-semibold text-slate-900 dark:text-white">{ad.title}</p>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{ad.description}</p>
-                    {(ad.action_link || ad.video_url) && (
-                      <a
-                        href={ad.video_url || ad.action_link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-500 dark:text-amber-400"
-                      >
-                        {ad.cta_text || 'Learn more'} <ExternalLink className="h-3 w-3" />
-                      </a>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
         )}
 
@@ -751,6 +714,8 @@ function LabOrderDashboard({
             <KeyRound className="h-3.5 w-3.5" /> Change PIN
           </button>
         </div>
+
+        <PortalMarketingFeed audience="clients" identityId={order.id} />
 
         {/* Delivery & Tracking */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">

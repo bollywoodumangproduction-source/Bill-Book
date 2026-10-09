@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import {
   Calendar,
   Check,
   ChevronRight,
   Clipboard,
-  Download,
   ExternalLink,
   FileText,
   Heart,
@@ -27,6 +27,7 @@ import { inputClass, selectClass, Field } from '@/components/ui/Field';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { copyToClipboard } from '@/lib/clipboard';
+import { UniversalMediaPreview } from '@/components/UniversalMediaPreview';
 
 function nowISO(): string {
   return new Date().toISOString();
@@ -37,7 +38,7 @@ function newId(): string {
 }
 
 function invitationUrl(project: InvitationProject): string {
-  return `/invitation-hub?project=${project.id}`;
+  return `/invite/${encodeURIComponent(project.id)}`;
 }
 
 export function InvitationHub() {
@@ -48,6 +49,10 @@ export function InvitationHub() {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const pendingWrites = useRef<Record<string, Partial<InvitationProject>>>({});
+  const saveTimers = useRef<Record<string, number>>({});
+  const inFlightSaves = useRef<Record<string, Promise<boolean>>>({});
+  const flushSaveRef = useRef<(id: string) => Promise<void>>(async () => {});
 
   const load = useCallback(async () => {
     const [{ data: inviteData }, { data: bookingData }] = await Promise.all([
@@ -57,7 +62,7 @@ export function InvitationHub() {
     const nextProjects = (inviteData ?? []) as InvitationProject[];
     setProjects(nextProjects);
     setBookings((bookingData ?? []) as Booking[]);
-    setSelectedId((current) => current || nextProjects[0]?.id || '');
+    setSelectedId((current) => nextProjects.some((project) => project.id === current) ? current : nextProjects[0]?.id || '');
     setLoading(false);
   }, []);
 
@@ -93,13 +98,71 @@ export function InvitationHub() {
     toast('Invitation project created', 'success');
   };
 
-  const updateProject = async (id: string, patch: Partial<InvitationProject>) => {
-    await supabase.from('invitation_projects').update({ ...patch, updated_at: nowISO() }).eq('id', id);
-    await load();
+  const flushPendingSave = useCallback(async (id: string) => {
+    const timer = saveTimers.current[id];
+    if (timer) window.clearTimeout(timer);
+    delete saveTimers.current[id];
+    const inFlight = inFlightSaves.current[id];
+    if (inFlight) {
+      const saved = await inFlight;
+      if (saved && pendingWrites.current[id]) await flushSaveRef.current(id);
+      return;
+    }
+    const patch = pendingWrites.current[id];
+    if (!patch || Object.keys(patch).length === 0) return;
+    delete pendingWrites.current[id];
+    const savePromise = (async () => {
+      try {
+      const { data, error } = await supabase.from('invitation_projects')
+        .update({ ...patch, updated_at: nowISO() }).eq('id', id).select('*').single();
+      if (error) throw error;
+        setProjects((current) => current.map((project) => project.id === id ? { ...(data as InvitationProject), ...(pendingWrites.current[id] ?? {}) } : project));
+        return true;
+      } catch (error) {
+        pendingWrites.current[id] = { ...patch, ...(pendingWrites.current[id] ?? {}) };
+        toast(error instanceof Error ? `Invitation save failed: ${error.message}` : 'Invitation save failed. Your edits are still on screen; click a field and leave it to retry.', 'error');
+        return false;
+      }
+    })();
+    inFlightSaves.current[id] = savePromise;
+    const saved = await savePromise;
+    delete inFlightSaves.current[id];
+    if (saved && pendingWrites.current[id]) await flushSaveRef.current(id);
+  }, [toast]);
+  flushSaveRef.current = flushPendingSave;
+
+  const updateProject = (id: string, patch: Partial<InvitationProject>) => {
+    setProjects((current) => current.map((project) => project.id === id ? { ...project, ...patch, updated_at: nowISO() } : project));
+    pendingWrites.current[id] = { ...(pendingWrites.current[id] ?? {}), ...patch };
+    const existingTimer = saveTimers.current[id];
+    if (existingTimer) window.clearTimeout(existingTimer);
+    saveTimers.current[id] = window.setTimeout(() => { void flushSaveRef.current(id); }, 500);
   };
 
+  const flushProject = (id: string) => flushPendingSave(id);
+
+  useEffect(() => () => {
+    for (const id of Object.keys(pendingWrites.current)) {
+      const timer = saveTimers.current[id];
+      if (timer) window.clearTimeout(timer);
+      void flushSaveRef.current(id);
+    }
+  }, []);
+
   const deleteProject = async (id: string) => {
-    await supabase.from('invitation_projects').delete().eq('id', id);
+    if (!window.confirm('Kya aap sach me ye invitation project delete karna chahte hain?')) return;
+    await flushPendingSave(id);
+    const timer = saveTimers.current[id];
+    if (timer) window.clearTimeout(timer);
+    delete saveTimers.current[id];
+    delete pendingWrites.current[id];
+    try {
+      const { error } = await supabase.from('invitation_projects').delete().eq('id', id);
+      if (error) throw error;
+    } catch (error) {
+      toast(error instanceof Error ? `Invitation delete failed: ${error.message}` : 'Could not delete invitation project', 'error');
+      return;
+    }
     toast('Invitation project removed', 'info');
     await load();
   };
@@ -115,6 +178,7 @@ export function InvitationHub() {
     const parts = [
       `${selected.groom_name || selected.client_name} weds ${selected.bride_name}`.trim(),
       selected.event_date ? `Date: ${formatDate(selected.event_date)}` : '',
+      `Invitation: ${window.location.origin}${invitationUrl(selected)}`,
       selected.video_url ? `Video Invite: ${selected.video_url}` : '',
       selected.pdf_url ? `PDF Card: ${selected.pdf_url}` : '',
       selected.venue_url ? `Venue: ${selected.venue_url}` : '',
@@ -166,32 +230,28 @@ export function InvitationHub() {
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900/60">
-                <h3 className="mb-3 flex items-center gap-2 font-semibold text-slate-900 dark:text-white"><Video className="h-4 w-4 text-amber-500" /> Video Invite (MP4)</h3>
+                <h3 className="mb-3 flex items-center gap-2 font-semibold text-slate-900 dark:text-white"><Video className="h-4 w-4 text-amber-500" /> Video Invite</h3>
                 {selected.video_url ? (
-                  <div className="overflow-hidden rounded-xl bg-black"><video className="h-auto w-full" controls src={selected.video_url} /></div>
+                  <UniversalMediaPreview url={selected.video_url} kind="video" className="space-y-3" mediaClassName="h-[65vh] min-h-[360px] w-full rounded-xl border border-white/10 bg-black" showDownload controlsClassName="flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400" />
                 ) : <EmptyState icon={Video} title="No video uploaded" subtitle="Add a URL below" />}
-                <div className="mt-3"><Field label="Video URL"><input value={selected.video_url} onChange={(event) => updateProject(selected.id, { video_url: event.target.value })} className={inputClass} placeholder="https://...mp4" /></Field></div>
-                {selected.video_url && <a href={selected.video_url} target="_blank" rel="noreferrer" className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400"><Download className="h-4 w-4" /> Download Video Invite</a>}
+                <div className="mt-3"><Field label="Video URL"><input value={selected.video_url} onChange={(event) => updateProject(selected.id, { video_url: event.target.value })} onBlur={() => void flushProject(selected.id)} className={inputClass} placeholder="Paste a public MP4, Drive, Dropbox, pCloud, OneDrive, or YouTube link" /></Field></div>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900/60">
                 <h3 className="mb-3 flex items-center gap-2 font-semibold text-slate-900 dark:text-white"><FileText className="h-4 w-4 text-amber-500" /> Interactive PDF Card</h3>
                 {selected.pdf_url ? (
-                  <div className="space-y-3">
-                    <iframe src={selected.pdf_url} className="h-64 w-full rounded-xl border border-slate-200 dark:border-white/10" title="PDF Preview" />
-                    <a href={selected.pdf_url} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 rounded-lg bg-sky-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-600"><Download className="h-4 w-4" /> Download PDF Card</a>
-                  </div>
+                  <UniversalMediaPreview url={selected.pdf_url} kind="pdf" className="space-y-3" mediaClassName="h-[75vh] min-h-[480px] w-full rounded-xl border border-white/10" showDownload controlsClassName="flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400" />
                 ) : <EmptyState icon={FileText} title="No PDF uploaded" subtitle="Add a URL below" />}
-                <div className="mt-3"><Field label="PDF URL"><input value={selected.pdf_url} onChange={(event) => updateProject(selected.id, { pdf_url: event.target.value })} className={inputClass} placeholder="https://...pdf" /></Field></div>
+                <div className="mt-3"><Field label="PDF URL"><input value={selected.pdf_url} onChange={(event) => updateProject(selected.id, { pdf_url: event.target.value })} onBlur={() => void flushProject(selected.id)} className={inputClass} placeholder="Paste a public PDF, Drive, Dropbox, pCloud, or OneDrive link" /></Field></div>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900/60">
                 <h3 className="mb-3 flex items-center gap-2 font-semibold text-slate-900 dark:text-white"><Users className="h-4 w-4 text-amber-500" /> Event Details</h3>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Groom Name"><input value={selected.groom_name} onChange={(event) => updateProject(selected.id, { groom_name: event.target.value })} className={inputClass} placeholder="Groom name" /></Field>
-                  <Field label="Bride Name"><input value={selected.bride_name} onChange={(event) => updateProject(selected.id, { bride_name: event.target.value })} className={inputClass} placeholder="Bride name" /></Field>
-                  <Field label="Event Date"><input type="date" value={selected.event_date} onChange={(event) => updateProject(selected.id, { event_date: event.target.value })} className={inputClass} /></Field>
-                  <Field label="Venue Google Maps URL"><input value={selected.venue_url} onChange={(event) => updateProject(selected.id, { venue_url: event.target.value })} className={inputClass} placeholder="https://maps.app.goo.gl/..." /></Field>
+                  <Field label="Groom Name"><input value={selected.groom_name} onChange={(event) => updateProject(selected.id, { groom_name: event.target.value })} onBlur={() => void flushProject(selected.id)} className={inputClass} placeholder="Groom name" /></Field>
+                  <Field label="Bride Name"><input value={selected.bride_name} onChange={(event) => updateProject(selected.id, { bride_name: event.target.value })} onBlur={() => void flushProject(selected.id)} className={inputClass} placeholder="Bride name" /></Field>
+                  <Field label="Event Date"><input type="date" value={selected.event_date} onChange={(event) => updateProject(selected.id, { event_date: event.target.value })} onBlur={() => void flushProject(selected.id)} className={inputClass} /></Field>
+                  <Field label="Venue Google Maps URL"><input value={selected.venue_url} onChange={(event) => updateProject(selected.id, { venue_url: event.target.value })} onBlur={() => void flushProject(selected.id)} className={inputClass} placeholder="https://maps.app.goo.gl/..." /></Field>
                 </div>
                 {selected.venue_url && <a href={selected.venue_url} target="_blank" rel="noreferrer" className="mt-3 flex items-center gap-1 text-xs text-sky-600 hover:text-sky-500 dark:text-sky-400"><MapPin className="h-3.5 w-3.5" /> View Venue on Google Maps <ExternalLink className="h-3 w-3" /></a>}
               </div>
@@ -249,10 +309,10 @@ function CreateInvitationModal({ bookings, onClose, onCreate }: { bookings: Book
 
 export function PublicInvitationHub() {
   const { settings } = useSettings();
-  const { toast } = useToast();
   const [project, setProject] = useState<InvitationProject | null>(null);
   const [loading, setLoading] = useState(true);
-  const projectId = new URLSearchParams(window.location.search).get('project')?.trim() ?? '';
+  const { projectId: routeProjectId } = useParams<{ projectId: string }>();
+  const projectId = routeProjectId?.trim() || new URLSearchParams(window.location.search).get('project')?.trim() || '';
 
   const load = useCallback(async () => {
     if (!projectId) { setLoading(false); return; }
@@ -270,6 +330,7 @@ export function PublicInvitationHub() {
     const parts = [
       `${project.groom_name || project.client_name} weds ${project.bride_name}`.trim(),
       project.event_date ? `Date: ${formatDate(project.event_date)}` : '',
+      `Invitation: ${window.location.origin}${invitationUrl(project)}`,
       project.video_url ? `Video Invite: ${project.video_url}` : '',
       project.pdf_url ? `PDF Card: ${project.pdf_url}` : '',
       project.venue_url ? `Venue: ${project.venue_url}` : '',
@@ -300,16 +361,14 @@ export function PublicInvitationHub() {
         {project.video_url && (
           <div className="rounded-2xl border border-white/10 bg-slate-900 p-5">
             <h3 className="mb-3 flex items-center gap-2 font-semibold"><Video className="h-4 w-4 text-amber-400" /> Video Invite</h3>
-            <div className="overflow-hidden rounded-xl bg-black"><video className="h-auto w-full" controls src={project.video_url} /></div>
-            <a href={project.video_url} target="_blank" rel="noreferrer" className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400"><Download className="h-4 w-4" /> Download Video</a>
+            <UniversalMediaPreview url={project.video_url} kind="video" className="space-y-3" mediaClassName="h-[65vh] min-h-[360px] w-full rounded-xl border border-white/10 bg-black" showDownload controlsClassName="flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400" />
           </div>
         )}
 
         {project.pdf_url && (
           <div className="rounded-2xl border border-white/10 bg-slate-900 p-5">
             <h3 className="mb-3 flex items-center gap-2 font-semibold"><FileText className="h-4 w-4 text-amber-400" /> Interactive PDF Card</h3>
-            <iframe src={project.pdf_url} className="h-64 w-full rounded-xl border border-white/10" title="PDF Preview" />
-            <a href={project.pdf_url} target="_blank" rel="noreferrer" className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-sky-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-600"><Download className="h-4 w-4" /> Download PDF</a>
+            <UniversalMediaPreview url={project.pdf_url} kind="pdf" className="space-y-3" mediaClassName="h-[75vh] min-h-[480px] w-full rounded-xl border border-white/10" showDownload controlsClassName="flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400" />
           </div>
         )}
 

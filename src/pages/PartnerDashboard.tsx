@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import type { EventFunction, Partner, PromoAd, StudioLabOrder, ClientSelectionSession } from '@/lib/types';
+import type { EventFunction, Partner, StudioLabOrder, ClientSelectionSession } from '@/lib/types';
 import { photoSessionFromDatabase } from '@/lib/types';
 import { formatDate, formatDateTime, formatINR, formatPhone } from '@/lib/format';
 import { inputClass } from '@/components/ui/Field';
@@ -37,7 +37,7 @@ import { isRightEdgeBackSwipe } from '@/lib/touchNavigation';
 import { useAppBackGuard } from '@/lib/useAppBackGuard';
 import { useToast } from '@/context/ToastContext';
 import { copyToClipboard } from '@/lib/clipboard';
-import { getVisiblePromoAds } from '@/lib/promo';
+import { PortalMarketingFeed } from '@/components/PortalMarketingFeed';
 import { useSettings } from '@/context/SettingsContext';
 import { hasLabAlbumWork, hasLabVideoWork, labOrderOverviewStatus, visibleLabOrderDates } from '@/lib/labOrderStatus';
 import { clientPaidTotal, clientWorkTotal, labOrderPayments, unallocatedPaidTotal } from '@/lib/labBilling';
@@ -251,7 +251,6 @@ export function PartnerDashboardContent({
   const [loadingData, setLoadingData] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [loadRevision, setLoadRevision] = useState(0);
-  const [promoAds, setPromoAds] = useState<PromoAd[]>([]);
   const [photoSessionRevision, setPhotoSessionRevision] = useState(0);
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'orders' | 'ledger' | 'duties' | 'offers'>('orders');
@@ -270,13 +269,10 @@ export function PartnerDashboardContent({
       setLoadError('');
       try {
         const data = await fetchPartnerData(partner, adminPreview);
-        const { data: ads, error: adsError } = await supabase.from('promo_ads').select('*').eq('is_active', true).eq('audience', 'partners').order('sort_order');
-        if (adsError) throw adsError;
         if (cancelled) return;
         setBookings(data.bookings);
         setLabOrders(data.labOrders);
         setBalance(data.balance);
-        setPromoAds((ads ?? []) as PromoAd[]);
       } catch (error) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : 'Could not load partner portal data.';
@@ -440,7 +436,6 @@ export function PartnerDashboardContent({
     );
   }
 
-  const dashboardPromos = getVisiblePromoAds(promoAds, 'b2b_dashboard', 'partners', partner.id).slice(0, 3);
   const settingsData = settings as (typeof settings & { studioLogo?: string; logo?: string; studioName?: string }) | null;
   const partnerPhone = (partner as Partner & { phone?: string }).phone || partner.mobile;
   const filteredLabOrders = [...labOrders]
@@ -541,6 +536,8 @@ export function PartnerDashboardContent({
           ))}
         </div>
 
+        {activeTab === 'offers' && <PortalMarketingFeed audience="partners" identityId={partner.id} />}
+
         {activeTab === 'offers' && musicProjects.length > 0 && (
           <div className="rounded-xl border border-white/10 bg-slate-900 p-5">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Music2 className="h-4 w-4 text-amber-400" /> Music Selection</h2>
@@ -566,13 +563,6 @@ export function PartnerDashboardContent({
                 );
               })}
             </div>
-          </div>
-        )}
-
-        {activeTab === 'offers' && dashboardPromos.length > 0 && (
-          <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white"><Sparkles className="h-4 w-4 text-cyan-400" /> Studio Offers</h2>
-            <div className="space-y-3">{dashboardPromos.map((ad) => <div key={ad.id} className="rounded-lg border border-white/10 bg-slate-950/40 p-3"><p className="text-sm font-semibold text-white">{ad.title}</p><p className="mt-1 text-xs text-slate-300">{ad.description}</p>{(ad.action_link || ad.video_url) && <a href={ad.video_url || ad.action_link} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-cyan-300">{ad.cta_text || 'Learn more'} <ExternalLink className="h-3 w-3" /></a>}</div>)}</div>
           </div>
         )}
 
