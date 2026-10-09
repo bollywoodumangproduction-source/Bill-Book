@@ -2281,11 +2281,11 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                   {client.video_rows.map((r, vi) => (
                       <div key={vi}>
                         <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
-                          <select value={r.video_type} onChange={(e) => updateVideoRow(ci, vi, { video_type: e.target.value })} className={`${selectClass} min-w-[150px] flex-[1_1_170px]`}>
+                          <select value={r.video_type} onChange={(e) => { updateVideoRow(ci, vi, { video_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[150px] flex-[1_1_170px] ${r.video_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                             <option value="">Select Type</option>
                             {LAB_VIDEO_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                           </select>
-                          <select value={r.quality} onChange={(e) => updateVideoRow(ci, vi, { quality: e.target.value })} className={`${selectClass} min-w-[120px] flex-[1_1_135px]`}>
+                          <select value={r.quality} onChange={(e) => { updateVideoRow(ci, vi, { quality: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[120px] flex-[1_1_135px] ${r.quality ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                             <option value="">Resolutions</option>
                             {LAB_VIDEO_QUALITIES.map((q) => <option key={q} value={q}>{q}</option>)}
                           </select>
@@ -2312,15 +2312,15 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                         {/* Master row */}
                         <div>
                           <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
-                            <select value={r.album_type} onChange={(e) => updateAlbumRow(ci, ai, { album_type: e.target.value })} className={`${selectClass} min-w-[145px] flex-[1_1_165px]`}>
+                            <select value={r.album_type} onChange={(e) => { updateAlbumRow(ci, ai, { album_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[145px] flex-[1_1_165px] ${r.album_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                               <option value="">Select Type</option>
                               {LAB_ALBUM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                             </select>
-                            <select value={r.size} onChange={(e) => updateAlbumRow(ci, ai, { size: e.target.value })} className={`${selectClass} min-w-[115px] flex-[1_1_125px]`}>
+                            <select value={r.size} onChange={(e) => { updateAlbumRow(ci, ai, { size: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[115px] flex-[1_1_125px] ${r.size ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                               <option value="">Size</option>
                               {LAB_ALBUM_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
                             </select>
-                            <select value={r.packaging} onChange={(e) => updateAlbumRow(ci, ai, { packaging: e.target.value })} className={`${selectClass} min-w-[130px] flex-[1_1_140px]`}>
+                            <select value={r.packaging} onChange={(e) => { updateAlbumRow(ci, ai, { packaging: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[130px] flex-[1_1_140px] ${r.packaging ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                               <option value="">Packaging</option>
                               {LAB_ALBUM_COVERS.map((c) => <option key={c} value={c}>{c}</option>)}
                             </select>
@@ -2348,7 +2348,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                           <div className="mt-2 space-y-1.5 border-l-2 border-amber-200 pl-3 dark:border-amber-500/20">
                             {r.papers.map((p, pi) => (
                               <div key={p.id} className="flex flex-nowrap items-center gap-2 overflow-x-auto">
-                                <select value={p.paper_type} onChange={(e) => updatePaperRow(ci, ai, pi, { paper_type: e.target.value })} className={`${selectClass} min-w-[145px] flex-[1_1_165px]`}>
+                                <select value={p.paper_type} onChange={(e) => { updatePaperRow(ci, ai, pi, { paper_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[145px] flex-[1_1_165px] ${p.paper_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                                   <option value="">Paper</option>
                                   {LAB_ALBUM_PAPERS.map((pp) => <option key={pp} value={pp}>{pp}</option>)}
                                 </select>
