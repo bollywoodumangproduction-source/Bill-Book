@@ -272,6 +272,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
   const [dualPrintOrder, setDualPrintOrder] = useState<StudioLabOrder | null>(null);
   const [dualPrintShowStamp, setDualPrintShowStamp] = useState(true);
   const [quickPayOrder, setQuickPayOrder] = useState<StudioLabOrder | null>(null);
+  const [settleOrder, setSettleOrder] = useState<StudioLabOrder | null>(null);
   const [view, setView] = useState<'active' | 'archived' | 'recycle'>('active');
   const [showPin, setShowPin] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<'soft' | 'permanent'>('soft');
@@ -760,7 +761,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
         ) : (
         <div className="mt-3 flex items-center gap-2">
           <button
-            onClick={() => setQuickPayOrder(o)}
+            onClick={() => setSettleOrder(o)}
             className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20"
           >
             <CheckCircle2 className="h-3.5 w-3.5" /> Settle Balance
@@ -1050,6 +1051,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
       <LabWorkSlipModal order={viewSlipOrder} onClose={() => setViewSlipOrder(null)} settings={settings} onDualPrint={(includeStamp) => { if (viewSlipOrder) { setDualPrintShowStamp(includeStamp); setDualPrintOrder(viewSlipOrder); setTimeout(() => { window.print(); setDualPrintOrder(null); }, 100); } }} />
       {dualPrintOrder && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><LabOrderPrintTemplate order={dualPrintOrder} settings={settings} compact showStamp={dualPrintShowStamp} /></PrintableDualCopies></div>, document.body)}
       {quickPayOrder && <LabQuickPayModal order={quickPayOrder} onClose={() => setQuickPayOrder(null)} onSaved={(updated) => { setQuickPayOrder(null); setOrders((prev) => prev.map((order) => (getOrderKey(order) === getOrderKey(updated) ? updated : order))); setSelectedOrder((current) => current && getOrderKey(current) === getOrderKey(updated) ? updated : current); load(); }} />}
+      {settleOrder && <LabSettlementModal order={settleOrder} onClose={() => setSettleOrder(null)} onSaved={(updated) => { setSettleOrder(null); setOrders((prev) => prev.map((order) => (getOrderKey(order) === getOrderKey(updated) ? updated : order))); setSelectedOrder((current) => current && getOrderKey(current) === getOrderKey(updated) ? updated : current); load(); }} />}
       {successOrder && (
         <ErrorBoundary>
           <LabOrderSuccessModal
@@ -1576,7 +1578,8 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
 
 function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder; onClose: () => void; onSaved: (updated: StudioLabOrder) => void }) {
   const { toast } = useToast();
-  const [amount, setAmount] = useState('');
+  const remainingDue = labOrderBillingSnapshot(order, order.advance_paid).balanceDue;
+  const [amount, setAmount] = useState(String(remainingDue));
   const [paymentDate, setPaymentDate] = useState(todayISO());
   const [paymentMode, setPaymentMode] = useState('Cash');
   const [reference, setReference] = useState('');
@@ -1585,6 +1588,7 @@ function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder
   const handleSave = async () => {
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) { toast('Enter a valid settlement amount', 'error'); return; }
+    if (value > remainingDue) { toast('Settlement amount cannot exceed the remaining balance', 'error'); return; }
     setSaving(true);
     try {
       const installmentId = uid();
@@ -1607,10 +1611,11 @@ function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder
 
   return <Modal open={true} onClose={onClose} title={`Settle ${order.partner_name || order.studio_name}`} size="md" dismissible={false}>
     <div className="space-y-4">
-      <Field label="Amount (₹)"><input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} placeholder="0" /></Field>
+      <p className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm text-slate-300">Remaining balance: <strong className="text-emerald-300">{formatINR(remainingDue)}</strong></p>
+      <Field label="Settlement Amount (₹)"><input type="number" min={0.01} max={remainingDue} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} placeholder="0" /></Field>
       <div className="grid grid-cols-2 gap-4"><Field label="Payment Date"><input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputClass} /></Field><Field label="Payment Mode"><select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className={selectClass}><option>Cash</option><option>UPI</option><option>Bank Transfer</option></select></Field></div>
       <Field label="Reference / UTR / Reason"><input value={reference} onChange={(e) => setReference(e.target.value)} className={inputClass} placeholder="Optional reference or notes" /></Field>
-      <div className="flex justify-end gap-3"><button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300">Cancel</button><button onClick={handleSave} disabled={saving} className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Saving...' : 'Settle Balance'}</button></div>
+      <div className="flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300">Cancel</button><button type="button" onClick={handleSave} disabled={saving || remainingDue <= 0} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Saving...' : 'Settle Balance'}</button></div>
     </div>
   </Modal>;
 }

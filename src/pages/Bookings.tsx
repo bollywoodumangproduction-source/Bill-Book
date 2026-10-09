@@ -1536,6 +1536,8 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
   const [assignmentPartner, setAssignmentPartner] = useState('');
   const [assignmentFunction, setAssignmentFunction] = useState('');
   const [savingQuickPay, setSavingQuickPay] = useState(false);
+  const [quickPayAmount, setQuickPayAmount] = useState('');
+  const [quickPayMode, setQuickPayMode] = useState('Cash');
   const [assignmentRole, setAssignmentRole] = useState('Traditional Photo');
   const [reportingTime, setReportingTime] = useState('');
   const [isBillPreviewOpen, setIsBillPreviewOpen] = useState(false);
@@ -1909,27 +1911,31 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
               <label className="text-xs text-slate-500 dark:text-slate-400">Quick Payment</label>
               <input
                 type="number"
-                id={`quick-pay-${booking.id}`}
+                min={0.01}
+                max={netDue}
+                step="0.01"
+                value={quickPayAmount}
+                onChange={(event) => setQuickPayAmount(event.target.value)}
                 placeholder="Amount"
                 className={`${inputClass} w-28`}
               />
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-xs text-slate-500 dark:text-slate-400">Mode</label>
-              <select id={`quick-pay-mode-${booking.id}`} className={`${selectClass} w-32`} defaultValue="Cash">
+              <select value={quickPayMode} onChange={(event) => setQuickPayMode(event.target.value)} className={`${selectClass} w-32`}>
                 <option>Cash</option>
                 <option>UPI</option>
                 <option>Bank</option>
               </select>
             </div>
             <button
+              type="button"
               onClick={async () => {
                 if (savingQuickPay) return;
-                const amtInput = document.getElementById(`quick-pay-${booking.id}`) as HTMLInputElement | null;
-                const modeInput = document.getElementById(`quick-pay-mode-${booking.id}`) as HTMLSelectElement | null;
-                const amt = Number(amtInput?.value ?? 0);
-                const mode = modeInput?.value ?? 'Cash';
+                const amt = Number(quickPayAmount);
+                const mode = quickPayMode;
                 if (amt <= 0) { toast('Enter a valid amount', 'error'); return; }
+                if (amt > netDue) { toast('Payment cannot exceed the remaining balance', 'error'); return; }
                 const paymentDate = todayISO();
                 setSavingQuickPay(true);
                 try {
@@ -1945,7 +1951,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
                   await logPaymentNotification(booking.id, amt, Number(updated.net_due));
                   triggerRefresh();
                   toast(`Payment of ${formatINR(amt)} recorded`, 'success');
-                  if (amtInput) amtInput.value = '';
+                  setQuickPayAmount('');
                 } catch (error) {
                   toast(error instanceof Error ? error.message : 'Could not record payment', 'error');
                 } finally {
