@@ -409,7 +409,7 @@ export function SettingsPage() {
             value={stampImageUrl}
             onChange={setStampImageUrl}
             label="Official Digital Stamp / Muhar"
-            description="This stamp appears on all printed bills and invoices for both Films and Production units."
+            description="Select the stamp image here, then use Stamp On/Off in invoice and lab print previews to include it per print."
             rounded="rounded-full"
             placeholderIcon={Stamp}
           />

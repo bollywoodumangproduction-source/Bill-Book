@@ -81,6 +81,22 @@ body::after {
     page-break-after: avoid !important;
   }
 
+  #printable-bill-sheet .bill-page > * {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  #printable-bill-sheet .invoice-header {
+    align-items: center !important;
+    gap: 8mm !important;
+  }
+
+  #printable-bill-sheet .invoice-copy-label {
+    white-space: nowrap !important;
+    line-height: 1.2 !important;
+    padding: 2px 6px !important;
+  }
+
   #printable-bill-sheet .bill-page h1 {
     font-size: 16px !important;
   }
@@ -95,8 +111,24 @@ body::after {
   #printable-bill-sheet .bill-page th,
   #printable-bill-sheet .bill-page td {
     border: 1px solid #64748b !important;
-    padding: 2px 4px !important;
-    overflow-wrap: anywhere !important;
+    padding: 3px 5px !important;
+    vertical-align: middle !important;
+    line-height: 1.3 !important;
+    overflow-wrap: break-word !important;
+    word-break: normal !important;
+  }
+
+  #printable-bill-sheet .bill-page th {
+    font-weight: 700 !important;
+  }
+
+  #printable-bill-sheet .bill-page thead {
+    display: table-header-group;
+  }
+
+  #printable-bill-sheet .bill-page tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   #printable-bill-sheet .bill-page img {
@@ -108,14 +140,59 @@ body::after {
     width: 190mm !important;
     height: 277mm !important;
     max-width: 190mm !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    overflow: hidden !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    break-after: avoid-page !important;
+    page-break-after: avoid !important;
+  }
+
+  #printable-bill-sheet .dual-bill-copy {
+    height: 132mm !important;
+    max-height: 132mm !important;
+    overflow: hidden !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
 
-  #printable-bill-sheet .dual-bill-copy {
-    max-height: 132mm !important;
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
+  #printable-bill-sheet .dual-bill-copy .bill-page {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 2mm 3mm !important;
+    font-size: 8px !important;
+    line-height: 1.1 !important;
+  }
+
+  #printable-bill-sheet .dual-bill-copy .bill-page h1 {
+    font-size: 12px !important;
+  }
+
+  #printable-bill-sheet .dual-bill-copy .bill-page p,
+  #printable-bill-sheet .dual-bill-copy .bill-page span,
+  #printable-bill-sheet .dual-bill-copy .bill-page div,
+  #printable-bill-sheet .dual-bill-copy .bill-page td,
+  #printable-bill-sheet .dual-bill-copy .bill-page th {
+    font-size: 8px !important;
+    line-height: 1.1 !important;
+  }
+
+  #printable-bill-sheet .dual-bill-copy .bill-page table {
+    font-size: 7px !important;
+  }
+
+  #printable-bill-sheet .dual-bill-divider {
+    flex: 0 0 8mm !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    overflow: hidden !important;
+    font-size: 7px !important;
+    line-height: 1 !important;
   }
 
   * {
@@ -129,21 +206,30 @@ body::after {
 .bill-page[data-copy-mark='client']::after {
   content: attr(data-watermark);
   position: absolute;
-  z-index: 1;
+  z-index: 0;
   top: 46%;
   left: 50%;
   width: max-content;
   max-width: 95%;
   transform: translate(-50%, -50%) rotate(-35deg);
   color: #64748b;
-  font-size: clamp(2.5rem, 8vw, 4.5rem);
+  font-size: clamp(2.25rem, 7vw, 4rem);
   font-weight: 900;
   line-height: 1;
   text-align: center;
   white-space: nowrap;
-  opacity: 0.07;
+  opacity: 0.045;
   pointer-events: none;
   user-select: none;
+}
+
+.bill-page[data-copy-mark='client'] > * {
+  position: relative;
+  z-index: 1;
+}
+
+.bill-page .invoice-copy-label {
+  white-space: nowrap;
 }
 
 /* Bill text selectability */

@@ -19,7 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { MusicCue, MusicCuePriority, MusicMasterCue, MusicProject, MusicProjectMode } from '@/lib/types';
+import type { Booking, MusicCue, MusicCuePriority, MusicMasterCue, MusicProject, MusicProjectMode, Partner, StudioLabOrder } from '@/lib/types';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
 import { inputClass, selectClass, textareaClass, Field } from '@/components/ui/Field';
@@ -111,14 +111,17 @@ export function MusicSelection() {
   const selectedProject = projects.find((project) => project.id === selectedId) ?? null;
   const selectedCues = cues.filter((cue) => cue.project_id === selectedId);
 
-  const createProject = async (clientName: string, mode: MusicProjectMode) => {
+  const createProject = async (clientName: string, mode: MusicProjectMode, bookingId: string | null, partnerId: string | null, labOrderId: string | null, labClientId: string | null) => {
     const trimmedName = clientName.trim();
     if (!trimmedName) { toast('Enter a party or client name', 'error'); return; }
     const timestamp = now();
     const payload: MusicProject = {
       id: newId(),
       client_name: trimmedName,
-      booking_id: null,
+      booking_id: bookingId,
+      partner_id: partnerId,
+      lab_order_id: labOrderId,
+      lab_client_id: labClientId,
       mode,
       status: 'draft',
       locked_at: null,
@@ -329,10 +332,52 @@ function MasterCueModal({ projectId, existing, onClose, onSave }: { projectId: s
   return <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/70 p-4"><div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-slate-900 p-5 shadow-2xl"><div className="mb-5 flex items-center justify-between"><div><h2 className="text-lg font-semibold text-white">{existing ? 'Edit Master Song Details' : 'Add Master Song Details'}</h2><p className="text-xs text-slate-400">Saved separately; locking or changing client selections will not replace this reference.</p></div><button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button></div><div className="grid gap-4 sm:grid-cols-2"><Field label="Song Title"><input autoFocus value={songTitle} onChange={(e) => setSongTitle(e.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} required /></Field><Field label="Singer / Artist"><input value={singerArtist} onChange={(e) => setSingerArtist(e.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} /></Field><Field label="Genre / Mood"><input value={genreMood} onChange={(e) => setGenreMood(e.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="Romantic, energetic..." /></Field><Field label="Event / Tag"><select value={eventTag} onChange={(e) => setEventTag(e.target.value)} className={`${selectClass} border-white/10 bg-slate-800 text-white`}><option value="">Select event</option>{CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></Field><div className="sm:col-span-2"><Field label="Audio Link / Preview"><input value={audioUrl} onChange={(e) => setAudioUrl(e.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="https://..." type="url" /></Field></div><div className="sm:col-span-2"><Field label="Special Editing Notes / Cue Timestamps"><textarea value={cueTimestamps} onChange={(e) => setCueTimestamps(e.target.value)} className={`${textareaClass} border-white/10 bg-slate-800 text-white`} placeholder="0:35 intro; 1:12 switch to chorus; 2:08 fade out" rows={3} /></Field></div><div className="sm:col-span-2"><Field label="Additional Editing Notes"><textarea value={specialNotes} onChange={(e) => setSpecialNotes(e.target.value)} className={`${textareaClass} border-white/10 bg-slate-800 text-white`} placeholder="Mixing, transition, or edit instructions..." rows={3} /></Field></div></div><div className="mt-5 flex justify-end gap-2"><button onClick={onClose} className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5">Cancel</button><button disabled={!songTitle.trim() || saving} onClick={() => void submit()} className="rounded-lg bg-sky-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50">{saving ? 'Saving…' : existing ? 'Save Changes' : 'Save Reference'}</button></div></div></div>;
 }
 
-function CreateProjectModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, mode: MusicProjectMode) => Promise<void> }) {
+function CreateProjectModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, mode: MusicProjectMode, bookingId: string | null, partnerId: string | null, labOrderId: string | null, labClientId: string | null) => Promise<void> }) {
+  const { toast } = useToast();
   const [name, setName] = useState('');
   const [mode, setMode] = useState<MusicProjectMode>('b2c');
-  return <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 p-4"><div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-5 shadow-2xl"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-white">New Music Project</h2><button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button></div><div className="space-y-4"><Field label="Party / Client Name"><input autoFocus value={name} onChange={(event) => setName(event.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="e.g. Rajesh Kumar Singh" /></Field><Field label="Portal Mode"><select value={mode} onChange={(event) => setMode(event.target.value as MusicProjectMode)} className={`${selectClass} border-white/10 bg-slate-800 text-white`}><option value="b2c">Client / Direct Party</option><option value="b2b">Lab / Photographer Partner</option></select></Field><div className="flex justify-end gap-2 pt-2"><button onClick={onClose} className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5">Cancel</button><button onClick={() => void onCreate(name, mode)} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400">Create Project</button></div></div></div></div>;
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [labOrders, setLabOrders] = useState<StudioLabOrder[]>([]);
+  const [bookingId, setBookingId] = useState('');
+  const [partnerId, setPartnerId] = useState('');
+  const [labOrderId, setLabOrderId] = useState('');
+  const [labClientId, setLabClientId] = useState('');
+  const [loadingProfiles, setLoadingProfiles] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      supabase.from('bookings').select('*').is('archived_at', null).is('deleted_at', null).order('created_at', { ascending: false }),
+      supabase.from('partners').select('*').is('trashed_at', null).order('name'),
+      supabase.from('studio_lab_orders').select('*').is('archived_at', null).is('deleted_at', null).order('created_at', { ascending: false }),
+    ]).then(([bookingResult, partnerResult, orderResult]) => {
+      if (cancelled) return;
+      if (bookingResult.error || partnerResult.error || orderResult.error) toast('Could not load client and partner profiles. Check admin access and try again.', 'error');
+      setBookings((bookingResult.data ?? []) as Booking[]);
+      setPartners((partnerResult.data ?? []) as Partner[]);
+      setLabOrders((orderResult.data ?? []) as StudioLabOrder[]);
+      setLoadingProfiles(false);
+    });
+    return () => { cancelled = true; };
+  }, [toast]);
+
+  const activeOrders = labOrders.filter((order) => order.partner_id === partnerId);
+  const selectedOrder = activeOrders.find((order) => order.id === labOrderId);
+  const selectedLabClient = selectedOrder?.clients?.find((client) => client.id === labClientId);
+
+  useEffect(() => {
+    if (mode === 'b2c') {
+      const booking = bookings.find((item) => item.id === bookingId);
+      if (booking) setName(booking.client_name || '');
+      else setName('');
+    } else {
+      const partner = partners.find((item) => item.id === partnerId);
+      setName(selectedLabClient?.client_name || (selectedOrder?.project_name ? `${selectedOrder.project_name}${partner ? ` · ${partner.studio_name || partner.name}` : ''}` : ''));
+    }
+  }, [mode, bookingId, partnerId, labOrderId, labClientId, bookings, partners, selectedLabClient, selectedOrder]);
+
+  return <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 p-4"><div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-slate-900 p-5 shadow-2xl"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-white">New Music Project</h2><button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button></div><div className="space-y-4"><Field label="Portal Mode"><select value={mode} onChange={(event) => { setMode(event.target.value as MusicProjectMode); setBookingId(''); setPartnerId(''); setLabOrderId(''); setLabClientId(''); setName(''); }} className={`${selectClass} border-white/10 bg-slate-800 text-white`}><option value="b2c">Client / Direct Party</option><option value="b2b">Lab / Photographer Partner</option></select></Field>{mode === 'b2c' ? <Field label="Select Client Booking"><select value={bookingId} onChange={(event) => setBookingId(event.target.value)} className={`${selectClass} border-white/10 bg-slate-800 text-white`} disabled={loadingProfiles}><option value="">— Select client booking —</option>{bookings.map((booking) => <option key={booking.id} value={booking.id}>{booking.client_name} · {booking.booking_no}</option>)}</select></Field> : <><Field label="Select Partner Profile"><select value={partnerId} onChange={(event) => { setPartnerId(event.target.value); setLabOrderId(''); setLabClientId(''); }} className={`${selectClass} border-white/10 bg-slate-800 text-white`} disabled={loadingProfiles}><option value="">— Select partner —</option>{partners.map((partner) => <option key={partner.id} value={partner.id}>{partner.studio_name || partner.name} · {partner.name}</option>)}</select></Field><Field label="Select Partner's Lab Order"><select value={labOrderId} onChange={(event) => { setLabOrderId(event.target.value); setLabClientId(''); }} className={`${selectClass} border-white/10 bg-slate-800 text-white`} disabled={!partnerId || loadingProfiles}><option value="">— Select lab order —</option>{activeOrders.map((order) => <option key={order.id} value={order.id}>{order.project_name || order.order_no} · {order.order_no}</option>)}</select></Field>{selectedOrder && <Field label="Select Partner's Client"><select value={labClientId} onChange={(event) => setLabClientId(event.target.value)} className={`${selectClass} border-white/10 bg-slate-800 text-white`}><option value="">— Select client —</option>{(selectedOrder.clients ?? []).map((client, index) => <option key={client.id} value={client.id}>{client.client_name || `Client ${index + 1}`}</option>)}</select></Field>}</>}{name && <Field label="Project / Client Name"><input value={name} readOnly className={`${inputClass} border-white/10 bg-slate-800 text-white`} /></Field>}{!loadingProfiles && mode === 'b2c' && bookings.length === 0 && <p className="text-xs text-amber-300">No active client bookings found.</p>}{!loadingProfiles && mode === 'b2b' && partners.length === 0 && <p className="text-xs text-amber-300">No active partner profiles found.</p>}<div className="flex justify-end gap-2 pt-2"><button onClick={onClose} className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5">Cancel</button><button disabled={loadingProfiles || (mode === 'b2c' ? !bookingId : !partnerId || !labOrderId || !labClientId)} onClick={() => void onCreate(name, mode, bookingId || null, partnerId || null, labOrderId || null, labClientId || null)} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50">Create Project</button></div></div></div></div>;
 }
 
 function AddCueModal({ projectId, onClose, onAdd }: { projectId: string; onClose: () => void; onAdd: (cue: Omit<MusicCue, 'id' | 'created_at' | 'updated_at'>) => Promise<void> }) {

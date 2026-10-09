@@ -270,6 +270,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
   const [successOrder, setSuccessOrder] = useState<StudioLabOrder | null>(null);
   const [viewSlipOrder, setViewSlipOrder] = useState<StudioLabOrder | null>(null);
   const [dualPrintOrder, setDualPrintOrder] = useState<StudioLabOrder | null>(null);
+  const [dualPrintShowStamp, setDualPrintShowStamp] = useState(true);
   const [quickPayOrder, setQuickPayOrder] = useState<StudioLabOrder | null>(null);
   const [view, setView] = useState<'active' | 'archived' | 'recycle'>('active');
   const [showPin, setShowPin] = useState(false);
@@ -1046,8 +1047,8 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
       <ErrorBoundary>
         <ViewBillModal order={viewBillOrder} onClose={() => setViewBillOrder(null)} settings={settings} onCopySummary={copyOrderSummary} />
       </ErrorBoundary>
-      <LabWorkSlipModal order={viewSlipOrder} onClose={() => setViewSlipOrder(null)} settings={settings} onDualPrint={() => { if (viewSlipOrder) { setDualPrintOrder(viewSlipOrder); setTimeout(() => { window.print(); setDualPrintOrder(null); }, 100); } }} />
-      {dualPrintOrder && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><LabOrderPrintTemplate order={dualPrintOrder} settings={settings} compact /></PrintableDualCopies></div>, document.body)}
+      <LabWorkSlipModal order={viewSlipOrder} onClose={() => setViewSlipOrder(null)} settings={settings} onDualPrint={(includeStamp) => { if (viewSlipOrder) { setDualPrintShowStamp(includeStamp); setDualPrintOrder(viewSlipOrder); setTimeout(() => { window.print(); setDualPrintOrder(null); }, 100); } }} />
+      {dualPrintOrder && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><LabOrderPrintTemplate order={dualPrintOrder} settings={settings} compact showStamp={dualPrintShowStamp} /></PrintableDualCopies></div>, document.body)}
       {quickPayOrder && <LabQuickPayModal order={quickPayOrder} onClose={() => setQuickPayOrder(null)} onSaved={(updated) => { setQuickPayOrder(null); setOrders((prev) => prev.map((order) => (getOrderKey(order) === getOrderKey(updated) ? updated : order))); setSelectedOrder((current) => current && getOrderKey(current) === getOrderKey(updated) ? updated : current); load(); }} />}
       {successOrder && (
         <ErrorBoundary>
@@ -1225,7 +1226,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
   const handleDownloadPdf = async () => {
     setPrintPreview(true);
     setTimeout(async () => {
-      const element = document.getElementById(printId);
+      const element = document.getElementById(printId)?.querySelector<HTMLElement>('.bill-page');
       if (element) {
         await downloadA4Pdf(element, exportFilename);
       }
@@ -1457,7 +1458,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
       </div>
       {printPreview && createPortal(
         <div id={printId} aria-hidden>
-          <LabOrderPrintTemplate order={order} settings={settings} termsText={termsText} />
+          <LabOrderPrintTemplate order={order} settings={settings} termsText={termsText} showStamp={showStamp} />
         </div>,
         document.body,
       )}
@@ -1465,10 +1466,11 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
   );
 }
 
-function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: StudioLabOrder | null; onClose: () => void; settings: StudioSettings | null; onDualPrint?: () => void }) {
+function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: StudioLabOrder | null; onClose: () => void; settings: StudioSettings | null; onDualPrint?: (showStamp: boolean) => void }) {
   const { toast } = useToast();
   const { update: updateSettings } = useSettings();
-  const slipId = `lab-slip-${order?.id ?? 'preview'}`;
+  const slipPreviewId = `lab-slip-preview-${order?.id ?? 'preview'}`;
+  const slipPrintId = `lab-slip-print-${order?.id ?? 'preview'}`;
   const exportFilename = order ? buildLabOrderDocumentFilename(order) : 'lab-order.pdf';
   const [printPreview, setPrintPreview] = useState(false);
   const [showStamp, setShowStamp] = useState(true);
@@ -1490,7 +1492,7 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
   const download = async () => {
     setPrintPreview(true);
     setTimeout(async () => {
-      const element = document.getElementById(slipId);
+      const element = document.getElementById(slipPrintId)?.querySelector<HTMLElement>('.bill-page');
       if (element) await downloadA4Pdf(element, exportFilename);
       setPrintPreview(false);
     }, 120);
@@ -1517,7 +1519,7 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
 
   return (
     <Modal open={true} onClose={onClose} title={`Work Slip — ${order.order_no}`} size="xl" dismissible={false}>
-      <div id={slipId} className="space-y-4 bg-white p-4 text-black sm:p-6">
+      <div id={slipPreviewId} className="space-y-4 bg-white p-4 text-black sm:p-6">
         <div className="border-b-2 border-black pb-3">
           <h2 className="text-xl font-bold">{settings?.production_title ?? 'Bollywood Umang Production'}</h2>
           <p className="text-xs">{settings?.production_subtitle ?? ''}</p>
@@ -1558,13 +1560,13 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
           </div>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
-          {onDualPrint && <button onClick={onDualPrint} className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white">🖨️ Print 2-in-1</button>}
+          {onDualPrint && <button onClick={() => onDualPrint(showStamp)} className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white">🖨️ Print 2-in-1</button>}
           <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm dark:border-white/10 dark:text-slate-300">Close</button>
         </div>
       </div>
       {printPreview && createPortal(
-        <div id={slipId} aria-hidden>
-          <LabOrderPrintTemplate order={order} settings={settings} termsText={termsText} />
+        <div id={slipPrintId} aria-hidden>
+          <LabOrderPrintTemplate order={order} settings={settings} termsText={termsText} showStamp={showStamp} />
         </div>,
         document.body,
       )}
@@ -2626,7 +2628,7 @@ function PrintTrigger({ order, onDone }: { order: StudioLabOrder; onDone: () => 
   return null;
 }
 
-function LabOrderPrintTemplate({ order, settings, compact = false, termsText }: { order: StudioLabOrder; settings: StudioSettings | null; compact?: boolean; termsText?: string }) {
+export function LabOrderPrintTemplate({ order, settings, compact = false, termsText, showStamp = true }: { order: StudioLabOrder; settings: StudioSettings | null; compact?: boolean; termsText?: string; showStamp?: boolean }) {
   const s = settings;
   const clients = order.clients ?? [];
   const orderPayments = labOrderPayments(order);
@@ -2839,7 +2841,7 @@ function LabOrderPrintTemplate({ order, settings, compact = false, termsText }: 
             <p className="text-[10px] text-gray-500">UPI ID not configured</p>
           )}
         </div>
-        {s?.stamp_image_url && (
+        {showStamp && s?.stamp_image_url && (
           <img src={s.stamp_image_url} alt="stamp" className={compact ? "h-12 w-12 rounded-full object-cover opacity-80" : "h-20 w-20 rounded-full object-cover opacity-80"} />
         )}
         <div className="flex flex-col items-center justify-center">
@@ -2850,11 +2852,9 @@ function LabOrderPrintTemplate({ order, settings, compact = false, termsText }: 
             <div className="absolute inset-x-0 bottom-2 text-center text-[7px] font-semibold uppercase tracking-[0.12em]">{new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
           </div>
         </div>
-        {compact && (
-          <div className="text-right text-xs">
-            <div className="border-t border-black pt-0.5 px-2">Production Signature</div>
-          </div>
-        )}
+        <div className="ml-auto min-w-32 text-right text-[10px]">
+          <div className="border-t border-black pt-1">Digital Signature / Authorized Signatory</div>
+        </div>
       </div>
 
       {/* Terms */}

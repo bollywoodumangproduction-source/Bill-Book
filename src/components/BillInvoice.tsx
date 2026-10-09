@@ -61,7 +61,7 @@ export function formatDeliverablesList(d: BookingDeliverables): string[] {
   return items;
 }
 
-export function BillInvoice({ booking, settings, compact = false }: { booking: Booking; settings: StudioSettings | null; compact?: boolean }) {
+export function BillInvoice({ booking, settings, compact = false, showStamp = true, copyTypeOverride }: { booking: Booking; settings: StudioSettings | null; compact?: boolean; showStamp?: boolean; copyTypeOverride?: 'original' | 'client' }) {
   const s = settings;
   const safeEvents = booking.events ?? [];
   const hasEventDates = safeEvents.some((e) => e.date);
@@ -70,32 +70,31 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
   const hasEventSides = safeEvents.some((e) => e.side);
   const delivList = formatDeliverablesList(booking.deliverables_data ?? DEFAULT_DELIVERABLES);
   const billing = bookingBillingSnapshot(booking);
-  const totalAmount = billing.subtotal;
   const discount = billing.discountAmount;
   const advancePaid = billing.totalPayments;
   const netDue = billing.balanceDue;
   const paymentHistory = booking.deliverables_data?.payment_details?.payment_history ?? [];
   const extraItems = booking.deliverables_data?.custom_items ?? [];
   const cn = compact ? 'compact-bill' : '';
-  const copyType = getInvoiceCopyType();
-  const copyLabel = copyType === 'client' ? 'CLIENT COPY / 2ND COPY' : 'ORIGINAL COPY';
+  const copyType = copyTypeOverride ?? getInvoiceCopyType();
+  const copyLabel = copyType === 'client' ? '2ND COPY' : 'ORIGINAL COPY';
   return (
     <div className={`bill-page relative mx-auto box-border w-full max-w-[794px] bg-white p-3 text-[13px] leading-relaxed text-black sm:p-6 sm:text-sm ${cn}`} data-copy-mark={copyType} data-watermark={copyType === 'client' ? 'CLIENT COPY - 2ND COPY' : ''} style={{ userSelect: 'text', padding: compact ? '3mm 4mm' : undefined }}>
       {/* Header */}
-      <div className={compact ? "mb-2 flex items-center justify-between border-b-2 border-black pb-2" : "mb-6 flex items-center justify-between border-b-2 border-black pb-4"}>
-        <div className="flex items-center gap-2">
+      <div className={compact ? "invoice-header mb-2 flex items-center justify-between gap-3 border-b-2 border-black pb-2" : "invoice-header mb-6 flex items-center justify-between gap-4 border-b-2 border-black pb-4"}>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {s?.films_logo_url && (
             <img src={s.films_logo_url} alt="logo" className={compact ? "h-10 w-10 rounded object-cover" : "h-16 w-16 rounded-lg object-cover"} />
           )}
-          <div>
-            <h1 className={compact ? "text-base font-bold" : "text-2xl font-bold"}>{s?.films_title ? `${s.films_title} & Production` : 'Bollywood Umang Films & Production'}</h1>
+          <div className="min-w-0">
+            <h1 className={compact ? "text-base font-bold leading-tight" : "text-2xl font-bold leading-tight"}>{s?.films_title ? `${s.films_title} & Production` : 'Bollywood Umang Films & Production'}</h1>
             <p className="text-xs">{s?.films_subtitle ?? ''}</p>
             <p className="text-xs">{s?.address ?? ''} · {s?.phone ?? ''}</p>
             {s?.films_insta && <p className="text-xs">{s.films_insta}</p>}
           </div>
         </div>
-        <div className="text-right">
-          <p className="mb-1 inline-block rounded border border-slate-400 px-2 py-0.5 text-[9px] font-bold tracking-wide">{copyLabel}</p>
+        <div className="invoice-meta shrink-0 text-right">
+          <p className="invoice-copy-label mb-1 text-[9px] font-bold tracking-wide">{copyLabel}</p>
           <p className={compact ? "text-xs font-bold" : "text-sm font-bold"}>{booking.booking_no}</p>
           <p className="text-xs">{formatDate(booking.shoot_date)}</p>
         </div>
@@ -190,11 +189,11 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
             </div>
           )}
           <div className="w-44 space-y-0.5 text-xs">
-            <div className="flex justify-between"><span>Base:</span><span>{formatINR(bookingNumber(booking.base_amount))}</span></div>
+            <div className="flex justify-between"><span>Base:</span><span>{formatINR(billing.baseSubtotal)}</span></div>
             <div className="flex justify-between"><span>Subtotal:</span><span>{formatINR(billing.subtotal)}</span></div>
             {billing.taxAmount > 0 && <div className="flex justify-between"><span>Tax:</span><span>{formatINR(billing.taxAmount)}</span></div>}
-            <div className="flex justify-between font-semibold"><span>Grand Total:</span><span>{formatINR(billing.grandTotal)}</span></div>
             <div className="flex justify-between"><span>Discount:</span><span>- {formatINR(discount)}</span></div>
+            <div className="flex justify-between border-t border-black pt-0.5 font-semibold"><span>Grand Total:</span><span>{formatINR(billing.grandTotal)}</span></div>
             <div className="flex justify-between"><span>Advance:</span><span>- {formatINR(advancePaid)}</span></div>
             <div className="flex justify-between border-t border-black pt-0.5 font-bold"><span>Balance:</span><span>{formatINR(netDue)}</span></div>
           </div>
@@ -223,11 +222,11 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
           )}
 
           <div className="ml-auto w-56 space-y-1 text-sm">
-            <div className="flex justify-between"><span>Base Amount:</span><span>{formatINR(bookingNumber(booking.base_amount))}</span></div>
+            <div className="flex justify-between"><span>Base Amount:</span><span>{formatINR(billing.baseSubtotal)}</span></div>
             <div className="flex justify-between"><span>Subtotal:</span><span>{formatINR(billing.subtotal)}</span></div>
             {billing.taxAmount > 0 && <div className="flex justify-between"><span>Tax:</span><span>{formatINR(billing.taxAmount)}</span></div>}
-            <div className="flex justify-between font-semibold"><span>Grand Total:</span><span>{formatINR(billing.grandTotal)}</span></div>
             <div className="flex justify-between"><span>Discount:</span><span>- {formatINR(discount)}</span></div>
+            <div className="flex justify-between border-t border-black pt-1 font-semibold"><span>Grand Total:</span><span>{formatINR(billing.grandTotal)}</span></div>
             <div className="flex justify-between"><span>Advance Paid:</span><span>- {formatINR(advancePaid)}</span></div>
             <div className="flex justify-between border-t-2 border-black pt-1 font-bold"><span>Balance Due:</span><span>{formatINR(netDue)}</span></div>
           </div>
@@ -247,18 +246,14 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
               <p className="text-[10px] font-semibold">Scan to Pay via UPI</p>
               <p className="text-[10px]">{s.upi_id}</p>
             </>
-          ) : (
-            <p className="text-[10px] text-gray-500">UPI ID not configured</p>
-          )}
+          ) : null}
         </div>
-        {s?.stamp_image_url && (
+        {showStamp && s?.stamp_image_url && (
           <img src={s.stamp_image_url} alt="stamp" className={compact ? "h-12 w-12 rounded-full object-cover opacity-80" : "h-20 w-20 rounded-full object-cover opacity-80"} />
         )}
-        {compact && (
-          <div className="text-right text-xs">
-            <div className="border-t border-black pt-0.5 px-2">Studio Signature</div>
-          </div>
-        )}
+        <div className="invoice-signature ml-auto min-w-32 text-right text-[10px]">
+          <div className="border-t border-black pt-1">Digital Signature</div>
+        </div>
       </div>
 
       {/* Terms */}

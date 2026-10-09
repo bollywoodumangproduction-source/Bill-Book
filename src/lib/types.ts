@@ -555,6 +555,9 @@ export interface MusicProject {
   isDemo?: boolean;
   client_name: string;
   booking_id: string | null;
+  partner_id?: string | null;
+  lab_order_id?: string | null;
+  lab_client_id?: string | null;
   mode: MusicProjectMode;
   status: MusicProjectStatus;
   locked_at: string | null;

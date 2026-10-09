@@ -17,27 +17,41 @@ export function buildPdfFilename(name: string, number: string, date = new Date()
 export async function downloadA4Pdf(element: HTMLElement, filename: string): Promise<void> {
   const module = await import('html2pdf.js');
   const html2pdf = (module.default ?? module) as () => { set: (options: object) => { from: (node: HTMLElement) => { save: () => Promise<void> } } };
-  await html2pdf().set({
-    margin: [4, 4, 4, 4],
-    filename,
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak: { mode: ['avoid-all'] },
-  }).from(element).save();
+  const originalStyle = element.getAttribute('style');
+  element.style.setProperty('box-sizing', 'border-box');
+  element.style.setProperty('width', '190mm');
+  element.style.setProperty('max-width', '190mm');
+  element.style.setProperty('margin', '0');
+  element.style.setProperty('background', '#ffffff');
+  try {
+    await html2pdf().set({
+      margin: [10, 10, 10, 10],
+      filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['avoid-all'] },
+    }).from(element).save();
+  } finally {
+    if (originalStyle === null) element.removeAttribute('style');
+    else element.setAttribute('style', originalStyle);
+  }
 }
 
-export function PrintableDualCopies({ children, className = '' }: { children: ReactNode; className?: string }) {
+type PrintableCopyType = 'original' | 'client';
+
+export function PrintableDualCopies({ children, className = '' }: { children: ReactNode | ((copyType: PrintableCopyType) => ReactNode); className?: string }) {
+  const renderCopy = (copyType: PrintableCopyType) => typeof children === 'function' ? children(copyType) : children;
   return (
     <div className={`dual-bill-page ${className}`}>
       <section className="dual-bill-copy">
         <p className="dual-bill-label">ORIGINAL / STUDIO COPY</p>
-        {children}
+        {renderCopy('original')}
       </section>
       <div className="dual-bill-divider">✂ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - ✂</div>
       <section className="dual-bill-copy">
         <p className="dual-bill-label">CLIENT / DUPLICATE COPY</p>
-        {children}
+        {renderCopy('client')}
       </section>
     </div>
   );

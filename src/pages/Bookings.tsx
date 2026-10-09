@@ -1540,6 +1540,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
   const [reportingTime, setReportingTime] = useState('');
   const [isBillPreviewOpen, setIsBillPreviewOpen] = useState(false);
   const [isDualPrintOpen, setIsDualPrintOpen] = useState(false);
+  const [showInvoiceStamp, setShowInvoiceStamp] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -2064,6 +2065,9 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
         <button onClick={copyBillSummary} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
           <Copy className="h-4 w-4" /> Copy Bill Summary
         </button>
+        <button type="button" onClick={() => setShowInvoiceStamp((value) => !value)} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 dark:border-white/10 dark:text-slate-300">
+          Stamp: {showInvoiceStamp ? 'On' : 'Off'}
+        </button>
         <button onClick={() => window.print()} className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 hover:bg-amber-400">
           <Printer className="h-4 w-4" /> Print A4 Bill
         </button>
@@ -2079,11 +2083,11 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
       <Modal open={true} onClose={onClose} onBackSwipe={onClose} title={`${booking.booking_no} — ${booking.client_name}`} size="lg">
         {modalBody}
       </Modal>
-      <BillPreviewModal booking={booking} settings={settings} open={isBillPreviewOpen} onClose={() => setIsBillPreviewOpen(false)} onDualPrint={() => { setIsDualPrintOpen(true); setTimeout(() => { window.print(); setIsDualPrintOpen(false); }, 100); }} />
-      {isDualPrintOpen && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><BillInvoice booking={booking} settings={settings} compact /></PrintableDualCopies></div>, document.body)}
+      <BillPreviewModal booking={booking} settings={settings} open={isBillPreviewOpen} onClose={() => setIsBillPreviewOpen(false)} showStamp={showInvoiceStamp} onToggleStamp={() => setShowInvoiceStamp((value) => !value)} onDualPrint={() => { setIsDualPrintOpen(true); setTimeout(() => { window.print(); setIsDualPrintOpen(false); }, 100); }} />
+      {isDualPrintOpen && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies>{(copyType) => <BillInvoice booking={booking} settings={settings} compact showStamp={showInvoiceStamp} copyTypeOverride={copyType} />}</PrintableDualCopies></div>, document.body)}
       {!isDualPrintOpen && createPortal(
         <div id="printable-bill-sheet" aria-hidden>
-          <BillInvoice booking={booking} settings={settings} />
+          <BillInvoice booking={booking} settings={settings} showStamp={showInvoiceStamp} />
         </div>,
         document.body,
       )}
@@ -2091,10 +2095,10 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
   );
 }
 
-function BillPreviewModal({ booking, settings, open, onClose, onDualPrint }: { booking: Booking; settings: StudioSettings | null; open: boolean; onClose: () => void; onDualPrint: () => void }) {
+function BillPreviewModal({ booking, settings, open, onClose, showStamp, onToggleStamp, onDualPrint }: { booking: Booking; settings: StudioSettings | null; open: boolean; onClose: () => void; showStamp: boolean; onToggleStamp: () => void; onDualPrint: () => void }) {
   const previewId = `invoice-preview-${booking.id}`;
   const download = async () => {
-    const element = document.getElementById(previewId);
+    const element = document.getElementById(previewId)?.querySelector<HTMLElement>('.bill-page');
     if (element) await downloadA4Pdf(element, buildPdfFilename(booking.client_name, booking.booking_no));
   };
   const copyPublicLink = async () => {
@@ -2107,10 +2111,13 @@ function BillPreviewModal({ booking, settings, open, onClose, onDualPrint }: { b
     <Modal open={open} onClose={onClose} title="Invoice Preview" size="xl" dismissible={false}>
       <div className="w-full max-w-[100vw] overflow-x-auto px-2 sm:px-4">
         <div id={previewId} className="mx-auto w-full max-w-[794px] bg-slate-950/80 p-2 sm:p-4">
-          <BillInvoice booking={booking} settings={settings} />
+          <BillInvoice booking={booking} settings={settings} showStamp={showStamp} />
         </div>
       </div>
       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-white/10 pt-4">
+        <button type="button" onClick={onToggleStamp} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 dark:border-white/10 dark:text-slate-300">
+          Stamp: {showStamp ? 'On' : 'Off'}
+        </button>
         <button onClick={onClose} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 dark:border-white/10 dark:text-slate-300">
           ✖ Close
         </button>
