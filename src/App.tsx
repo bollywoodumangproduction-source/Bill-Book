@@ -112,7 +112,6 @@ function PortalSelection() {
         <div className="space-y-3">
           <Link to="/client/login" className="block rounded-xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-center text-sm font-semibold text-amber-200 transition hover:bg-amber-500/20">Client Login</Link>
           <Link to="/partner/login" className="block rounded-xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-center text-sm font-semibold text-cyan-200 transition hover:bg-cyan-500/20">Lab Partner Login</Link>
-          <Link to="/admin/login" className="block rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm font-medium text-slate-300 transition hover:bg-white/10">Admin Login</Link>
         </div>
       </div>
     </main>

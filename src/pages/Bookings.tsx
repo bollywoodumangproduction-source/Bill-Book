@@ -2081,7 +2081,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
       </Modal>
       <BillPreviewModal booking={booking} settings={settings} open={isBillPreviewOpen} onClose={() => setIsBillPreviewOpen(false)} onDualPrint={() => { setIsDualPrintOpen(true); setTimeout(() => { window.print(); setIsDualPrintOpen(false); }, 100); }} />
       {isDualPrintOpen && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><BillInvoice booking={booking} settings={settings} compact /></PrintableDualCopies></div>, document.body)}
-      {createPortal(
+      {!isDualPrintOpen && createPortal(
         <div id="printable-bill-sheet" aria-hidden>
           <BillInvoice booking={booking} settings={settings} />
         </div>,
@@ -2105,8 +2105,10 @@ function BillPreviewModal({ booking, settings, open, onClose, onDualPrint }: { b
 
   return (
     <Modal open={open} onClose={onClose} title="Invoice Preview" size="xl" dismissible={false}>
-      <div id={previewId} className="bg-slate-950/80 p-2 sm:p-4">
-        <BillInvoice booking={booking} settings={settings} />
+      <div className="w-full max-w-[100vw] overflow-x-auto px-2 sm:px-4">
+        <div id={previewId} className="mx-auto w-full max-w-[794px] bg-slate-950/80 p-2 sm:p-4">
+          <BillInvoice booking={booking} settings={settings} />
+        </div>
       </div>
       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-white/10 pt-4">
         <button onClick={onClose} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 dark:border-white/10 dark:text-slate-300">

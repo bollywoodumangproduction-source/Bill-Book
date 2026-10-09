@@ -114,8 +114,8 @@ export function PublicInvoice() {
                   </div>
                 </div>
               </div>
-              <div className="p-3 sm:p-5">
-                <div id={`public-invoice-${booking.id}`} className="overflow-hidden rounded-2xl bg-white shadow-lg ring-1 ring-slate-200 print:shadow-none print:rounded-none">
+              <div className="w-full max-w-[100vw] overflow-x-auto px-2 py-3 sm:px-4 sm:py-5">
+                <div id={`public-invoice-${booking.id}`} className="mx-auto w-full max-w-[794px] rounded-2xl bg-white shadow-lg ring-1 ring-slate-200 print:shadow-none print:rounded-none">
                   <BillInvoice booking={booking} settings={settings} />
                 </div>
               </div>
@@ -130,7 +130,7 @@ export function PublicInvoice() {
       )}
 
       {/* Portaled print template — shown only during print via CSS */}
-      {booking && createPortal(
+      {!dualPrint && booking && createPortal(
         <div id="printable-bill-sheet" aria-hidden>
           <BillInvoice booking={booking} settings={settings} />
         </div>,

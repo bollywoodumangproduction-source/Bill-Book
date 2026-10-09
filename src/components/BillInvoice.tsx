@@ -11,6 +11,12 @@ const DEFAULT_DELIVERABLES: BookingDeliverables = {
   raw_edited_photos: false,
 };
 
+export function getInvoiceCopyType(): 'original' | 'client' {
+  if (typeof window === 'undefined') return 'original';
+  const path = window.location.pathname;
+  return /^\/(?:view|portal|client|partner)(?:\/|$)/i.test(path) ? 'client' : 'original';
+}
+
 function nextDate(date: string): string {
   if (!date) return '';
   const [year, month, day] = date.split('-').map(Number);
@@ -71,8 +77,10 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
   const paymentHistory = booking.deliverables_data?.payment_details?.payment_history ?? [];
   const extraItems = booking.deliverables_data?.custom_items ?? [];
   const cn = compact ? 'compact-bill' : '';
+  const copyType = getInvoiceCopyType();
+  const copyLabel = copyType === 'client' ? 'CLIENT COPY / 2ND COPY' : 'ORIGINAL COPY';
   return (
-    <div className={`bill-page bg-white text-black ${cn}`} style={{ userSelect: 'text', padding: compact ? '3mm 4mm' : undefined }}>
+    <div className={`bill-page relative mx-auto box-border w-full max-w-[794px] bg-white p-3 text-[13px] leading-relaxed text-black sm:p-6 sm:text-sm ${cn}`} data-copy-mark={copyType} data-watermark={copyType === 'client' ? 'CLIENT COPY - 2ND COPY' : ''} style={{ userSelect: 'text', padding: compact ? '3mm 4mm' : undefined }}>
       {/* Header */}
       <div className={compact ? "mb-2 flex items-center justify-between border-b-2 border-black pb-2" : "mb-6 flex items-center justify-between border-b-2 border-black pb-4"}>
         <div className="flex items-center gap-2">
@@ -87,6 +95,7 @@ export function BillInvoice({ booking, settings, compact = false }: { booking: B
           </div>
         </div>
         <div className="text-right">
+          <p className="mb-1 inline-block rounded border border-slate-400 px-2 py-0.5 text-[9px] font-bold tracking-wide">{copyLabel}</p>
           <p className={compact ? "text-xs font-bold" : "text-sm font-bold"}>{booking.booking_no}</p>
           <p className="text-xs">{formatDate(booking.shoot_date)}</p>
         </div>
