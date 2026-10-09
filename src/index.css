@@ -26,16 +26,6 @@ body::after {
   transition: background-color 0.3s ease, color 0.15s ease;
 }
 
-/* Hide floating Bolt badges/banners and protect nav from overlap */
-a[href*="bolt.new"],
-div[class*="bolt"],
-iframe[src*="bolt"] {
-  display: none !important;
-  pointer-events: none !important;
-  opacity: 0 !important;
-  visibility: hidden !important;
-}
-
 /* Custom scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

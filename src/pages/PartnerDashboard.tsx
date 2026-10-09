@@ -499,7 +499,7 @@ export function PartnerDashboardContent({
         {!adminPreview && <header className="fixed left-0 right-0 top-0 z-50 flex h-14 w-full items-center justify-between gap-2 border-b border-slate-800/80 bg-slate-950/95 px-2 backdrop-blur-md sm:gap-4 sm:px-4 lg:px-8">
           <div className="flex min-w-0 max-w-[44%] items-center gap-1.5 sm:max-w-none sm:gap-2.5">
             <img
-              src={settingsData?.studioLogo || settingsData?.logo || settings?.production_logo_url || settings?.films_logo_url || '/logo.png'}
+              src={settingsData?.studioLogo || settingsData?.logo || settings?.production_logo_url || settings?.films_logo_url || '/icon.svg'}
               alt="Studio logo"
               className="h-8 w-8 shrink-0 rounded-lg border border-slate-700/70 bg-slate-900 p-1 object-contain sm:h-11 sm:w-11"
             />

@@ -502,7 +502,9 @@ export interface EquipmentRental {
 export interface EquipmentRentalPayment {
   id: string;
   rental_id: string;
+  request_id?: string;
   amount: number;
+  flow_direction: 'IN' | 'OUT';
   payment_date: string;
   payment_mode: RentalPaymentMode;
   note: string;

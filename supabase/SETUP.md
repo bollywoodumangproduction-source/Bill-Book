@@ -10,6 +10,10 @@ The security migration replaces earlier broad anon policies with admin-only writ
 
 `20261008190000_unify_booking_payment_ledger.sql` adds the single-entry booking/lab payment RPCs, stable installment-to-audit IDs, Dairy Book sync, optional zero-default tax fields, and linked previous-balance transfers. Apply it only after reviewing the already-applied migration history and current preflight output. It preserves old stored totals as billing version 1; new records use the itemized billing version 2. Payments becomes an audit view; enter booking receipts from Bookings, lab receipts from the Lab Order, and unrelated cash entries from Dairy Book.
 
+`20261009100000_secure_equipment_rental_workflows.sql` makes rental creation/edit and payment recording transactional, protects retries from duplicate rental/payment records, mirrors corrected counterparty details to the payment audit, and supports explicit refunds after cancellation. Apply this migration before deploying the matching Equipment Rentals UI; it leaves existing rental and payment rows in place and backfills payment direction from each rental.
+
+`20261009110000_add_music_master_cue_cards.sql` creates a separate, admin-only `music_master_cues` table for studio song references and editing notes. It does not modify client-selected `music_cues`; the foreign key prevents deleting a music project while its master references exist. Apply it before deploying the Music Selection update. The client share page continues using the restricted `public-share` Edge Function and refreshes its status there, rather than opening anonymous Realtime access to project data.
+
 That migration also creates the public `studio-branding` Supabase Storage bucket for logos/stamps (2 MB, JPG/PNG/WebP/GIF). The app restricts uploads and deletion to the admin Auth role. Photo-selection image binaries are reserved for Cloudflare R2 once its signer API is configured; Supabase stores their URLs and related selection data.
 
 ## 2. Create the admin Auth account

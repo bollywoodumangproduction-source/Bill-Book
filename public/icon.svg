@@ -1,1 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#0f172a"/><path d="M128 352V160h48l80 112 80-112h48v192h-48V235l-80 109-80-109v117z" fill="#f59e0b"/><circle cx="384" cy="128" r="28" fill="#34d399"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Bollywood Umang">
+  <rect width="512" height="512" rx="96" fill="#0f172a"/>
+  <text x="256" y="318" text-anchor="middle" font-family="Arial, sans-serif" font-size="208" font-weight="800" letter-spacing="-16" fill="#f59e0b">BU</text>
+  <circle cx="394" cy="112" r="28" fill="#34d399"/>
+</svg>
