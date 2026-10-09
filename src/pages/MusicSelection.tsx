@@ -14,6 +14,7 @@ import {
   Share2,
   ShieldCheck,
   Sparkles,
+  Trash2,
   Unlock,
   Users,
   X,
@@ -76,6 +77,8 @@ export function MusicSelection() {
   const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<MusicProject | null>(null);
+  const [deletingProject, setDeletingProject] = useState(false);
   const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
@@ -110,6 +113,25 @@ export function MusicSelection() {
 
   const selectedProject = projects.find((project) => project.id === selectedId) ?? null;
   const selectedCues = cues.filter((cue) => cue.project_id === selectedId);
+
+  const deleteProject = async () => {
+    if (!projectToDelete || deletingProject) return;
+    setDeletingProject(true);
+    const { data, error } = await supabase.rpc('studio_delete_music_project', { target_project_id: projectToDelete.id });
+    setDeletingProject(false);
+    if (error || !data) {
+      toast('Could not delete the music project. Confirm the latest Music Selection delete migration is applied.', 'error');
+      return;
+    }
+    const deletedId = projectToDelete.id;
+    const remaining = projects.filter((project) => project.id !== deletedId);
+    setProjects(remaining);
+    setCues((current) => current.filter((cue) => cue.project_id !== deletedId));
+    setMasterCues((current) => current.filter((cue) => cue.project_id !== deletedId));
+    if (selectedId === deletedId) setSelectedId(remaining[0]?.id ?? '');
+    setProjectToDelete(null);
+    toast('Music project and its song details were deleted', 'success');
+  };
 
   const createProject = async (clientName: string, mode: MusicProjectMode, bookingId: string | null, partnerId: string | null, labOrderId: string | null, labClientId: string | null) => {
     const trimmedName = clientName.trim();
@@ -217,11 +239,12 @@ export function MusicSelection() {
         </aside>
 
         <section className="min-w-0">
-          {!selectedProject ? <EmptyState icon={Headphones} title="Select a music project" subtitle="Your cue sheet will appear here" /> : <AdminProject project={selectedProject} cues={selectedCues} masterCues={masterCues.filter((cue) => cue.project_id === selectedProject.id)} onSaveMasterCue={saveMasterCue} onAddCue={addCue} onRemoveCue={removeCue} onToggleLock={toggleLock} onCopyShare={copyShare} />}
+          {!selectedProject ? <EmptyState icon={Headphones} title="Select a music project" subtitle="Your cue sheet will appear here" /> : <AdminProject project={selectedProject} cues={selectedCues} masterCues={masterCues.filter((cue) => cue.project_id === selectedProject.id)} onSaveMasterCue={saveMasterCue} onAddCue={addCue} onRemoveCue={removeCue} onToggleLock={toggleLock} onCopyShare={copyShare} onRequestDelete={() => setProjectToDelete(selectedProject)} />}
         </section>
       </div>
 
       {showCreate && <CreateProjectModal onClose={() => setShowCreate(false)} onCreate={createProject} />}
+      {projectToDelete && <DeleteMusicProjectModal project={projectToDelete} busy={deletingProject} onCancel={() => { if (!deletingProject) setProjectToDelete(null); }} onConfirm={() => void deleteProject()} />}
       </div>
     </div>
   );
@@ -231,7 +254,7 @@ function StatusBadge({ status }: { status: MusicProject['status'] }) {
   return <Badge color={status === 'locked' ? 'emerald' : status === 'submitted' ? 'sky' : 'slate'}>{status === 'locked' ? 'Locked' : status === 'submitted' ? 'Submitted' : 'Draft'}</Badge>;
 }
 
-function AdminProject({ project, cues, masterCues, onSaveMasterCue, onAddCue, onRemoveCue, onToggleLock, onCopyShare }: { project: MusicProject; cues: MusicCue[]; masterCues: MusicMasterCue[]; onSaveMasterCue: (cue: Omit<MusicMasterCue, 'id' | 'created_at' | 'updated_at'>, existing?: MusicMasterCue) => Promise<boolean>; onAddCue: (cue: Omit<MusicCue, 'id' | 'created_at' | 'updated_at'>) => Promise<void>; onRemoveCue: (id: string) => Promise<void>; onToggleLock: () => Promise<void>; onCopyShare: () => Promise<void> }) {
+function AdminProject({ project, cues, masterCues, onSaveMasterCue, onAddCue, onRemoveCue, onToggleLock, onCopyShare, onRequestDelete }: { project: MusicProject; cues: MusicCue[]; masterCues: MusicMasterCue[]; onSaveMasterCue: (cue: Omit<MusicMasterCue, 'id' | 'created_at' | 'updated_at'>, existing?: MusicMasterCue) => Promise<boolean>; onAddCue: (cue: Omit<MusicCue, 'id' | 'created_at' | 'updated_at'>) => Promise<void>; onRemoveCue: (id: string) => Promise<void>; onToggleLock: () => Promise<void>; onCopyShare: () => Promise<void>; onRequestDelete: () => void }) {
   const { toast } = useToast();
   const [showAdd, setShowAdd] = useState(false);
   const [showMasterForm, setShowMasterForm] = useState(false);
@@ -272,7 +295,7 @@ function AdminProject({ project, cues, masterCues, onSaveMasterCue, onAddCue, on
       <div className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 dark:border-white/10 dark:bg-slate-900/60">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-xl font-bold text-slate-900 dark:text-white">{project.client_name}</h2><StatusBadge status={project.status} /></div><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{project.mode === 'b2b' ? 'Song cues for lab / photographer partner work' : 'Client event-wise song selection'}</p></div>
-          <div className="flex flex-wrap items-center gap-2"><button onClick={onCopyShare} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"><Clipboard className="h-3.5 w-3.5" /> Copy Link</button><a href={whatsappHref} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400"><Send className="h-3.5 w-3.5" /> WhatsApp</a><button onClick={exportCueSheet} className="flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-400"><ExternalLink className="h-3.5 w-3.5" /> Export Cue Sheet</button><div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-white/10"><span className={`text-xs font-semibold ${locked ? 'text-sky-500 dark:text-sky-300' : 'text-slate-500 dark:text-slate-400'}`}>{locked ? 'Locked' : 'Draft / Unlocked'}</span><button type="button" role="switch" aria-checked={locked} aria-label={locked ? 'Unlock song selection' : 'Lock song selection'} disabled={lockBusy} onClick={async () => { setLockBusy(true); try { await onToggleLock(); } finally { setLockBusy(false); } }} className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-sky-400/60 disabled:cursor-wait disabled:opacity-60 ${locked ? 'bg-sky-500' : 'bg-slate-400 dark:bg-slate-700'}`}><span className={`inline-flex h-5 w-5 transform items-center justify-center rounded-full bg-white shadow transition-transform duration-300 ${locked ? 'translate-x-6' : 'translate-x-1'}`}>{locked ? <CheckCircle2 className="h-3.5 w-3.5 text-sky-600" /> : <Unlock className="h-3.5 w-3.5 text-slate-500" />}</span></button></div></div>
+          <div className="flex flex-wrap items-center gap-2"><button onClick={onCopyShare} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"><Clipboard className="h-3.5 w-3.5" /> Copy Link</button><a href={whatsappHref} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400"><Send className="h-3.5 w-3.5" /> WhatsApp</a><button onClick={exportCueSheet} className="flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-400"><ExternalLink className="h-3.5 w-3.5" /> Export Cue Sheet</button><button onClick={onRequestDelete} className="flex items-center gap-1.5 rounded-lg border border-rose-500/20 px-3 py-2 text-xs font-medium text-rose-400 hover:bg-rose-500/10"><Trash2 className="h-3.5 w-3.5" /> Delete Project</button><div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-white/10"><span className={`text-xs font-semibold ${locked ? 'text-sky-500 dark:text-sky-300' : 'text-slate-500 dark:text-slate-400'}`}>{locked ? 'Locked' : 'Draft / Unlocked'}</span><button type="button" role="switch" aria-checked={locked} aria-label={locked ? 'Unlock song selection' : 'Lock song selection'} disabled={lockBusy} onClick={async () => { setLockBusy(true); try { await onToggleLock(); } finally { setLockBusy(false); } }} className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-sky-400/60 disabled:cursor-wait disabled:opacity-60 ${locked ? 'bg-sky-500' : 'bg-slate-400 dark:bg-slate-700'}`}><span className={`inline-flex h-5 w-5 transform items-center justify-center rounded-full bg-white shadow transition-transform duration-300 ${locked ? 'translate-x-6' : 'translate-x-1'}`}>{locked ? <CheckCircle2 className="h-3.5 w-3.5 text-sky-600" /> : <Unlock className="h-3.5 w-3.5 text-slate-500" />}</span></button></div></div>
         </div>
         {locked && <div className="mt-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300"><ShieldCheck className="h-4 w-4" /> Finalized by the client. Unlock only if the studio approves a revision.</div>}
       </div>
@@ -283,6 +306,12 @@ function AdminProject({ project, cues, masterCues, onSaveMasterCue, onAddCue, on
       {showMasterForm && <MasterCueModal projectId={project.id} existing={editingMasterCue} onClose={() => setShowMasterForm(false)} onSave={async (cue) => { const saved = await onSaveMasterCue(cue, editingMasterCue); if (saved) setShowMasterForm(false); }} />}
     </div>
   );
+}
+
+function DeleteMusicProjectModal({ project, busy, onCancel, onConfirm }: { project: MusicProject; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+  const [confirmation, setConfirmation] = useState('');
+  const confirmed = confirmation.trim() === project.client_name.trim();
+  return <div className="fixed inset-0 z-[170] flex items-center justify-center bg-black/70 p-4"><div role="dialog" aria-modal="true" aria-labelledby="delete-music-project-title" className="w-full max-w-md rounded-2xl border border-rose-500/20 bg-slate-900 p-5 text-white shadow-2xl"><div className="mb-3 flex items-center gap-2 text-rose-300"><Trash2 className="h-5 w-5" /><h2 id="delete-music-project-title" className="text-lg font-semibold">Delete Music Project?</h2></div><p className="text-sm text-slate-300">This permanently deletes <strong>{project.client_name}</strong>, its song choices, and its master song details. This cannot be undone.</p><Field label={`Type “${project.client_name}” to confirm`}><input autoFocus value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} /></Field><div className="mt-5 flex justify-end gap-2"><button type="button" disabled={busy} onClick={onCancel} className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5">Cancel</button><button type="button" disabled={!confirmed || busy} onClick={onConfirm} className="rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50">{busy ? 'Deleting…' : 'Permanently Delete'}</button></div></div></div>;
 }
 
 function CueCard({ cue, locked, onRemove }: { cue: MusicCue; locked: boolean; onRemove: () => void }) {
