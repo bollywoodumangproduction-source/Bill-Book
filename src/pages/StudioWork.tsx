@@ -2280,7 +2280,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                   <p className="text-xs font-medium text-sky-600 dark:text-sky-400">Video Items</p>
                   {client.video_rows.map((r, vi) => (
                       <div key={vi}>
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
                           <select value={r.video_type} onChange={(e) => updateVideoRow(ci, vi, { video_type: e.target.value })} className={`${selectClass} min-w-[150px] flex-[1_1_170px]`}>
                             <option value="">Select Type</option>
                             {LAB_VIDEO_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -2289,8 +2289,8 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                             <option value="">Resolutions</option>
                             {LAB_VIDEO_QUALITIES.map((q) => <option key={q} value={q}>{q}</option>)}
                           </select>
-                          <input type="number" value={r.qty || ''} onChange={(e) => updateVideoRow(ci, vi, { qty: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-[76px] shrink-0`} placeholder="Qty" />
-                          <input type="number" value={r.rate || ''} onChange={(e) => updateVideoRow(ci, vi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-28 min-w-[110px] shrink-0`} placeholder="Rate" />
+                          <input type="number" value={r.qty || ''} onChange={(e) => updateVideoRow(ci, vi, { qty: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[76px] shrink-0`} placeholder="Qty" />
+                          <input type="number" value={r.rate || ''} onChange={(e) => updateVideoRow(ci, vi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[110px] !min-w-[110px] shrink-0`} placeholder="Rate" />
                           <span className="flex min-w-[90px] items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(computeRowTotal(r))}</span>
                           <button onClick={() => removeVideoRow(ci, vi)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500">
                             <Trash2 className="h-4 w-4" />
@@ -2311,7 +2311,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                       <div key={ai} className="rounded-lg border border-slate-200 p-2.5 dark:border-white/10">
                         {/* Master row */}
                         <div>
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
                             <select value={r.album_type} onChange={(e) => updateAlbumRow(ci, ai, { album_type: e.target.value })} className={`${selectClass} min-w-[145px] flex-[1_1_165px]`}>
                               <option value="">Select Type</option>
                               {LAB_ALBUM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -2324,7 +2324,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                               <option value="">Packaging</option>
                               {LAB_ALBUM_COVERS.map((c) => <option key={c} value={c}>{c}</option>)}
                             </select>
-                            <input type="number" value={r.packaging_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { packaging_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-28 min-w-[110px] shrink-0`} placeholder="Rate" />
+                            <input type="number" value={r.packaging_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { packaging_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[125px] !min-w-[125px] shrink-0`} placeholder="Rate" />
                             <span className="flex min-w-[90px] items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(r.packaging_total))}</span>
                             <button onClick={() => removeAlbumRow(ci, ai)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500">
                               <Trash2 className="h-4 w-4" />
@@ -2338,8 +2338,8 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                             </label>
                             {r.mini_album && (
                               <div className="flex flex-wrap items-center gap-2">
-                                <input type="number" value={r.mini_qty || ''} onChange={(e) => updateAlbumRow(ci, ai, { mini_qty: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-20 shrink-0`} placeholder="Qty" />
-                                <input type="number" value={r.mini_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { mini_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-28 min-w-[110px] shrink-0`} placeholder="Rate" />
+                                <input type="number" value={r.mini_qty || ''} onChange={(e) => updateAlbumRow(ci, ai, { mini_qty: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-20 shrink-0`} placeholder="Qty" />
+                                <input type="number" value={r.mini_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { mini_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[110px] !min-w-[110px] shrink-0`} placeholder="Rate" />
                                 <span className="min-w-[90px] text-xs font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(r.mini_total))}</span>
                               </div>
                             )}
@@ -2347,13 +2347,13 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                           {/* Paper sub-rows */}
                           <div className="mt-2 space-y-1.5 border-l-2 border-amber-200 pl-3 dark:border-amber-500/20">
                             {r.papers.map((p, pi) => (
-                              <div key={p.id} className="flex flex-wrap items-center gap-2">
+                              <div key={p.id} className="flex flex-nowrap items-center gap-2 overflow-x-auto">
                                 <select value={p.paper_type} onChange={(e) => updatePaperRow(ci, ai, pi, { paper_type: e.target.value })} className={`${selectClass} min-w-[145px] flex-[1_1_165px]`}>
                                   <option value="">Paper</option>
                                   {LAB_ALBUM_PAPERS.map((pp) => <option key={pp} value={pp}>{pp}</option>)}
                                 </select>
-                                <input type="number" value={p.sheets || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { sheets: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-24 shrink-0`} placeholder="Sheets" />
-                                <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-28 min-w-[110px] shrink-0`} placeholder="Rate/Sheet" />
+                                <input type="number" value={p.sheets || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { sheets: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-24 shrink-0`} placeholder="Sheets" />
+                                <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[110px] !min-w-[110px] shrink-0`} placeholder="Rate/Sheet" />
                                 <span className="flex min-w-[90px] items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(p.total))}</span>
                                 {r.papers.length > 1 && (
                                   <button onClick={() => removePaperRow(ci, ai, pi)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500">
