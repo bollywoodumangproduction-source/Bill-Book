@@ -130,7 +130,7 @@ function AppLaunchRoute() {
       let next: string;
 
       if (role === 'admin') {
-        next = window.location.pathname === '/' ? '/portal' : '/admin';
+        next = '/admin';
       } else if (role === 'partner') {
         const partner = getPartnerSession();
         next = partner && user?.app_metadata?.portal_record_id === partner.id ? '/partner/dashboard' : '/partner/login';
