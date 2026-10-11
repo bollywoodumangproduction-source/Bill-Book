@@ -23,10 +23,19 @@ function embedUrl(value: string) {
 function displayPackagePrice(value: string) {
   const price = value.trim();
   if (!price) return 'Price on request';
-  if (/^₹/.test(price)) return price;
-  if (/^rs\.?\s*/i.test(price)) return price.replace(/^rs\.?\s*/i, '₹');
-  if (/^inr\s*/i.test(price)) return price.replace(/^inr\s*/i, '₹');
-  return `₹${price}`;
+  const amountText = price.replace(/^(?:₹|rs\.?\s*|inr\s*)/i, '').trim();
+  const alreadyThousands = amountText.match(/^(\d+(?:\.\d+)?)\s*k\b(.*)$/i);
+  if (alreadyThousands) return `₹${alreadyThousands[1]}k${alreadyThousands[2]}`;
+  const numeric = amountText.match(/^([\d,]+(?:\.\d+)?)(?:\s*(?:\/-|only))?$/i);
+  if (numeric) {
+    const amount = Number(numeric[1].replace(/,/g, ''));
+    if (Number.isFinite(amount) && amount >= 1000) {
+      const thousands = Number((amount / 1000).toFixed(2)).toString();
+      return `₹${thousands}k`;
+    }
+    if (Number.isFinite(amount)) return `₹${amount.toLocaleString('en-IN')}`;
+  }
+  return `₹${amountText}`;
 }
 
 export function PublicProposalView() {
@@ -111,12 +120,12 @@ export function PublicProposalView() {
           <section onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="relative overflow-hidden rounded-3xl border border-amber-300/30 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 shadow-[0_24px_80px_rgba(0,0,0,.45)]">
             <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-500 via-yellow-200 to-amber-500" />
             <article key={active.id} className="animate-[fadeIn_.25s_ease-out]">
-              <header className="flex flex-col gap-3 border-b border-amber-200/15 bg-gradient-to-r from-amber-400/15 via-slate-800/90 to-slate-900 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-9 sm:py-6">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-bold uppercase tracking-[.22em] text-amber-200/80">{active.package_name || `PACKAGE ${index + 1}`}</p>
-                  <h2 className="mt-1 break-words text-3xl font-black leading-tight text-white sm:text-4xl">{displayPackagePrice(active.price)}</h2>
+              <header className="relative flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b-[3px] border-amber-500 bg-[#11143b] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,.08),0_4px_0_rgba(0,0,0,.45)] sm:px-7 sm:py-4">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
+                  <p className="max-w-full break-words text-xs font-extrabold uppercase tracking-[.12em] text-white sm:text-sm">{active.package_name || `PACKAGE ${index + 1}`}</p>
+                  {active.badge && <span className="max-w-full break-words rounded-full border border-orange-300/60 bg-orange-500 px-3 py-1 text-[10px] font-extrabold uppercase leading-tight text-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,.35),0_2px_0_rgba(154,52,18,.8)] sm:text-[11px]">{active.badge}</span>}
                 </div>
-                {active.badge && <span className="max-w-full self-start break-words rounded-full border border-amber-300/35 bg-amber-300/10 px-3.5 py-1.5 text-xs font-semibold leading-snug text-amber-100 sm:max-w-[45%] sm:self-center sm:text-right">{active.badge}</span>}
+                <h2 className="ml-auto shrink-0 text-right text-2xl font-black leading-none text-amber-300 drop-shadow-[0_2px_0_rgba(120,53,15,.9)] sm:text-3xl">{displayPackagePrice(active.price)}</h2>
               </header>
               <div className="p-5 sm:p-9">
               <div className="my-6 grid gap-6 md:grid-cols-2">
