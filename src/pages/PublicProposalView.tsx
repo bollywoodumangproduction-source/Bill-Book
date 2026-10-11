@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type TouchEvent } from 'react';
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, LockKeyhole, Play, Sparkles, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type TouchEvent } from 'react';
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, LockKeyhole, Maximize2, Play, Sparkles, X } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useSettings } from '@/context/SettingsContext';
@@ -62,6 +62,8 @@ export function PublicProposalView() {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [video, setVideo] = useState('');
+  const videoStageRef = useRef<HTMLDivElement>(null);
+  const [videoFullscreen, setVideoFullscreen] = useState(false);
   const [pdf, setPdf] = useState('');
   const [touchX, setTouchX] = useState<number | null>(null);
 
@@ -117,6 +119,34 @@ export function PublicProposalView() {
   };
 
   const studioPhone = settings?.studio_call_number || settings?.phone || settings?.whatsapp_number || '';
+  const toggleVideoFullscreen = async () => {
+    const stage = videoStageRef.current;
+    if (!stage) return;
+    try {
+      if (document.fullscreenElement === stage) {
+        await document.exitFullscreen();
+        screen.orientation?.unlock?.();
+        return;
+      }
+      await stage.requestFullscreen();
+      if (window.matchMedia('(max-width: 768px)').matches) {
+        const orientation = screen.orientation as ScreenOrientation & { lock?: (value: string) => Promise<void> };
+        try { await orientation.lock?.('landscape'); } catch { /* Device/browser may not allow orientation locking. */ }
+      }
+    } catch {
+      // Some mobile browsers only offer fullscreen through the media player's own controls.
+    }
+  };
+  useEffect(() => {
+    const syncFullscreen = () => setVideoFullscreen(document.fullscreenElement === videoStageRef.current);
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
+  }, []);
+  useEffect(() => {
+    if (video) return;
+    if (document.fullscreenElement === videoStageRef.current) void document.exitFullscreen().catch(() => {});
+    screen.orientation?.unlock?.();
+  }, [video]);
   return <main className="min-h-screen bg-[radial-gradient(ellipse_at_12%_0%,_rgba(245,158,11,.16),_transparent_34%),radial-gradient(ellipse_at_88%_22%,_rgba(56,189,248,.07),_transparent_28%),linear-gradient(155deg,#020617,#0b1221_52%,#020617)] px-3 py-6 text-white sm:px-6 sm:py-10">
     <div className="mx-auto max-w-4xl">
       <header className="sticky top-0 z-30 -mx-3 -mt-6 mb-5 overflow-hidden rounded-b-[22px] border border-amber-300/20 bg-gradient-to-br from-slate-950/95 via-[#0b1425]/95 to-slate-950/95 p-3 text-center shadow-[0_12px_32px_rgba(0,0,0,.38),inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-xl sm:static sm:mx-0 sm:mt-0 sm:mb-9 sm:rounded-[28px] sm:p-9 sm:shadow-[0_24px_70px_rgba(0,0,0,.4),inset_0_1px_0_rgba(255,255,255,.06)] sm:backdrop-blur-none">
@@ -169,7 +199,7 @@ export function PublicProposalView() {
 
     {showFinalize && active && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="proposal-finalize-title"><div className="w-full max-w-lg rounded-[24px] border border-amber-300/20 bg-gradient-to-br from-slate-900 to-slate-950 p-5 shadow-[0_30px_100px_rgba(0,0,0,.7)] sm:p-6"><div className="flex items-start justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-amber-300">Your selection</p><h2 id="proposal-finalize-title" className="mt-1 text-lg font-bold">Confirm package selection</h2><p className="mt-2 inline-flex rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-1.5 text-sm font-semibold text-amber-100">{active.package_name} · {displayPackagePrice(active.price)}</p></div><button onClick={() => setShowFinalize(false)} aria-label="Close" className="rounded-lg p-2 text-slate-400 transition hover:bg-white/5 hover:text-white"><X /></button></div><div className="mt-5 space-y-3"><input className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-3 focus:border-amber-300/50 focus:outline-none" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Client name" /><input className="w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-3 focus:border-amber-300/50 focus:outline-none" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} placeholder="Phone number" /><textarea className="min-h-24 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-3 focus:border-amber-300/50 focus:outline-none" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" /></div><button disabled={saving || !clientName.trim() || !clientPhone.trim()} onClick={() => void finalize()} className="mt-5 w-full rounded-xl bg-gradient-to-b from-amber-300 to-amber-500 px-4 py-3 font-bold text-slate-950 shadow-[0_4px_0_#9a5b12] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50">{saving ? 'Saving…' : 'Confirm & Send Selection'}</button><p className="mt-3 text-center text-xs text-slate-500">Your choice will be sent to the studio for confirmation.</p></div></div>}
 
-    {video && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 p-3" role="dialog" aria-modal="true" aria-label="Sample video"><button onClick={() => setVideo('')} className="absolute right-4 top-4 rounded-full bg-slate-800 p-2" aria-label="Close video"><X /></button><div className="w-full max-w-5xl">{(() => { const media = resolveMediaUrl(video, 'video'); const isVimeo = /(?:vimeo\.com|player\.vimeo\.com)/i.test(video); const directPcloud = media?.provider === 'pcloud' ? directPcloudVideoUrl(video) : null; if (directPcloud) return <video controls controlsList="nodownload" disablePictureInPicture playsInline autoPlay onContextMenu={(event) => event.preventDefault()} className="max-h-[80vh] w-full rounded-xl bg-black object-contain" src={directPcloud}>Your browser does not support the video tag.</video>; if (media?.provider === 'pcloud') return <ProposalPcloudVideoPreview src={media.previewUrl} />; if (isVimeo) return <iframe className="aspect-video w-full rounded-xl" src={embedUrl(video)} title="Wedding sample video" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />; return <UniversalMediaPreview url={video} kind="video" title="Wedding sample video" mediaClassName="aspect-video w-full rounded-xl" />; })()}</div></div>}
+    {video && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 p-3" role="dialog" aria-modal="true" aria-label="Sample video"><button onClick={() => setVideo('')} className="absolute right-4 top-4 z-10 rounded-full bg-slate-800 p-2" aria-label="Close video"><X /></button><div ref={videoStageRef} className="relative flex w-full max-w-5xl items-center justify-center bg-black [&:fullscreen]:h-[100dvh] [&:fullscreen]:w-screen [&:fullscreen]:max-w-none [&:fullscreen]:p-2"><button onClick={() => void toggleVideoFullscreen()} className="absolute right-3 top-3 z-20 rounded-lg border border-white/20 bg-slate-900/90 p-2 text-white shadow-lg" aria-label={videoFullscreen ? 'Exit full screen video' : 'View video full screen'} title={videoFullscreen ? 'Exit full screen' : 'Full screen / rotate video'}><Maximize2 className="h-5 w-5" /></button>{(() => { const media = resolveMediaUrl(video, 'video'); const isVimeo = /(?:vimeo\.com|player\.vimeo\.com)/i.test(video); const directPcloud = media?.provider === 'pcloud' ? directPcloudVideoUrl(video) : null; if (directPcloud) return <video controls controlsList="nodownload" disablePictureInPicture playsInline autoPlay onContextMenu={(event) => event.preventDefault()} className="max-h-[80vh] w-full rounded-xl bg-black object-contain [&:fullscreen]:max-h-[100dvh]" src={directPcloud}>Your browser does not support the video tag.</video>; if (media?.provider === 'pcloud') return <ProposalPcloudVideoPreview src={media.previewUrl} />; if (isVimeo) return <iframe className="aspect-video w-full rounded-xl" src={embedUrl(video)} title="Wedding sample video" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />; return <UniversalMediaPreview url={video} kind="video" title="Wedding sample video" mediaClassName="aspect-video w-full rounded-xl" />; })()}</div></div>}
     {pdf && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 p-3" role="dialog" aria-modal="true" aria-label="Album PDF"><button onClick={() => setPdf('')} className="absolute right-4 top-4 rounded-full bg-slate-800 p-2" aria-label="Close PDF"><X /></button><div className="w-full max-w-5xl">{resolveMediaUrl(pdf, 'pdf')?.provider === 'pcloud' ? <ProposalExternalMediaLink url={pdf} label="Open album PDF" /> : <UniversalMediaPreview url={pdf} kind="pdf" title="Album PDF" mediaClassName="h-[80vh] min-h-[360px] w-full rounded-xl" />}</div></div>}
   </main>;
 }
@@ -191,8 +221,8 @@ function ProposalPcloudVideoPreview({ src }: { src: string }) {
       allowFullScreen
       loading="lazy"
       referrerPolicy="strict-origin-when-cross-origin"
-      className="absolute left-0 top-0 w-full border-0"
-      style={{ height: 'calc(100% + 150px)', transform: 'translateY(-116px)' }}
+      className="absolute left-0 top-0 w-full border-0 [--pcloud-header-crop:116px] max-[639px]:[--pcloud-header-crop:150px]"
+      style={{ height: 'calc(100% + var(--pcloud-header-crop))', transform: 'translateY(calc(var(--pcloud-header-crop) * -1))' }}
     />
   </div>;
 }
