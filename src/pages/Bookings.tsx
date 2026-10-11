@@ -94,6 +94,19 @@ function sanitizePayload<T>(payload: T): T {
   return JSON.parse(JSON.stringify(payload)) as T;
 }
 
+function bookingPaymentErrorMessage(error: unknown): string {
+  const message = error && typeof error === 'object' && 'message' in error
+    ? String((error as { message: unknown }).message)
+    : error instanceof Error ? error.message : '';
+  const code = error && typeof error === 'object' && 'code' in error
+    ? String((error as { code: unknown }).code)
+    : '';
+  if (code === 'PGRST202' || /record_booking_payment.*not found|could not find the function/i.test(message)) {
+    return 'Payment setup is missing in Supabase. Apply migration 20261008190000_unify_booking_payment_ledger.sql, then retry.';
+  }
+  return message || 'Could not record payment';
+}
+
 const bookingDue = (booking: Booking) => bookingBillingSnapshot(booking).balanceDue;
 
 function recycleDaysRemaining(deletedAt: string | null | undefined): number {
@@ -1945,7 +1958,12 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
                   });
                   if (error) throw error;
                   const { data, error: refreshError } = await supabase.from('bookings').select('*').eq('id', booking.id).single();
-                  if (refreshError) throw refreshError;
+                  if (refreshError) {
+                    setQuickPayAmount('');
+                    triggerRefresh();
+                    toast('Payment was recorded, but the booking could not refresh. Reload the page; do not enter this payment again.', 'error');
+                    return;
+                  }
                   const updated = data as Booking;
                   onUpdated(updated);
                   await logPaymentNotification(booking.id, amt, Number(updated.net_due));
@@ -1953,7 +1971,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
                   toast(`Payment of ${formatINR(amt)} recorded`, 'success');
                   setQuickPayAmount('');
                 } catch (error) {
-                  toast(error instanceof Error ? error.message : 'Could not record payment', 'error');
+                  toast(bookingPaymentErrorMessage(error), 'error');
                 } finally {
                   setSavingQuickPay(false);
                 }
