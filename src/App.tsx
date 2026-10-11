@@ -30,6 +30,8 @@ import { TeaserPreview, PublicTeaserPreview } from '@/pages/TeaserPreview';
 import { InvitationHub, PublicInvitationHub } from '@/pages/InvitationHub';
 import { PhotoSelection } from '@/pages/PhotoSelection';
 import { PublicPhotoSelection } from '@/pages/PublicPhotoSelection';
+import { PackageProposals } from '@/pages/PackageProposals';
+import { PublicProposalView } from '@/pages/PublicProposalView';
 import type { PageKey } from '@/lib/types';
 import { useAppBackGuard } from '@/lib/useAppBackGuard';
 import { supabase } from '@/lib/supabase';
@@ -268,6 +270,29 @@ function AdminGuard() {
   return <AdminApp />;
 }
 
+// The proposal editor is a standalone admin page so it does not alter the
+// existing studio sidebar, shell, or route behavior.
+function AdminProposalRoute() {
+  const location = useLocation();
+  const [authorized, setAuthorized] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    const verify = async () => {
+      const { data } = await supabase.auth.getUser();
+      const allowed = data.user?.app_metadata?.role === 'admin';
+      if (active) setAuthorized(allowed);
+    };
+    void verify();
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (active) setAuthorized(session?.user.app_metadata?.role === 'admin');
+    });
+    return () => { active = false; listener.subscription.unsubscribe(); };
+  }, []);
+  if (authorized === null) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-sm text-slate-400">Checking admin session…</div>;
+  if (!authorized) return <Navigate to="/admin/login" replace state={{ from: location }} />;
+  return <PackageProposals />;
+}
+
 function ClientGuard() {
   const location = useLocation();
   const [authorized, setAuthorized] = useState<boolean | null>(null);
@@ -339,6 +364,7 @@ export default function App() {
                   <Route path="/launch" element={<AppLaunchRoute />} />
                   <Route path="/portal" element={<PortalSelection />} />
                   <Route path="/admin" element={<AdminGuard />} />
+                  <Route path="/admin/proposals" element={<AdminProposalRoute />} />
                   <Route path="/admin/login" element={<AdminLogin />} />
                   <Route path="/admin/reset-password" element={<AdminPasswordRecovery />} />
                   <Route path="/client" element={<ClientLandingPage />} />
@@ -355,6 +381,7 @@ export default function App() {
                   <Route path="/photo-selection" element={<PhotoSelection />} />
                   <Route path="/select/:sessionId" element={<PublicPhotoSelection />} />
                   <Route path="/view/:bookingId" element={<PublicInvoice />} />
+                  <Route path="/proposal/:token" element={<PublicProposalView />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </BrowserRouter>
