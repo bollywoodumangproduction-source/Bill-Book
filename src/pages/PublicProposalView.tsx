@@ -20,6 +20,15 @@ function embedUrl(value: string) {
   } catch { return ''; }
 }
 
+function displayPackagePrice(value: string) {
+  const price = value.trim();
+  if (!price) return 'Price on request';
+  if (/^₹/.test(price)) return price;
+  if (/^rs\.?\s*/i.test(price)) return price.replace(/^rs\.?\s*/i, '₹');
+  if (/^inr\s*/i.test(price)) return price.replace(/^inr\s*/i, '₹');
+  return `₹${price}`;
+}
+
 export function PublicProposalView() {
   const { token = '' } = useParams<{ token: string }>();
   const { settings } = useSettings();
@@ -101,8 +110,15 @@ export function PublicProposalView() {
           <div className="mb-3 flex items-center justify-between text-xs text-slate-400"><span>Package {index + 1} of {proposal.packages_data.length}</span><span>{proposal.is_locked ? 'Studio finalized' : 'Swipe or use arrows to compare'}</span></div>
           <section onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="relative overflow-hidden rounded-3xl border border-amber-300/30 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 shadow-[0_24px_80px_rgba(0,0,0,.45)]">
             <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-500 via-yellow-200 to-amber-500" />
-            <article key={active.id} className="animate-[fadeIn_.25s_ease-out] p-5 sm:p-9">
-              <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold tracking-[.2em] text-amber-300">{active.package_name || `PACKAGE ${index + 1}`}</p><h2 className="mt-2 text-3xl font-black sm:text-4xl">{active.price}</h2></div>{active.badge && <span className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">{active.badge}</span>}</div>
+            <article key={active.id} className="animate-[fadeIn_.25s_ease-out]">
+              <header className="flex flex-col gap-3 border-b border-amber-200/15 bg-gradient-to-r from-amber-400/15 via-slate-800/90 to-slate-900 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-9 sm:py-6">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold uppercase tracking-[.22em] text-amber-200/80">{active.package_name || `PACKAGE ${index + 1}`}</p>
+                  <h2 className="mt-1 break-words text-3xl font-black leading-tight text-white sm:text-4xl">{displayPackagePrice(active.price)}</h2>
+                </div>
+                {active.badge && <span className="max-w-full self-start break-words rounded-full border border-amber-300/35 bg-amber-300/10 px-3.5 py-1.5 text-xs font-semibold leading-snug text-amber-100 sm:max-w-[45%] sm:self-center sm:text-right">{active.badge}</span>}
+              </header>
+              <div className="p-5 sm:p-9">
               <div className="my-6 grid gap-6 md:grid-cols-2">
                 <div><h3 className="mb-3 text-sm font-bold text-white">Event Coverage</h3><div className="space-y-3">{active.events.map((event, i) => <div key={`${event.name}-${i}`} className="rounded-xl border border-white/10 bg-white/[.03] p-3"><p className="font-semibold text-amber-200">{event.name}</p><p className="mt-1 text-sm leading-relaxed text-slate-300">{event.coverage}</p></div>)}</div></div>
                 <div><h3 className="mb-3 text-sm font-bold text-white">Deliverables</h3><ul className="space-y-3">{active.deliverables.map((item, i) => <li key={`${item}-${i}`} className="flex gap-2 text-sm leading-relaxed text-slate-200"><span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-400/15 text-amber-300"><Check className="h-3.5 w-3.5" /></span>{item}</li>)}</ul></div>
@@ -111,6 +127,7 @@ export function PublicProposalView() {
               {(albumPdf && isSafeLink(albumPdf) || photoFolder && isSafeLink(photoFolder)) && <div className="mt-3 flex flex-wrap gap-2">{albumPdf && isSafeLink(albumPdf) && <button onClick={() => setPdf(albumPdf)} className="rounded-xl border border-sky-300/25 bg-sky-400/10 px-4 py-2.5 text-sm font-semibold text-sky-200">View Album PDF</button>}{photoFolder && isSafeLink(photoFolder) && <a href={photoFolder} target="_blank" rel="noopener noreferrer" className="rounded-xl border border-sky-300/25 bg-sky-400/10 px-4 py-2.5 text-sm font-semibold text-sky-200">Open Photo Folder</a>}</div>}
               {proposal.selected_package?.package_id === active.id && <div className="mt-5 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-200">Selected by {proposal.selected_package.client_name} on {new Date(proposal.selected_package.submitted_at).toLocaleDateString()}</div>}
               <div className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5"><button onClick={() => go(-1)} disabled={index === 0} aria-label="Previous package" className="rounded-xl border border-white/10 p-3 text-slate-300 disabled:opacity-30"><ChevronLeft /></button>{proposal.is_locked ? <span className="rounded-xl border border-amber-300/20 px-4 py-3 text-center text-sm font-semibold text-amber-200"><LockKeyhole className="mr-2 inline h-4 w-4" />Package Finalized (Locked by Studio)</span> : <button onClick={() => setShowFinalize(true)} className="rounded-xl bg-gradient-to-r from-amber-300 to-orange-400 px-6 py-3 font-bold text-slate-950 shadow-lg shadow-amber-900/20">Finalize / Choose This Package</button>}<button onClick={() => go(1)} disabled={index >= proposal.packages_data.length - 1} aria-label="Next package" className="rounded-xl border border-white/10 p-3 text-slate-300 disabled:opacity-30"><ChevronRight /></button></div>
+              </div>
             </article>
           </section>
           <div className="mt-4 flex justify-center gap-2">{proposal.packages_data.map((slide, i) => <button key={slide.id} aria-label={`Show package ${i + 1}`} onClick={() => setIndex(i)} className={`h-2 rounded-full transition-all ${i === index ? 'w-8 bg-amber-300' : 'w-2 bg-slate-600'}`} />)}</div>
