@@ -169,7 +169,7 @@ export function PublicProposalView() {
 
     {showFinalize && active && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-3" role="dialog" aria-modal="true" aria-labelledby="proposal-finalize-title"><div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl"><div className="flex items-start justify-between"><div><h2 id="proposal-finalize-title" className="text-lg font-bold">Confirm package selection</h2><p className="mt-1 text-sm text-amber-200">{active.package_name} · {active.price}</p></div><button onClick={() => setShowFinalize(false)} aria-label="Close" className="text-slate-400"><X /></button></div><div className="mt-4 space-y-3"><input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Client name" /><input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} placeholder="Phone number" /><textarea className="min-h-24 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" /></div><button disabled={saving || !clientName.trim() || !clientPhone.trim()} onClick={() => void finalize()} className="mt-4 w-full rounded-xl bg-amber-400 px-4 py-3 font-bold text-slate-950 disabled:opacity-50">{saving ? 'Saving…' : 'Confirm & Send Selection'}</button></div></div>}
 
-    {video && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 p-3" role="dialog" aria-modal="true" aria-label="Sample video"><button onClick={() => setVideo('')} className="absolute right-4 top-4 rounded-full bg-slate-800 p-2" aria-label="Close video"><X /></button><div className="w-full max-w-5xl">{(() => { const media = resolveMediaUrl(video, 'video'); const isVimeo = /(?:vimeo\.com|player\.vimeo\.com)/i.test(video); const directPcloud = media?.provider === 'pcloud' ? directPcloudVideoUrl(video) : null; if (directPcloud) return <video controls controlsList="nodownload" disablePictureInPicture playsInline autoPlay onContextMenu={(event) => event.preventDefault()} className="max-h-[80vh] w-full rounded-xl bg-black object-contain" src={directPcloud}>Your browser does not support the video tag.</video>; if (media?.provider === 'pcloud') return <ProposalExternalMediaLink url={video} label="This pCloud share link does not expose a direct video stream" />; if (isVimeo) return <iframe className="aspect-video w-full rounded-xl" src={embedUrl(video)} title="Wedding sample video" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />; return <UniversalMediaPreview url={video} kind="video" title="Wedding sample video" mediaClassName="aspect-video w-full rounded-xl" />; })()}</div></div>}
+    {video && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 p-3" role="dialog" aria-modal="true" aria-label="Sample video"><button onClick={() => setVideo('')} className="absolute right-4 top-4 rounded-full bg-slate-800 p-2" aria-label="Close video"><X /></button><div className="w-full max-w-5xl">{(() => { const media = resolveMediaUrl(video, 'video'); const isVimeo = /(?:vimeo\.com|player\.vimeo\.com)/i.test(video); const directPcloud = media?.provider === 'pcloud' ? directPcloudVideoUrl(video) : null; if (directPcloud) return <video controls controlsList="nodownload" disablePictureInPicture playsInline autoPlay onContextMenu={(event) => event.preventDefault()} className="max-h-[80vh] w-full rounded-xl bg-black object-contain" src={directPcloud}>Your browser does not support the video tag.</video>; if (media?.provider === 'pcloud') return <ProposalPcloudVideoPreview src={media.previewUrl} />; if (isVimeo) return <iframe className="aspect-video w-full rounded-xl" src={embedUrl(video)} title="Wedding sample video" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />; return <UniversalMediaPreview url={video} kind="video" title="Wedding sample video" mediaClassName="aspect-video w-full rounded-xl" />; })()}</div></div>}
     {pdf && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 p-3" role="dialog" aria-modal="true" aria-label="Album PDF"><button onClick={() => setPdf('')} className="absolute right-4 top-4 rounded-full bg-slate-800 p-2" aria-label="Close PDF"><X /></button><div className="w-full max-w-5xl">{resolveMediaUrl(pdf, 'pdf')?.provider === 'pcloud' ? <ProposalExternalMediaLink url={pdf} label="Open album PDF" /> : <UniversalMediaPreview url={pdf} kind="pdf" title="Album PDF" mediaClassName="h-[80vh] min-h-[360px] w-full rounded-xl" />}</div></div>}
   </main>;
 }
@@ -179,5 +179,20 @@ function ProposalExternalMediaLink({ url, label }: { url: string; label: string 
     <p className="text-lg font-semibold text-white">{label}</p>
     <p className="mt-2 text-sm text-slate-300">This file is hosted externally. Open it in a new tab to view.</p>
     <a href={url} target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex rounded-xl bg-amber-400 px-5 py-3 font-bold text-slate-950">Open file</a>
+  </div>;
+}
+
+function ProposalPcloudVideoPreview({ src }: { src: string }) {
+  return <div className="relative mx-auto aspect-video w-full overflow-hidden rounded-xl bg-black">
+    <iframe
+      title="pCloud sample video"
+      src={src}
+      allow="autoplay; fullscreen; picture-in-picture"
+      allowFullScreen
+      loading="lazy"
+      referrerPolicy="strict-origin-when-cross-origin"
+      className="absolute left-0 top-0 w-full border-0"
+      style={{ height: 'calc(100% + 150px)', transform: 'translateY(-116px)' }}
+    />
   </div>;
 }
