@@ -35,6 +35,7 @@ import { buildPdfFilename, downloadA4Pdf, PrintableDualCopies } from '@/lib/pdf'
 import { hasLabAlbumWork, hasLabVideoWork, labOrderOverviewStatus, visibleLabOrderDates } from '@/lib/labOrderStatus';
 import { clientPaidTotal, clientWorkTotal, labOrderPayments } from '@/lib/labBilling';
 import { calculateLabOrderBilling, labOrderBillingSnapshot } from '@/lib/billing';
+import { completePaymentAttempt, getPaymentAttemptId } from '@/lib/paymentAttempt';
 
 const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Pending: 'slate',
@@ -1150,6 +1151,9 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
   const { triggerRefresh } = useRefresh();
   const [paymentHistory, setPaymentHistory] = useState<LabPaymentInstallment[]>([]);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [savingInstallment, setSavingInstallment] = useState(false);
+  const installmentAttemptScope = `lab-installment:${order?.id ?? 'unknown'}`;
+  const [installmentAttemptId, setInstallmentAttemptId] = useState(() => getPaymentAttemptId(installmentAttemptScope));
   const [paymentDate, setPaymentDate] = useState(todayISO());
   const [paymentMode, setPaymentMode] = useState('Cash');
   const [paymentNote, setPaymentNote] = useState('');
@@ -1193,27 +1197,32 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
   const clientDue = paymentClient ? Math.max(0, clientWorkTotal(paymentClient, order.extra_items ?? [], clients) - clientPaidTotal(paymentClient, paymentHistory, clients)) : labDue;
 
   const recordPayment = async () => {
+    if (savingInstallment) return;
     const amount = toNum(paymentAmount);
-    if (amount <= 0) return;
+    if (amount <= 0) { toast('Enter a payment amount greater than ₹0', 'error'); return; }
     if (clients.length > 0 && !paymentClientId) { toast('Select the client for this payment', 'error'); return; }
     if (amount > labDue) { toast('Payment is greater than the remaining combined order due', 'error'); return; }
     if (paymentClient && amount > clientDue) { toast('Payment is greater than this client’s bill due', 'error'); return; }
-    const payment: LabPaymentInstallment = { id: uid(), amount, payment_date: paymentDate, payment_mode: paymentMode, note: paymentNote, created_at: new Date().toISOString(), ...(paymentClient ? { client_id: paymentClient.id, client_name: paymentClient.client_name } : {}) };
-    const nextHistory = [...paymentHistory, payment];
+    setSavingInstallment(true);
     try {
-      const { error } = await supabase.rpc('record_lab_order_payment', {
-        p_order_id: order.id, p_installment_id: payment.id, p_amount: amount,
+      const { data: paymentResult, error } = await supabase.rpc('record_lab_order_payment', {
+        p_order_id: order.id, p_installment_id: installmentAttemptId, p_amount: amount,
         p_payment_date: paymentDate, p_payment_mode: paymentMode, p_note: paymentNote,
         p_client_id: paymentClient?.id ?? null, p_client_name: paymentClient?.client_name ?? null,
       });
       if (error) throw error;
-      setPaymentHistory(nextHistory);
+      const { data: refreshed, error: refreshError } = await supabase.from('studio_lab_orders').select('*').eq('id', order.id).single();
+      if (refreshError) throw refreshError;
+      setPaymentHistory(labOrderPayments(refreshed as StudioLabOrder));
+      setInstallmentAttemptId(completePaymentAttempt(installmentAttemptScope));
       triggerRefresh();
       setPaymentAmount('');
       setPaymentNote('');
-      toast('Payment saved instantly!', 'success');
+      toast((paymentResult as { duplicate?: boolean } | null)?.duplicate ? 'This payment was already saved; history refreshed without adding a duplicate.' : 'Payment saved instantly!', 'success');
     } catch (error) {
       toast(getDatabaseErrorMessage(error), 'error');
+    } finally {
+      setSavingInstallment(false);
     }
   };
 
@@ -1405,7 +1414,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
             <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className={selectClass}><option>Cash</option><option>UPI</option><option>Bank</option></select>
             <input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} className={inputClass} placeholder="Custom Note" />
           </div>
-          <button onClick={recordPayment} className="mt-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-600">Record Installment</button>
+          <button type="button" onClick={recordPayment} disabled={savingInstallment} className="mt-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-600 disabled:cursor-wait disabled:opacity-60">{savingInstallment ? 'Saving…' : 'Record Installment'}</button>
           {paymentHistory.length > 0 && <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[600px] text-xs"><thead><tr className="border-b border-slate-200 text-left text-slate-400 dark:border-white/10"><th className="px-2 py-1">Date &amp; Time</th><th className="px-2 py-1">Client</th><th className="px-2 py-1">Mode</th><th className="px-2 py-1">Note</th><th className="px-2 py-1 text-right">Amount</th><th className="px-2 py-1 text-right">Running Due</th></tr></thead><tbody>{(() => { let runningPaid = 0; return paymentHistory.map((payment) => { runningPaid += toNum(payment.amount); const client = clients.find((entry) => entry.id === payment.client_id) ?? clients.find((entry) => !payment.client_id && payment.client_name && entry.client_name === payment.client_name); return <tr key={payment.id} className="border-b border-slate-100 dark:border-white/5"><td className="px-2 py-1">{formatDateTime(payment.created_at || payment.payment_date)}</td><td className="px-2 py-1">{client ? `Client ${clients.findIndex((entry) => entry.id === client.id) + 1}: ${client.client_name}` : 'Order-level'}</td><td className="px-2 py-1">{payment.payment_mode}</td><td className="px-2 py-1">{payment.note || '—'}</td><td className="px-2 py-1 text-right text-emerald-600">{formatINR(toNum(payment.amount))}</td><td className="px-2 py-1 text-right">{formatINR(Math.max(0, toNum(order.master_total) - runningPaid))}</td></tr>; }); })()}</tbody></table></div>}
         </div>
 
@@ -1630,6 +1639,8 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
   const [paymentNote, setPaymentNote] = useState('');
   const [paymentClientId, setPaymentClientId] = useState(order.clients.length === 1 ? order.clients[0].id : '');
   const [saving, setSaving] = useState(false);
+  const paymentAttemptScope = `lab-quick:${order.id}`;
+  const [paymentAttemptId] = useState(() => getPaymentAttemptId(paymentAttemptScope));
 
   useEffect(() => {
     setCurrentOrder(order);
@@ -1665,9 +1676,8 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
       if (currentOrder.clients.length > 0 && !paymentClientId) { toast('Select which client this payment belongs to', 'error'); return; }
       if (value > currentNetDue) { toast('Payment is greater than the remaining order balance', 'error'); return; }
       if (paymentClient && value > paymentTargetDue) { toast('Payment is greater than this client’s remaining work balance', 'error'); return; }
-      const installmentId = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : uid();
-      const { error } = await supabase.rpc('record_lab_order_payment', {
-        p_order_id: currentOrder.id, p_installment_id: installmentId, p_amount: value,
+      const { data: paymentResult, error } = await supabase.rpc('record_lab_order_payment', {
+        p_order_id: currentOrder.id, p_installment_id: paymentAttemptId, p_amount: value,
         p_payment_date: paymentDate, p_payment_mode: selectedMode, p_note: trimmedNote,
         p_client_id: paymentClient?.id ?? null, p_client_name: paymentClient?.client_name ?? null,
       });
@@ -1677,7 +1687,7 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
       const nextOrder = refreshed as StudioLabOrder;
       setCurrentOrder(nextOrder);
 
-      toast('Payment recorded instantly!', 'success');
+      toast((paymentResult as { duplicate?: boolean } | null)?.duplicate ? 'This payment was already saved; history refreshed without adding a duplicate.' : 'Payment recorded instantly!', 'success');
       onSaved(nextOrder);
       onClose();
     } catch (error) {

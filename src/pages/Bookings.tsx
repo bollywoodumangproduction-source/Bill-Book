@@ -74,6 +74,7 @@ import { MasterPinDialog } from '@/components/ui/MasterPinDialog';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { useRefresh } from '@/context/RefreshContext';
 import { buildPdfFilename, downloadA4Pdf, PrintableDualCopies } from '@/lib/pdf';
+import { completePaymentAttempt, getPaymentAttemptId } from '@/lib/paymentAttempt';
 
 const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'rose' | 'sky' | 'slate'> = {
   CONFIRMED: 'amber',
@@ -1551,6 +1552,8 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
   const [savingQuickPay, setSavingQuickPay] = useState(false);
   const [quickPayAmount, setQuickPayAmount] = useState('');
   const [quickPayMode, setQuickPayMode] = useState('Cash');
+  const paymentAttemptScope = `booking-quick:${booking.id}`;
+  const [quickPayAttemptId, setQuickPayAttemptId] = useState(() => getPaymentAttemptId(paymentAttemptScope));
   const [assignmentRole, setAssignmentRole] = useState('Traditional Photo');
   const [reportingTime, setReportingTime] = useState('');
   const [isBillPreviewOpen, setIsBillPreviewOpen] = useState(false);
@@ -1952,24 +1955,25 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
                 const paymentDate = todayISO();
                 setSavingQuickPay(true);
                 try {
-                  const { error } = await supabase.rpc('record_booking_payment', {
-                    p_booking_id: booking.id, p_installment_id: uid(), p_amount: amt,
+                  const { data: paymentResult, error } = await supabase.rpc('record_booking_payment', {
+                    p_booking_id: booking.id, p_installment_id: quickPayAttemptId, p_amount: amt,
                     p_payment_date: paymentDate, p_payment_mode: mode, p_note: 'Quick payment',
                   });
                   if (error) throw error;
                   const { data, error: refreshError } = await supabase.from('bookings').select('*').eq('id', booking.id).single();
                   if (refreshError) {
-                    setQuickPayAmount('');
                     triggerRefresh();
                     toast('Payment was recorded, but the booking could not refresh. Reload the page; do not enter this payment again.', 'error');
                     return;
                   }
                   const updated = data as Booking;
                   onUpdated(updated);
-                  await logPaymentNotification(booking.id, amt, Number(updated.net_due));
+                  const wasDuplicate = Boolean((paymentResult as { duplicate?: boolean } | null)?.duplicate);
+                  if (!wasDuplicate) await logPaymentNotification(booking.id, amt, Number(updated.net_due));
                   triggerRefresh();
-                  toast(`Payment of ${formatINR(amt)} recorded`, 'success');
+                  toast(wasDuplicate ? 'This payment was already saved; history refreshed without adding a duplicate.' : `Payment of ${formatINR(amt)} recorded`, 'success');
                   setQuickPayAmount('');
+                  setQuickPayAttemptId(completePaymentAttempt(paymentAttemptScope));
                 } catch (error) {
                   toast(bookingPaymentErrorMessage(error), 'error');
                 } finally {
