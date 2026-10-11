@@ -225,6 +225,7 @@ function DesktopPage({ page, onNavigate, openLabOrderId, onLabOrderOpened, onOpe
   if (page === 'teaser') return <TeaserPreview />;
   if (page === 'invitation') return <InvitationHub />;
   if (page === 'photo-selection') return <PhotoSelection />;
+  if (page === 'proposals') return <PackageProposals />;
   if (page === 'partners') return <Ledger key="partners" mode="partners" />;
   if (page === 'ledger') return <Ledger key="ledger" mode="ledger" onOpenLabOrder={onOpenLabOrder} />;
   if (page === 'payments') return <Payments />;

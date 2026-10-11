@@ -22,6 +22,7 @@ import {
   Images,
   BookOpen,
   Users,
+  ClipboardList,
 } from 'lucide-react';
 import type { PageKey } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
@@ -51,6 +52,7 @@ const desktopNav: { key: PageKey; label: string; icon: typeof Home }[] = [
   { key: 'teaser', label: 'Teaser & Clearance', icon: Video },
   { key: 'invitation', label: 'Invitation Hub', icon: Mail },
   { key: 'photo-selection', label: 'Photo Selection', icon: Images },
+  { key: 'proposals', label: 'Wedding Proposals', icon: ClipboardList },
   { key: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -71,6 +73,7 @@ const moreNav: { key: PageKey; label: string; icon: typeof Home }[] = [
   { key: 'teaser', label: 'Teaser & Clearance', icon: Video },
   { key: 'invitation', label: 'Invitation Hub', icon: Mail },
   { key: 'photo-selection', label: 'Photo Selection', icon: Images },
+  { key: 'proposals', label: 'Wedding Proposals', icon: ClipboardList },
   { key: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -124,7 +127,7 @@ export function Layout({ current, onNavigate, onBack, children }: LayoutProps) {
             <p className="truncate text-xs text-amber-600 dark:text-amber-400">Films & Production</p>
           </div>
         </div>
-        <nav className="flex-1 space-y-1 px-3 py-2">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
           {desktopNav.map((item) => {
             const Icon = item.icon;
             const active = current === item.key;
@@ -201,7 +204,7 @@ export function Layout({ current, onNavigate, onBack, children }: LayoutProps) {
           if (isRightEdgeBackSwipe(start, { x: touch.clientX, y: touch.clientY }, window.innerWidth)) onBack();
         }}
       >
-        <div className={['lab', 'rentals', 'bookings', 'partners', 'dairy', 'promo', 'music', 'teaser', 'invitation', 'photo-selection', 'ledger', 'payments'].includes(current) ? 'w-full px-1 md:px-0' : 'w-full p-3 sm:p-6 lg:p-8'}>{children}</div>
+        <div className={['lab', 'rentals', 'bookings', 'partners', 'dairy', 'promo', 'music', 'teaser', 'invitation', 'photo-selection', 'ledger', 'payments', 'proposals'].includes(current) ? 'w-full px-1 md:px-0' : 'w-full p-3 sm:p-6 lg:p-8'}>{children}</div>
       </main>
 
       {/* Mobile bottom nav */}
