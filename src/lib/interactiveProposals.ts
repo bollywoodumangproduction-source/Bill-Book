@@ -10,7 +10,9 @@ export interface InteractivePackageSlide {
   badge: string;
   deliverables: string[];
   events: InteractiveProposalEvent[];
-  video_embed_url: string;
+  video_urls?: string[];
+  /** Backward compatibility for proposals saved before multiple video links. */
+  video_embed_url?: string;
 }
 
 export interface InteractiveSelectedPackage {
