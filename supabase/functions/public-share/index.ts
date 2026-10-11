@@ -2,7 +2,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const encoder = new TextEncoder();
 const url = Deno.env.get('SUPABASE_URL')!;
-const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+// Supabase is moving hosted projects from legacy service_role JWTs to named
+// secret API keys. Prefer the current default secret key, while retaining the
+// legacy variable for local environments that have not migrated yet.
+const secretKeysRaw = Deno.env.get('SUPABASE_SECRET_KEYS');
+const secretKeys = secretKeysRaw ? JSON.parse(secretKeysRaw) as Record<string, string> : {};
+const serviceKey = secretKeys.default || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const pepper = Deno.env.get('PORTAL_PIN_PEPPER')!;
 const origins = (Deno.env.get('ALLOWED_APP_ORIGINS') || 'https://bollywood-umang.vercel.app,http://localhost:5173').split(',').map((origin) => origin.trim()).filter(Boolean);
 const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -214,7 +219,11 @@ async function handle(request: Request, body: Record<string, unknown>) {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return response(request, { error: 'Project not found.' }, 404);
     const table = action === 'teaser' ? 'teaser_projects' : 'invitation_projects';
     const { data, error } = await db.from(table).select('*').eq('id', id).maybeSingle();
-    if (error || !data) return response(request, { error: 'Project not found.' }, 404);
+    if (error) {
+      console.error(`public-share ${action} lookup failed:`, error.code, error.message);
+      return response(request, { error: 'Could not load this project right now.' }, 500);
+    }
+    if (!data) return response(request, { error: 'Project not found.' }, 404);
     const { data: booking } = data.booking_id ? await db.from('bookings').select('*').eq('id', data.booking_id).maybeSingle() : { data: null };
     return response(request, action === 'teaser'
       ? { project: safeTeaser(data, booking), booking: safeBooking(booking) }
@@ -223,7 +232,11 @@ async function handle(request: Request, body: Record<string, unknown>) {
   if (action === 'music-read') {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return response(request, { error: 'Music project not found.' }, 404);
     const { data: project, error } = await db.from('music_projects').select('*').eq('id', id).is('archived_at', null).maybeSingle();
-    if (error || !project) return response(request, { error: 'Music project not found.' }, 404);
+    if (error) {
+      console.error('public-share music project lookup failed:', error.code, error.message);
+      return response(request, { error: 'Could not load this music project right now.' }, 500);
+    }
+    if (!project) return response(request, { error: 'Music project not found.' }, 404);
     const { data: cues } = await db.from('music_cues').select('*').eq('project_id', id).order('created_at');
     const { data: songs } = await db.from('music_song_library')
       .select('id,catalog_key,song_title,singer_artist,event_tag,genre_mood,audio_url,is_active,created_at')
@@ -253,6 +266,36 @@ async function handle(request: Request, body: Record<string, unknown>) {
     }).select('*').single();
     if (error) return response(request, { error: 'Could not save this song choice.' }, 500);
     return response(request, { cue: data });
+  }
+  if (action === 'music-remove-cue') {
+    const projectId = String(body.projectId ?? '');
+    const cueId = String(body.cueId ?? '');
+    if (!/^[0-9a-f-]{36}$/i.test(projectId) || !/^[0-9a-f-]{36}$/i.test(cueId)) {
+      return response(request, { error: 'Invalid music selection.' }, 400);
+    }
+    const { data: project, error: projectError } = await db.from('music_projects')
+      .select('id,status')
+      .eq('id', projectId)
+      .is('archived_at', null)
+      .maybeSingle();
+    if (projectError) {
+      console.error('public-share music remove project lookup failed:', projectError.code, projectError.message);
+      return response(request, { error: 'Could not update this music selection.' }, 500);
+    }
+    if (!project) return response(request, { error: 'Music project not found.' }, 404);
+    if (project.status === 'locked') return response(request, { error: 'Music choices are locked.' }, 403);
+    const { data: removedCue, error: removeError } = await db.from('music_cues')
+      .delete()
+      .eq('id', cueId)
+      .eq('project_id', projectId)
+      .select('id')
+      .maybeSingle();
+    if (removeError) {
+      console.error('public-share music cue removal failed:', removeError.code, removeError.message);
+      return response(request, { error: 'Could not remove this song choice.' }, 500);
+    }
+    if (!removedCue) return response(request, { error: 'Song choice not found.' }, 404);
+    return response(request, { success: true });
   }
   if (action === 'music-submit') {
     const projectId = String(body.projectId ?? '');
