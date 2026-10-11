@@ -222,7 +222,7 @@ async function handle(request: Request, body: Record<string, unknown>) {
   }
   if (action === 'music-read') {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return response(request, { error: 'Music project not found.' }, 404);
-    const { data: project, error } = await db.from('music_projects').select('*').eq('id', id).maybeSingle();
+    const { data: project, error } = await db.from('music_projects').select('*').eq('id', id).is('archived_at', null).maybeSingle();
     if (error || !project) return response(request, { error: 'Music project not found.' }, 404);
     const { data: cues } = await db.from('music_cues').select('*').eq('project_id', id).order('created_at');
     return response(request, { project: safeMusicProject(project), cues: (cues ?? []).map(safeMusicCue) });
@@ -230,7 +230,7 @@ async function handle(request: Request, body: Record<string, unknown>) {
   if (action === 'music-add-cue') {
     const projectId = String(body.projectId ?? '');
     const cue = body.cue as Record<string, unknown> | null;
-    const { data: project } = await db.from('music_projects').select('id,status').eq('id', projectId).maybeSingle();
+    const { data: project } = await db.from('music_projects').select('id,status').eq('id', projectId).is('archived_at', null).maybeSingle();
     if (!project || project.status === 'locked') return response(request, { error: 'Music choices are locked.' }, 403);
     if (!cue || !String(cue.track_title ?? '').trim()) return response(request, { error: 'Enter a song title.' }, 400);
     const { data, error } = await db.from('music_cues').insert({
@@ -247,7 +247,7 @@ async function handle(request: Request, body: Record<string, unknown>) {
   }
   if (action === 'music-submit') {
     const projectId = String(body.projectId ?? '');
-    const { data: project } = await db.from('music_projects').select('id,status').eq('id', projectId).maybeSingle();
+    const { data: project } = await db.from('music_projects').select('id,status').eq('id', projectId).is('archived_at', null).maybeSingle();
     if (!project) return response(request, { error: 'Music project not found.' }, 404);
     const { error } = await db.from('music_projects').update({ status: 'locked', locked_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', projectId).neq('status', 'locked');
     if (error) return response(request, { error: 'Could not submit music selection.' }, 500);

@@ -558,6 +558,7 @@ export interface MusicProject {
   partner_id?: string | null;
   lab_order_id?: string | null;
   lab_client_id?: string | null;
+  archived_at?: string | null;
   mode: MusicProjectMode;
   status: MusicProjectStatus;
   locked_at: string | null;
@@ -592,6 +593,18 @@ export interface MusicMasterCue {
   special_notes: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface MusicLibrarySong {
+  id: string;
+  catalog_key: string;
+  song_title: string;
+  singer_artist: string;
+  event_tag: string;
+  genre_mood: string;
+  audio_url: string;
+  is_active: boolean;
+  created_at: string;
 }
 
 export interface Banner {

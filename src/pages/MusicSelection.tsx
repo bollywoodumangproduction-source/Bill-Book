@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   ChevronRight,
@@ -14,13 +14,14 @@ import {
   Share2,
   ShieldCheck,
   Sparkles,
-  Trash2,
+  Archive,
+  RotateCcw,
   Unlock,
   Users,
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { Booking, MusicCue, MusicCuePriority, MusicMasterCue, MusicProject, MusicProjectMode, Partner, StudioLabOrder } from '@/lib/types';
+import type { Booking, MusicCue, MusicCuePriority, MusicLibrarySong, MusicMasterCue, MusicProject, MusicProjectMode, Partner, StudioLabOrder } from '@/lib/types';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
 import { inputClass, selectClass, textareaClass, Field } from '@/components/ui/Field';
@@ -31,6 +32,11 @@ import { resolveMediaUrl } from '@/lib/mediaResolver';
 import { UniversalMediaPreview } from '@/components/UniversalMediaPreview';
 
 const CATEGORIES = ['Teaser', 'Haldi', 'Entry', 'Jaymala', 'Vidai', 'Reception', 'Wedding/Barat', 'Custom'];
+const MUSIC_MIGRATION_MESSAGE = 'Music song library is not ready yet. Apply supabase/migrations/20261011150000_add_music_song_library.sql in Supabase SQL Editor, then refresh.';
+
+function isMissingMusicSchema(error: { code?: string; message?: string } | null | undefined): boolean {
+  return Boolean(error && (['42P01', 'PGRST204', 'PGRST205'].includes(error.code ?? '') || /schema cache|does not exist|could not find the table/i.test(error.message ?? '')));
+}
 const PRIORITIES: { value: MusicCuePriority; label: string }[] = [
   { value: 'must_use', label: 'Must use' },
   { value: 'preferred', label: 'Preferred' },
@@ -74,26 +80,36 @@ export function MusicSelection() {
   const [projects, setProjects] = useState<MusicProject[]>([]);
   const [cues, setCues] = useState<MusicCue[]>([]);
   const [masterCues, setMasterCues] = useState<MusicMasterCue[]>([]);
+  const [librarySongs, setLibrarySongs] = useState<MusicLibrarySong[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
-  const [projectToDelete, setProjectToDelete] = useState<MusicProject | null>(null);
-  const [deletingProject, setDeletingProject] = useState(false);
+  const [projectToArchive, setProjectToArchive] = useState<MusicProject | null>(null);
+  const [archivingProject, setArchivingProject] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [search, setSearch] = useState('');
+  const schemaNoticeShown = useRef(false);
 
   const load = useCallback(async () => {
-    const [{ data: projectData }, { data: cueData }, { data: masterCueData }] = await Promise.all([
+    const [{ data: projectData }, { data: cueData }, masterCueResult, libraryResult] = await Promise.all([
       supabase.from('music_projects').select('*').order('updated_at', { ascending: false }),
       supabase.from('music_cues').select('*').order('created_at'),
       supabase.from('music_master_cues').select('*').order('created_at'),
+      supabase.from('music_song_library').select('*').eq('is_active', true).order('event_tag').order('song_title'),
     ]);
+    const musicSchemaError = masterCueResult.error ?? libraryResult.error;
+    if (musicSchemaError && !schemaNoticeShown.current) {
+      schemaNoticeShown.current = true;
+      toast(isMissingMusicSchema(musicSchemaError) ? MUSIC_MIGRATION_MESSAGE : 'Could not load song references. Check your Supabase connection and admin access.', 'error');
+    }
     const nextProjects = (projectData ?? []) as MusicProject[];
     setProjects(nextProjects);
     setCues((cueData ?? []) as MusicCue[]);
-    setMasterCues((masterCueData ?? []) as MusicMasterCue[]);
+    setMasterCues((masterCueResult.data ?? []) as MusicMasterCue[]);
+    setLibrarySongs((libraryResult.data ?? []) as MusicLibrarySong[]);
     setSelectedId((current) => current || nextProjects[0]?.id || '');
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -108,29 +124,29 @@ export function MusicSelection() {
 
   const filteredProjects = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return projects.filter((project) => !query || project.client_name.toLowerCase().includes(query));
-  }, [projects, search]);
+    return projects.filter((project) => Boolean(project.archived_at) === showArchived && (!query || project.client_name.toLowerCase().includes(query)));
+  }, [projects, search, showArchived]);
 
   const selectedProject = projects.find((project) => project.id === selectedId) ?? null;
   const selectedCues = cues.filter((cue) => cue.project_id === selectedId);
 
-  const deleteProject = async () => {
-    if (!projectToDelete || deletingProject) return;
-    setDeletingProject(true);
-    const { data, error } = await supabase.rpc('studio_delete_music_project', { target_project_id: projectToDelete.id });
-    setDeletingProject(false);
+  const setProjectArchived = async () => {
+    if (!projectToArchive || archivingProject) return;
+    const shouldArchive = !projectToArchive.archived_at;
+    setArchivingProject(true);
+    const { data, error } = await supabase.rpc('studio_set_music_project_archived', { target_project_id: projectToArchive.id, should_archive: shouldArchive });
+    setArchivingProject(false);
     if (error || !data) {
-      toast('Could not delete the music project. Confirm the latest Music Selection delete migration is applied.', 'error');
+      toast('Could not update the project archive. Apply the latest Music Selection archive migration first.', 'error');
       return;
     }
-    const deletedId = projectToDelete.id;
-    const remaining = projects.filter((project) => project.id !== deletedId);
-    setProjects(remaining);
-    setCues((current) => current.filter((cue) => cue.project_id !== deletedId));
-    setMasterCues((current) => current.filter((cue) => cue.project_id !== deletedId));
-    if (selectedId === deletedId) setSelectedId(remaining[0]?.id ?? '');
-    setProjectToDelete(null);
-    toast('Music project and its song details were deleted', 'success');
+    const updatedProject = { ...projectToArchive, archived_at: shouldArchive ? now() : null };
+    setProjects((current) => current.map((project) => project.id === updatedProject.id ? updatedProject : project));
+    if (selectedId === updatedProject.id) {
+      setSelectedId(projects.find((project) => project.id !== updatedProject.id && Boolean(project.archived_at) === showArchived)?.id ?? '');
+    }
+    setProjectToArchive(null);
+    toast(shouldArchive ? 'Project archived; its songs and notes are safe' : 'Project restored', 'success');
   };
 
   const createProject = async (clientName: string, mode: MusicProjectMode, bookingId: string | null, partnerId: string | null, labOrderId: string | null, labClientId: string | null) => {
@@ -158,14 +174,15 @@ export function MusicSelection() {
     toast('Music selection project created', 'success');
   };
 
-  const addCue = async (cue: Omit<MusicCue, 'id' | 'created_at' | 'updated_at'>) => {
-    if (!selectedProject || selectedProject.status === 'locked') return;
+  const addCue = async (cue: Omit<MusicCue, 'id' | 'created_at' | 'updated_at'>): Promise<boolean> => {
+    if (!selectedProject || selectedProject.status === 'locked') return false;
     const timestamp = now();
     const payload: MusicCue = { ...cue, id: newId(), created_at: timestamp, updated_at: timestamp };
     const { error } = await supabase.from('music_cues').insert(payload);
-    if (error) { toast('Could not save this song choice', 'error'); return; }
+    if (error) { toast('Could not save this song choice', 'error'); return false; }
     await load();
     toast('Song choice saved', 'success');
+    return true;
   };
 
   const removeCue = async (cueId: string) => {
@@ -197,7 +214,7 @@ export function MusicSelection() {
       ? supabase.from('music_master_cues').update(payload).eq('id', existing.id)
       : supabase.from('music_master_cues').insert(payload);
     const { error } = await query;
-    if (error) { toast('Could not save the master song details. Apply the latest Music Selection migration and retry.', 'error'); return false; }
+    if (error) { toast(isMissingMusicSchema(error) ? MUSIC_MIGRATION_MESSAGE : 'Could not save the master song details. Check your Supabase connection and admin access.', 'error'); return false; }
     await load();
     toast(existing ? 'Master song details updated' : 'Master song details saved', 'success');
     return true;
@@ -219,14 +236,14 @@ export function MusicSelection() {
             <p className="hidden truncate text-xs text-slate-400 sm:block">Finalize song choices before editing begins</p>
           </div>
         </div>
-        <button onClick={() => setShowCreate(true)} aria-label="New Project" title="New Project" className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-500 px-2 py-1.5 text-[11px] font-medium text-slate-900 transition hover:bg-amber-400 sm:px-3 sm:text-xs"><Plus className="h-4 w-4" /><span className="hidden sm:inline">New Project</span></button>
+        <div className="flex shrink-0 items-center gap-2"><button type="button" onClick={() => { const nextShowArchived = !showArchived; setShowArchived(nextShowArchived); setSelectedId(projects.find((project) => Boolean(project.archived_at) === nextShowArchived)?.id ?? ''); }} className="flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1.5 text-[11px] font-medium text-slate-300 hover:bg-white/5 sm:px-3 sm:text-xs"><Archive className="h-3.5 w-3.5" /><span>{showArchived ? 'Active Projects' : 'Archived'}</span></button>{!showArchived && <button onClick={() => setShowCreate(true)} aria-label="New Project" title="New Project" className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-500 px-2 py-1.5 text-[11px] font-medium text-slate-900 transition hover:bg-amber-400 sm:px-3 sm:text-xs"><Plus className="h-4 w-4" /><span className="hidden sm:inline">New Project</span></button>}</div>
       </div>
 
       <div className="w-full space-y-3 px-0 sm:px-3 md:px-4">
       <div className="grid gap-3 lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="space-y-2">
           <input value={search} onChange={(event) => setSearch(event.target.value)} className={inputClass} placeholder="Search parties..." />
-          {loading ? <div className="flex justify-center py-16"><Sparkles className="h-5 w-5 animate-pulse text-amber-500" /></div> : filteredProjects.length === 0 ? <EmptyState icon={Music2} title="No projects yet" subtitle="Create a project to begin" /> : (
+          {loading ? <div className="flex justify-center py-16"><Sparkles className="h-5 w-5 animate-pulse text-amber-500" /></div> : filteredProjects.length === 0 ? <EmptyState icon={Music2} title={showArchived ? 'No archived projects' : 'No projects yet'} subtitle={showArchived ? 'Archived projects will appear here and can be restored.' : 'Create a project to begin'} /> : (
             <div className="space-y-2">
               {filteredProjects.map((project) => (
                 <button key={project.id} onClick={() => setSelectedId(project.id)} className={`w-full rounded-xl border p-2.5 text-left transition ${selectedId === project.id ? 'border-amber-400 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10' : 'border-slate-200 bg-white hover:border-amber-300 dark:border-white/10 dark:bg-slate-900/50'}`}>
@@ -239,12 +256,12 @@ export function MusicSelection() {
         </aside>
 
         <section className="min-w-0">
-          {!selectedProject ? <EmptyState icon={Headphones} title="Select a music project" subtitle="Your cue sheet will appear here" /> : <AdminProject project={selectedProject} cues={selectedCues} masterCues={masterCues.filter((cue) => cue.project_id === selectedProject.id)} onSaveMasterCue={saveMasterCue} onAddCue={addCue} onRemoveCue={removeCue} onToggleLock={toggleLock} onCopyShare={copyShare} onRequestDelete={() => setProjectToDelete(selectedProject)} />}
+          {!selectedProject ? <EmptyState icon={Headphones} title="Select a music project" subtitle="Your cue sheet will appear here" /> : <AdminProject project={selectedProject} cues={selectedCues} masterCues={masterCues.filter((cue) => cue.project_id === selectedProject.id)} librarySongs={librarySongs} onSaveMasterCue={saveMasterCue} onAddCue={addCue} onRemoveCue={removeCue} onToggleLock={toggleLock} onCopyShare={copyShare} onRequestArchive={() => setProjectToArchive(selectedProject)} />}
         </section>
       </div>
 
       {showCreate && <CreateProjectModal onClose={() => setShowCreate(false)} onCreate={createProject} />}
-      {projectToDelete && <DeleteMusicProjectModal project={projectToDelete} busy={deletingProject} onCancel={() => { if (!deletingProject) setProjectToDelete(null); }} onConfirm={() => void deleteProject()} />}
+      {projectToArchive && <ArchiveMusicProjectModal project={projectToArchive} busy={archivingProject} onCancel={() => { if (!archivingProject) setProjectToArchive(null); }} onConfirm={() => void setProjectArchived()} />}
       </div>
     </div>
   );
@@ -254,13 +271,14 @@ function StatusBadge({ status }: { status: MusicProject['status'] }) {
   return <Badge color={status === 'locked' ? 'emerald' : status === 'submitted' ? 'sky' : 'slate'}>{status === 'locked' ? 'Locked' : status === 'submitted' ? 'Submitted' : 'Draft'}</Badge>;
 }
 
-function AdminProject({ project, cues, masterCues, onSaveMasterCue, onAddCue, onRemoveCue, onToggleLock, onCopyShare, onRequestDelete }: { project: MusicProject; cues: MusicCue[]; masterCues: MusicMasterCue[]; onSaveMasterCue: (cue: Omit<MusicMasterCue, 'id' | 'created_at' | 'updated_at'>, existing?: MusicMasterCue) => Promise<boolean>; onAddCue: (cue: Omit<MusicCue, 'id' | 'created_at' | 'updated_at'>) => Promise<void>; onRemoveCue: (id: string) => Promise<void>; onToggleLock: () => Promise<void>; onCopyShare: () => Promise<void>; onRequestDelete: () => void }) {
+function AdminProject({ project, cues, masterCues, librarySongs, onSaveMasterCue, onAddCue, onRemoveCue, onToggleLock, onCopyShare, onRequestArchive }: { project: MusicProject; cues: MusicCue[]; masterCues: MusicMasterCue[]; librarySongs: MusicLibrarySong[]; onSaveMasterCue: (cue: Omit<MusicMasterCue, 'id' | 'created_at' | 'updated_at'>, existing?: MusicMasterCue) => Promise<boolean>; onAddCue: (cue: Omit<MusicCue, 'id' | 'created_at' | 'updated_at'>) => Promise<boolean>; onRemoveCue: (id: string) => Promise<void>; onToggleLock: () => Promise<void>; onCopyShare: () => Promise<void>; onRequestArchive: () => void }) {
   const { toast } = useToast();
   const [showAdd, setShowAdd] = useState(false);
   const [showMasterForm, setShowMasterForm] = useState(false);
   const [editingMasterCue, setEditingMasterCue] = useState<MusicMasterCue | undefined>();
   const [lockBusy, setLockBusy] = useState(false);
   const locked = project.status === 'locked';
+  const readOnly = locked || Boolean(project.archived_at);
   const exportCueSheet = async () => {
     if (cues.length === 0) { toast('No cues to export. Add song choices first.', 'error'); return; }
     const lines = cues.map((cue, index) => {
@@ -295,23 +313,46 @@ function AdminProject({ project, cues, masterCues, onSaveMasterCue, onAddCue, on
       <div className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 dark:border-white/10 dark:bg-slate-900/60">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-xl font-bold text-slate-900 dark:text-white">{project.client_name}</h2><StatusBadge status={project.status} /></div><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{project.mode === 'b2b' ? 'Song cues for lab / photographer partner work' : 'Client event-wise song selection'}</p></div>
-          <div className="flex flex-wrap items-center gap-2"><button onClick={onCopyShare} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"><Clipboard className="h-3.5 w-3.5" /> Copy Link</button><a href={whatsappHref} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400"><Send className="h-3.5 w-3.5" /> WhatsApp</a><button onClick={exportCueSheet} className="flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-400"><ExternalLink className="h-3.5 w-3.5" /> Export Cue Sheet</button><button onClick={onRequestDelete} className="flex items-center gap-1.5 rounded-lg border border-rose-500/20 px-3 py-2 text-xs font-medium text-rose-400 hover:bg-rose-500/10"><Trash2 className="h-3.5 w-3.5" /> Delete Project</button><div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-white/10"><span className={`text-xs font-semibold ${locked ? 'text-sky-500 dark:text-sky-300' : 'text-slate-500 dark:text-slate-400'}`}>{locked ? 'Locked' : 'Draft / Unlocked'}</span><button type="button" role="switch" aria-checked={locked} aria-label={locked ? 'Unlock song selection' : 'Lock song selection'} disabled={lockBusy} onClick={async () => { setLockBusy(true); try { await onToggleLock(); } finally { setLockBusy(false); } }} className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-sky-400/60 disabled:cursor-wait disabled:opacity-60 ${locked ? 'bg-sky-500' : 'bg-slate-400 dark:bg-slate-700'}`}><span className={`inline-flex h-5 w-5 transform items-center justify-center rounded-full bg-white shadow transition-transform duration-300 ${locked ? 'translate-x-6' : 'translate-x-1'}`}>{locked ? <CheckCircle2 className="h-3.5 w-3.5 text-sky-600" /> : <Unlock className="h-3.5 w-3.5 text-slate-500" />}</span></button></div></div>
+          <div className="flex flex-wrap items-center gap-2">{!project.archived_at && <><button onClick={onCopyShare} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"><Clipboard className="h-3.5 w-3.5" /> Copy Link</button><a href={whatsappHref} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400"><Send className="h-3.5 w-3.5" /> WhatsApp</a></>}<button onClick={exportCueSheet} className="flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-400"><ExternalLink className="h-3.5 w-3.5" /> Export Cue Sheet</button><button onClick={onRequestArchive} className="flex items-center gap-1.5 rounded-lg border border-slate-500/30 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-500/10">{project.archived_at ? <RotateCcw className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}{project.archived_at ? 'Restore Project' : 'Archive Project'}</button><div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-white/10"><span className={`text-xs font-semibold ${locked ? 'text-sky-500 dark:text-sky-300' : 'text-slate-500 dark:text-slate-400'}`}>{locked ? 'Locked' : 'Draft / Unlocked'}</span><button type="button" role="switch" aria-checked={locked} aria-label={locked ? 'Unlock song selection' : 'Lock song selection'} disabled={lockBusy || Boolean(project.archived_at)} onClick={async () => { setLockBusy(true); try { await onToggleLock(); } finally { setLockBusy(false); } }} className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-sky-400/60 disabled:cursor-wait disabled:opacity-60 ${locked ? 'bg-sky-500' : 'bg-slate-400 dark:bg-slate-700'}`}><span className={`inline-flex h-5 w-5 transform items-center justify-center rounded-full bg-white shadow transition-transform duration-300 ${locked ? 'translate-x-6' : 'translate-x-1'}`}>{locked ? <CheckCircle2 className="h-3.5 w-3.5 text-sky-600" /> : <Unlock className="h-3.5 w-3.5 text-slate-500" />}</span></button></div></div>
         </div>
         {locked && <div className="mt-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300"><ShieldCheck className="h-4 w-4" /> Finalized by the client. Unlock only if the studio approves a revision.</div>}
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 dark:border-white/10 dark:bg-slate-900/60"><div className="mb-3 flex items-center justify-between"><div><h3 className="font-semibold text-slate-900 dark:text-white">Selected Songs</h3><p className="text-xs text-slate-500 dark:text-slate-400">{cues.length} cue{cues.length === 1 ? '' : 's'} in the working sheet</p></div>{!locked && <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-amber-400"><Plus className="h-3.5 w-3.5" /> Add Song</button>}</div>{cues.length === 0 ? <EmptyState icon={Headphones} title="No song choices yet" subtitle="Add a cue or send the portal link to the client" /> : <div className="space-y-2">{cues.map((cue) => <CueCard key={cue.id} cue={cue} locked={locked} onRemove={() => onRemoveCue(cue.id)} />)}</div>}</div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 dark:border-white/10 dark:bg-slate-900/60"><div className="mb-3 flex items-center justify-between"><div><h3 className="font-semibold text-slate-900 dark:text-white">Selected Songs</h3><p className="text-xs text-slate-500 dark:text-slate-400">{cues.length} cue{cues.length === 1 ? '' : 's'} in the working sheet</p></div>{!readOnly && <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-amber-400"><Plus className="h-3.5 w-3.5" /> Add Song</button>}</div>{cues.length === 0 ? <EmptyState icon={Headphones} title="No song choices yet" subtitle="Add a cue or send the portal link to the client" /> : <div className="space-y-2">{cues.map((cue) => <CueCard key={cue.id} cue={cue} locked={readOnly} onRemove={() => onRemoveCue(cue.id)} />)}</div>}</div>
+      <MusicLibraryPanel songs={librarySongs} project={project} cues={cues} disabled={readOnly} onAdd={onAddCue} />
       <section className="rounded-2xl border border-sky-400/20 bg-slate-950/80 p-3 sm:p-4"><div className="mb-3 flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">Song Details &amp; Master Cue Card</h3><p className="mt-1 text-xs text-slate-400">Studio reference and editing notes, stored separately from client selections.</p></div><button onClick={() => { setEditingMasterCue(undefined); setShowMasterForm(true); }} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-sky-400"><Plus className="h-3.5 w-3.5" /> Add Reference</button></div>{masterCues.length === 0 ? <div className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-slate-400">No master references saved for this project yet.</div> : <div className="grid gap-3 xl:grid-cols-2">{masterCues.map((cue) => <MasterCueCard key={cue.id} cue={cue} onEdit={() => { setEditingMasterCue(cue); setShowMasterForm(true); }} />)}</div>}</section>
-      {showAdd && <AddCueModal projectId={project.id} onClose={() => setShowAdd(false)} onAdd={async (cue) => { await onAddCue(cue); setShowAdd(false); }} />}
+      {showAdd && <AddCueModal projectId={project.id} onClose={() => setShowAdd(false)} onAdd={async (cue) => { if (await onAddCue(cue)) setShowAdd(false); }} />}
       {showMasterForm && <MasterCueModal projectId={project.id} existing={editingMasterCue} onClose={() => setShowMasterForm(false)} onSave={async (cue) => { const saved = await onSaveMasterCue(cue, editingMasterCue); if (saved) setShowMasterForm(false); }} />}
     </div>
   );
 }
 
-function DeleteMusicProjectModal({ project, busy, onCancel, onConfirm }: { project: MusicProject; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+function MusicLibraryPanel({ songs, project, cues, disabled, onAdd }: { songs: MusicLibrarySong[]; project: MusicProject; cues: MusicCue[]; disabled: boolean; onAdd: (cue: Omit<MusicCue, 'id' | 'created_at' | 'updated_at'>) => Promise<boolean> }) {
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('All events');
+  const [addingKey, setAddingKey] = useState('');
+  const categories = useMemo(() => [...new Set(songs.map((song) => song.event_tag))].sort(), [songs]);
+  const visibleSongs = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase();
+    return songs.filter((song) => (category === 'All events' || song.event_tag === category)
+      && (!normalized || `${song.song_title} ${song.singer_artist} ${song.genre_mood} ${song.event_tag}`.toLocaleLowerCase().includes(normalized)));
+  }, [songs, query, category]);
+  const addSong = async (song: MusicLibrarySong) => {
+    if (disabled || addingKey) return;
+    setAddingKey(song.catalog_key);
+    try {
+      await onAdd({ project_id: project.id, category: song.event_tag, track_title: song.song_title, track_url: song.audio_url, start_time: '', usage_notes: song.singer_artist ? `Suggested artist: ${song.singer_artist}` : '', priority: 'preferred' });
+    } finally { setAddingKey(''); }
+  };
+  const addedForEvent = (song: MusicLibrarySong) => cues.some((cue) => cue.category === song.event_tag && cue.track_title.trim().toLocaleLowerCase() === song.song_title.trim().toLocaleLowerCase());
+  return <section className="rounded-2xl border border-amber-400/20 bg-slate-950/70 p-3 sm:p-4"><div className="mb-3"><h3 className="font-semibold text-white">Wedding Song Library <span className="ml-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-300">{songs.length}</span></h3><p className="mt-1 text-xs text-slate-400">Choose a song to add it to this project’s shared client/partner cue sheet. Add the audio link in the song choice if you want a playable preview.</p></div><div className="mb-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"><input value={query} onChange={(event) => setQuery(event.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="Search song, artist, or event..." /><select value={category} onChange={(event) => setCategory(event.target.value)} className={`${selectClass} border-white/10 bg-slate-800 text-white`}><option>All events</option>{categories.map((item) => <option key={item}>{item}</option>)}</select></div>{visibleSongs.length === 0 ? <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-400">No matching songs.</p> : <div className="grid max-h-[28rem] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">{visibleSongs.map((song) => { const added = addedForEvent(song); return <article key={song.id} className="flex min-w-0 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2.5"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-white">{song.song_title}</p><p className="truncate text-xs text-slate-400">{song.event_tag}{song.singer_artist ? ` · ${song.singer_artist}` : ''}</p></div><button type="button" disabled={disabled || added || Boolean(addingKey)} onClick={() => void addSong(song)} className="shrink-0 rounded-lg border border-amber-400/20 px-2.5 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50">{added ? 'Added' : addingKey === song.catalog_key ? 'Adding…' : 'Add'}</button></article>; })}</div>}</section>;
+}
+
+function ArchiveMusicProjectModal({ project, busy, onCancel, onConfirm }: { project: MusicProject; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
   const [confirmation, setConfirmation] = useState('');
   const confirmed = confirmation.trim() === project.client_name.trim();
-  return <div className="fixed inset-0 z-[170] flex items-center justify-center bg-black/70 p-4"><div role="dialog" aria-modal="true" aria-labelledby="delete-music-project-title" className="w-full max-w-md rounded-2xl border border-rose-500/20 bg-slate-900 p-5 text-white shadow-2xl"><div className="mb-3 flex items-center gap-2 text-rose-300"><Trash2 className="h-5 w-5" /><h2 id="delete-music-project-title" className="text-lg font-semibold">Delete Music Project?</h2></div><p className="text-sm text-slate-300">This permanently deletes <strong>{project.client_name}</strong>, its song choices, and its master song details. This cannot be undone.</p><Field label={`Type “${project.client_name}” to confirm`}><input autoFocus value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} /></Field><div className="mt-5 flex justify-end gap-2"><button type="button" disabled={busy} onClick={onCancel} className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5">Cancel</button><button type="button" disabled={!confirmed || busy} onClick={onConfirm} className="rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50">{busy ? 'Deleting…' : 'Permanently Delete'}</button></div></div></div>;
+  const isArchived = Boolean(project.archived_at);
+  return <div className="fixed inset-0 z-[170] flex items-center justify-center bg-black/70 p-4"><div role="dialog" aria-modal="true" aria-labelledby="archive-music-project-title" className="w-full max-w-md rounded-2xl border border-amber-500/20 bg-slate-900 p-5 text-white shadow-2xl"><div className="mb-3 flex items-center gap-2 text-amber-300">{isArchived ? <RotateCcw className="h-5 w-5" /> : <Archive className="h-5 w-5" />}<h2 id="archive-music-project-title" className="text-lg font-semibold">{isArchived ? 'Restore Music Project?' : 'Archive Music Project?'}</h2></div><p className="text-sm text-slate-300">{isArchived ? <>This will restore <strong>{project.client_name}</strong> to active lists and make its portal available again.</> : <>This hides <strong>{project.client_name}</strong> from active lists and disables its portal link. Its project, songs, and master notes stay saved and can be restored anytime.</>}</p><Field label={`Type “${project.client_name}” to confirm`}><input autoFocus value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} /></Field><div className="mt-5 flex justify-end gap-2"><button type="button" disabled={busy} onClick={onCancel} className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5">Cancel</button><button type="button" disabled={!confirmed || busy} onClick={onConfirm} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50">{busy ? 'Saving…' : isArchived ? 'Restore Project' : 'Archive Project'}</button></div></div></div>;
 }
 
 function CueCard({ cue, locked, onRemove }: { cue: MusicCue; locked: boolean; onRemove: () => void }) {
@@ -358,7 +399,7 @@ function MasterCueModal({ projectId, existing, onClose, onSave }: { projectId: s
     try { await onSave({ project_id: projectId, song_title: songTitle.trim(), singer_artist: singerArtist.trim(), genre_mood: genreMood.trim(), event_tag: eventTag.trim(), audio_url: audioUrl.trim(), cue_timestamps: cueTimestamps.trim(), special_notes: specialNotes.trim() }); }
     finally { setSaving(false); }
   };
-  return <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/70 p-4"><div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-slate-900 p-5 shadow-2xl"><div className="mb-5 flex items-center justify-between"><div><h2 className="text-lg font-semibold text-white">{existing ? 'Edit Master Song Details' : 'Add Master Song Details'}</h2><p className="text-xs text-slate-400">Saved separately; locking or changing client selections will not replace this reference.</p></div><button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button></div><div className="grid gap-4 sm:grid-cols-2"><Field label="Song Title"><input autoFocus value={songTitle} onChange={(e) => setSongTitle(e.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} required /></Field><Field label="Singer / Artist"><input value={singerArtist} onChange={(e) => setSingerArtist(e.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} /></Field><Field label="Genre / Mood"><input value={genreMood} onChange={(e) => setGenreMood(e.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="Romantic, energetic..." /></Field><Field label="Event / Tag"><select value={eventTag} onChange={(e) => setEventTag(e.target.value)} className={`${selectClass} border-white/10 bg-slate-800 text-white`}><option value="">Select event</option>{CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></Field><div className="sm:col-span-2"><Field label="Audio Link / Preview"><input value={audioUrl} onChange={(e) => setAudioUrl(e.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="https://..." type="url" /></Field></div><div className="sm:col-span-2"><Field label="Special Editing Notes / Cue Timestamps"><textarea value={cueTimestamps} onChange={(e) => setCueTimestamps(e.target.value)} className={`${textareaClass} border-white/10 bg-slate-800 text-white`} placeholder="0:35 intro; 1:12 switch to chorus; 2:08 fade out" rows={3} /></Field></div><div className="sm:col-span-2"><Field label="Additional Editing Notes"><textarea value={specialNotes} onChange={(e) => setSpecialNotes(e.target.value)} className={`${textareaClass} border-white/10 bg-slate-800 text-white`} placeholder="Mixing, transition, or edit instructions..." rows={3} /></Field></div></div><div className="mt-5 flex justify-end gap-2"><button onClick={onClose} className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5">Cancel</button><button disabled={!songTitle.trim() || saving} onClick={() => void submit()} className="rounded-lg bg-sky-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50">{saving ? 'Saving…' : existing ? 'Save Changes' : 'Save Reference'}</button></div></div></div>;
+  return <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/70 p-4"><div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-slate-900 p-5 shadow-2xl"><div className="mb-5 flex items-center justify-between"><div><h2 className="text-lg font-semibold text-white">{existing ? 'Edit Master Song Details' : 'Add Master Song Details'}</h2><p className="text-xs text-slate-400">Saved separately; locking or changing client selections will not replace this reference.</p></div><button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button></div><div className="grid gap-4 sm:grid-cols-2"><Field label="Song Title"><input autoFocus value={songTitle} onChange={(e) => setSongTitle(e.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} required /></Field><Field label="Singer / Artist"><input value={singerArtist} onChange={(e) => setSingerArtist(e.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} /></Field><Field label="Genre / Mood"><input value={genreMood} onChange={(e) => setGenreMood(e.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="Romantic, energetic..." /></Field><Field label="Event / Tag"><select value={eventTag} onChange={(e) => setEventTag(e.target.value)} className={`${selectClass} border-white/10 bg-slate-800 text-white`}><option value="">Select event</option>{CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></Field><div className="sm:col-span-2"><Field label="External Audio Link / Preview"><input value={audioUrl} onChange={(e) => setAudioUrl(e.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="YouTube, Google Drive, Dropbox, pCloud, OneDrive..." type="url" /></Field></div><div className="sm:col-span-2"><Field label="Special Editing Notes / Cue Timestamps"><textarea value={cueTimestamps} onChange={(e) => setCueTimestamps(e.target.value)} className={`${textareaClass} border-white/10 bg-slate-800 text-white`} placeholder="0:35 intro; 1:12 switch to chorus; 2:08 fade out" rows={3} /></Field></div><div className="sm:col-span-2"><Field label="Additional Editing Notes"><textarea value={specialNotes} onChange={(e) => setSpecialNotes(e.target.value)} className={`${textareaClass} border-white/10 bg-slate-800 text-white`} placeholder="Mixing, transition, or edit instructions..." rows={3} /></Field></div></div><div className="mt-5 flex justify-end gap-2"><button onClick={onClose} className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5">Cancel</button><button disabled={!songTitle.trim() || saving} onClick={() => void submit()} className="rounded-lg bg-sky-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50">{saving ? 'Saving…' : existing ? 'Save Changes' : 'Save Reference'}</button></div></div></div>;
 }
 
 function CreateProjectModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, mode: MusicProjectMode, bookingId: string | null, partnerId: string | null, labOrderId: string | null, labClientId: string | null) => Promise<void> }) {
@@ -416,7 +457,7 @@ function AddCueModal({ projectId, onClose, onAdd }: { projectId: string; onClose
   const [startTime, setStartTime] = useState('');
   const [notes, setNotes] = useState('');
   const [priority, setPriority] = useState<MusicCuePriority>('preferred');
-  return <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 p-4"><div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-slate-900"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-slate-900 dark:text-white">Add Song Choice</h2><button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10"><X className="h-5 w-5" /></button></div><div className="space-y-4"><div className="grid grid-cols-2 gap-3"><Field label="Event / Use"><select value={category} onChange={(event) => setCategory(event.target.value)} className={selectClass}>{CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Priority"><select value={priority} onChange={(event) => setPriority(event.target.value as MusicCuePriority)} className={selectClass}>{PRIORITIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></Field></div><Field label="Song Title"><input value={trackTitle} onChange={(event) => setTrackTitle(event.target.value)} className={inputClass} placeholder="Song name or artist" /></Field><Field label="YouTube / Spotify / Audio Link"><input value={trackUrl} onChange={(event) => setTrackUrl(event.target.value)} className={inputClass} placeholder="Paste a reference or preview link" /></Field><Field label="Timestamp / Timecode"><input value={startTime} onChange={(event) => setStartTime(event.target.value)} className={inputClass} placeholder="01:15 or 00:01:15:00" /></Field><Field label="Usage Notes"><textarea value={notes} onChange={(event) => setNotes(event.target.value)} className={textareaClass} placeholder="e.g. 01:15 se Jaymala flower drop pe use karein" /></Field><div className="flex justify-end gap-2 pt-2"><button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button><button onClick={() => void onAdd({ project_id: projectId, category, track_title: trackTitle.trim(), track_url: trackUrl.trim(), start_time: startTime.trim(), usage_notes: notes.trim(), priority })} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400"><Check className="mr-1 inline h-4 w-4" /> Save Song</button></div></div></div></div>;
+  return <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 p-4"><div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-slate-900"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-slate-900 dark:text-white">Add Song Choice</h2><button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10"><X className="h-5 w-5" /></button></div><div className="space-y-4"><div className="grid grid-cols-2 gap-3"><Field label="Event / Use"><select value={category} onChange={(event) => setCategory(event.target.value)} className={selectClass}>{CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Priority"><select value={priority} onChange={(event) => setPriority(event.target.value as MusicCuePriority)} className={selectClass}>{PRIORITIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></Field></div><Field label="Song Title"><input value={trackTitle} onChange={(event) => setTrackTitle(event.target.value)} className={inputClass} placeholder="Song name or artist" /></Field><Field label="External Audio / Reference Link"><input value={trackUrl} onChange={(event) => setTrackUrl(event.target.value)} className={inputClass} placeholder="YouTube, Google Drive, Dropbox, pCloud, OneDrive..." type="url" /></Field><Field label="Timestamp / Timecode"><input value={startTime} onChange={(event) => setStartTime(event.target.value)} className={inputClass} placeholder="01:15 or 00:01:15:00" /></Field><Field label="Usage Notes"><textarea value={notes} onChange={(event) => setNotes(event.target.value)} className={textareaClass} placeholder="e.g. 01:15 se Jaymala flower drop pe use karein" /></Field><div className="flex justify-end gap-2 pt-2"><button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button><button onClick={() => void onAdd({ project_id: projectId, category, track_title: trackTitle.trim(), track_url: trackUrl.trim(), start_time: startTime.trim(), usage_notes: notes.trim(), priority })} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400"><Check className="mr-1 inline h-4 w-4" /> Save Song</button></div></div></div></div>;
 }
 
 export function PublicMusicSelection() {

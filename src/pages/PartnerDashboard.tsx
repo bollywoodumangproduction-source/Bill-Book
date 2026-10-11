@@ -355,7 +355,7 @@ export function PartnerDashboardContent({
   useEffect(() => {
     let cancelled = false;
     const loadMusicProjects = async () => {
-      const { data, error } = await supabase.from('music_projects').select('*').eq('mode', 'b2b').eq('partner_id', partner.id).order('updated_at', { ascending: false });
+      const { data, error } = await supabase.from('music_projects').select('*').eq('mode', 'b2b').eq('partner_id', partner.id).is('archived_at', null).order('updated_at', { ascending: false });
       if (cancelled) return;
       if (error) {
         setMusicProjectsLoadError(true);

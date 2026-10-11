@@ -123,7 +123,7 @@ export function ClientDashboard() {
       const [teaserRes, inviteRes, musicRes, photoRes] = await Promise.all([
         supabase.from('teaser_projects').select('*').eq('booking_id', b.id).maybeSingle(),
         supabase.from('invitation_projects').select('*').eq('booking_id', b.id).maybeSingle(),
-        supabase.from('music_projects').select('*').eq('booking_id', b.id).maybeSingle(),
+        supabase.from('music_projects').select('*').eq('booking_id', b.id).is('archived_at', null).maybeSingle(),
         supabase.from('photo_selection_sessions').select('*').eq('bill_id', b.booking_no).maybeSingle(),
       ]);
       setTeaserProject((teaserRes.data as TeaserProject | null) ?? null);
