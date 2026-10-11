@@ -13,6 +13,8 @@ export interface InteractivePackageSlide {
   video_urls?: string[];
   /** Backward compatibility for proposals saved before multiple video links. */
   video_embed_url?: string;
+  album_pdf_url?: string;
+  photo_folder_url?: string;
 }
 
 export interface InteractiveSelectedPackage {
