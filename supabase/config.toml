@@ -3,3 +3,6 @@ verify_jwt = false
 
 [functions.public-share]
 verify_jwt = false
+
+[functions.pcloud-video-link]
+verify_jwt = false
