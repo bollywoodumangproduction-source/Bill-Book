@@ -225,7 +225,16 @@ async function handle(request: Request, body: Record<string, unknown>) {
     const { data: project, error } = await db.from('music_projects').select('*').eq('id', id).is('archived_at', null).maybeSingle();
     if (error || !project) return response(request, { error: 'Music project not found.' }, 404);
     const { data: cues } = await db.from('music_cues').select('*').eq('project_id', id).order('created_at');
-    return response(request, { project: safeMusicProject(project), cues: (cues ?? []).map(safeMusicCue) });
+    const { data: songs } = await db.from('music_song_library')
+      .select('id,catalog_key,song_title,singer_artist,event_tag,genre_mood,audio_url,is_active,created_at')
+      .eq('is_active', true)
+      .order('event_tag')
+      .order('song_title');
+    return response(request, {
+      project: safeMusicProject(project),
+      cues: (cues ?? []).map(safeMusicCue),
+      songs: songs ?? [],
+    });
   }
   if (action === 'music-add-cue') {
     const projectId = String(body.projectId ?? '');
