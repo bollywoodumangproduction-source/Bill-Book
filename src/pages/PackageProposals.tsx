@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, Copy, ExternalLink, Lock, MessageCircle, Plus, Save, Trash2, Unlock } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, Copy, Download, ExternalLink, Lock, MessageCircle, Plus, Save, Trash2, Unlock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { inputClass, textareaClass } from '@/components/ui/Field';
 import type { InteractivePackageSlide, InteractiveProposal } from '@/lib/interactiveProposals';
+import { buildPdfFilename, downloadA4Pdf } from '@/lib/pdf';
 
 const emptySlide = (): InteractivePackageSlide => ({ id: crypto.randomUUID(), package_name: '', price: '', badge: '', deliverables: [], events: [], video_urls: [''], album_pdf_url: '', photo_folder_url: '' });
 const token = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), (value) => value.toString(16).padStart(2, '0')).join('');
 const publicUrl = (value: string) => new URL(`/proposal/${encodeURIComponent(value)}`, window.location.origin).toString();
 
 export function PackageProposals() {
+  const { settings } = useSettings();
   const { toast } = useToast();
   const [proposals, setProposals] = useState<InteractiveProposal[]>([]);
   const [activeId, setActiveId] = useState('');
@@ -102,6 +105,51 @@ export function PackageProposals() {
     setProposals((current) => current.filter((item) => item.id !== selected.id)); setActiveId(''); toast('Proposal deleted', 'success');
   };
 
+  const downloadAndShareSelection = async () => {
+    if (!draft?.selected_package) return;
+    const selection = draft.selected_package;
+    const slide = draft.packages_data.find((item) => item.id === selection.package_id);
+    if (!slide) { toast('Selected package details are missing from this proposal.', 'error'); return; }
+    const escape = (value: string) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character);
+    const list = (items: string[]) => items.length ? items.map((item) => `<li style="margin:0 0 7px">${escape(item)}</li>`).join('') : '<li>—</li>';
+    const rows = slide.events.length ? slide.events.map((event) => `<tr><td style="padding:9px;border:1px solid #cbd5e1;font-weight:700">${escape(event.name || '—')}</td><td style="padding:9px;border:1px solid #cbd5e1">${escape(event.coverage || '—')}</td></tr>`).join('') : '<tr><td colspan="2" style="padding:9px;border:1px solid #cbd5e1">No event coverage listed</td></tr>';
+    const links = [
+      ...(slide.video_urls ?? (slide.video_embed_url ? [slide.video_embed_url] : [])).filter(Boolean).map((url, index) => `Sample video ${index + 1}: ${url}`),
+      slide.album_pdf_url ? `Album PDF: ${slide.album_pdf_url}` : '',
+      slide.photo_folder_url ? `Photo folder: ${slide.photo_folder_url}` : '',
+    ].filter(Boolean);
+    const element = document.createElement('div');
+    element.innerHTML = `<div style="font-family:Arial,sans-serif;color:#0f172a;background:#fff;padding:28px;font-size:12px;line-height:1.5">
+      <div style="border-bottom:2px solid #d99a21;padding-bottom:14px;margin-bottom:18px"><div style="font-size:19px;font-weight:700">BOLLYWOOD UMANG FILMS &amp; PRODUCTION</div><div>${escape(settings?.address || 'Kamtaul, Darbhanga')}${settings?.phone ? ` · ${escape(settings.phone)}` : ''}</div><h1 style="font-size:20px;margin:16px 0 0">${escape(draft.title)} — Final Package Confirmation</h1></div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:18px"><tbody>
+        <tr><td style="padding:7px;border:1px solid #cbd5e1;font-weight:700">Client</td><td style="padding:7px;border:1px solid #cbd5e1">${escape(selection.client_name)}</td></tr>
+        <tr><td style="padding:7px;border:1px solid #cbd5e1;font-weight:700">Phone</td><td style="padding:7px;border:1px solid #cbd5e1">${escape(selection.client_phone)}</td></tr>
+        <tr><td style="padding:7px;border:1px solid #cbd5e1;font-weight:700">Selected package</td><td style="padding:7px;border:1px solid #cbd5e1">${escape(selection.package_name)}${slide.badge ? ` · ${escape(slide.badge)}` : ''}</td></tr>
+        <tr><td style="padding:7px;border:1px solid #cbd5e1;font-weight:700">Package price</td><td style="padding:7px;border:1px solid #cbd5e1;font-size:16px;font-weight:700">${escape(selection.price)}</td></tr>
+        <tr><td style="padding:7px;border:1px solid #cbd5e1;font-weight:700">Submitted</td><td style="padding:7px;border:1px solid #cbd5e1">${escape(new Date(selection.submitted_at).toLocaleString())}</td></tr>
+        ${selection.note ? `<tr><td style="padding:7px;border:1px solid #cbd5e1;font-weight:700">Client note</td><td style="padding:7px;border:1px solid #cbd5e1">${escape(selection.note)}</td></tr>` : ''}
+      </tbody></table>
+      <h2 style="font-size:15px;margin:18px 0 8px">Event Coverage</h2><table style="width:100%;border-collapse:collapse"><thead><tr><th style="padding:8px;border:1px solid #cbd5e1;text-align:left;background:#f1f5f9">Event</th><th style="padding:8px;border:1px solid #cbd5e1;text-align:left;background:#f1f5f9">Coverage</th></tr></thead><tbody>${rows}</tbody></table>
+      <h2 style="font-size:15px;margin:18px 0 8px">Deliverables</h2><ul style="padding-left:20px">${list(slide.deliverables)}</ul>
+      ${links.length ? `<h2 style="font-size:15px;margin:18px 0 8px">Reference Links</h2><ul style="padding-left:20px">${links.map((link) => `<li style="margin:0 0 7px;overflow-wrap:anywhere">${escape(link)}</li>`).join('')}</ul>` : ''}
+      <div style="border-top:1px solid #cbd5e1;margin-top:22px;padding-top:10px;color:#475569;font-size:10px">Generated from the studio proposal. Please contact the studio for revisions or clarification.</div>
+    </div>`;
+    element.style.position = 'fixed'; element.style.left = '-10000px'; element.style.top = '0'; document.body.append(element);
+    const phone = selection.client_phone.replace(/\D/g, '');
+    const whatsappPhone = phone.length === 10 ? `91${phone}` : phone;
+    const whatsapp = window.open('about:blank', '_blank');
+    try {
+      await downloadA4Pdf(element, buildPdfFilename(selection.client_name, 'Wedding_Package'));
+      toast('PDF downloaded. Attach it in the opened WhatsApp chat to send.', 'success');
+      if (whatsapp) {
+        const message = `Namaste ${selection.client_name}, your finalized wedding package PDF is ready. Please see the attached full-detail package confirmation.`;
+        whatsapp.location.href = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(message)}`;
+      }
+    } catch {
+      whatsapp?.close(); toast('Could not create the package PDF. Please try again.', 'error');
+    } finally { element.remove(); }
+  };
+
   const updateSlide = (index: number, patch: Partial<InteractivePackageSlide>) => {
     if (!draft) return;
     patchDraft({ packages_data: draft.packages_data.map((slide, i) => i === index ? { ...slide, ...patch } : slide) });
@@ -143,7 +191,7 @@ export function PackageProposals() {
                 <button onClick={() => void remove()} className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 px-3 py-2 text-sm text-rose-300"><Trash2 className="h-4 w-4" /> Delete</button>
               </div>
               {draft.is_locked && <p className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/10 p-3 text-sm text-amber-200">Finalized / Frozen — unlock to allow revision.</p>}
-              {draft.selected_package && <div className="mt-3 rounded-lg border border-emerald-400/30 bg-emerald-400/10 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Client selected</p><p className="mt-1 font-bold">{draft.selected_package.package_name} · {draft.selected_package.price}</p><p className="text-xs text-slate-300">{draft.selected_package.client_name} · {draft.selected_package.client_phone} · {new Date(draft.selected_package.submitted_at).toLocaleString()}</p>{draft.selected_package.note && <p className="mt-1 text-sm text-slate-300">{draft.selected_package.note}</p>}</div>}
+              {draft.selected_package && <div className="mt-3 rounded-lg border border-emerald-400/30 bg-emerald-400/10 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Client selected</p><p className="mt-1 font-bold">{draft.selected_package.package_name} · {draft.selected_package.price}</p><p className="text-xs text-slate-300">{draft.selected_package.client_name} · {draft.selected_package.client_phone} · {new Date(draft.selected_package.submitted_at).toLocaleString()}</p>{draft.selected_package.note && <p className="mt-1 text-sm text-slate-300">{draft.selected_package.note}</p>}<button onClick={() => void downloadAndShareSelection()} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-400"><Download className="h-4 w-4" /> Download PDF &amp; WhatsApp</button><p className="mt-2 text-xs text-emerald-100/75">PDF includes the full selected package. Attach the downloaded file in WhatsApp to send it.</p></div>}
             </div>
             <div className="space-y-3">
               {draft.packages_data.map((slide, index) => <article key={slide.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-4">

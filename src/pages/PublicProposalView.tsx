@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type TouchEvent } from 'react';
-import { Check, ChevronLeft, ChevronRight, LockKeyhole, Play, Sparkles, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, LockKeyhole, Play, Sparkles, X } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useSettings } from '@/context/SettingsContext';
@@ -38,6 +38,15 @@ function displayPackagePrice(value: string) {
   return `₹${amountText}`;
 }
 
+function directPcloudVideoUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const isPcloudStreamHost = /^c\d+\.pcloud\.com$/i.test(url.hostname);
+    const isVideoFile = /\.(?:mp4|webm|ogv|ogg)$/i.test(url.pathname);
+    return url.protocol === 'https:' && isPcloudStreamHost && isVideoFile ? url.toString() : null;
+  } catch { return null; }
+}
+
 export function PublicProposalView() {
   const { token = '' } = useParams<{ token: string }>();
   const { settings } = useSettings();
@@ -70,7 +79,11 @@ export function PublicProposalView() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const active: InteractivePackageSlide | undefined = proposal?.packages_data?.[index];
+  const selectedIndex = proposal?.selected_package
+    ? proposal.packages_data.findIndex((slide) => slide.id === proposal.selected_package?.package_id)
+    : -1;
+  const displayIndex = proposal?.is_locked && selectedIndex >= 0 ? selectedIndex : index;
+  const active: InteractivePackageSlide | undefined = proposal?.packages_data?.[displayIndex];
   const sampleVideos = (active?.video_urls ?? (active?.video_embed_url ? [active.video_embed_url] : [])).filter((url) => url.trim());
   const albumPdf = active?.album_pdf_url?.trim() ?? '';
   const photoFolder = active?.photo_folder_url?.trim() ?? '';
@@ -91,10 +104,13 @@ export function PublicProposalView() {
     else confirmationWindow?.close();
   };
 
-  const go = (direction: -1 | 1) => setIndex((current) => Math.max(0, Math.min((proposal?.packages_data.length ?? 1) - 1, current + direction)));
+  const go = (direction: -1 | 1) => {
+    if (proposal?.is_locked) return;
+    setIndex((current) => Math.max(0, Math.min((proposal?.packages_data.length ?? 1) - 1, current + direction)));
+  };
   const onTouchStart = (event: TouchEvent) => setTouchX(event.touches[0]?.clientX ?? null);
   const onTouchEnd = (event: TouchEvent) => {
-    if (touchX === null) return;
+    if (touchX === null || proposal?.is_locked) return;
     const delta = event.changedTouches[0]?.clientX - touchX;
     if (delta > 45) go(-1); else if (delta < -45) go(1);
     setTouchX(null);
@@ -116,13 +132,18 @@ export function PublicProposalView() {
         : error && !proposal ? <div className="rounded-2xl border border-rose-400/20 bg-slate-900 p-8 text-center text-rose-200">{error}</div>
         : proposal && proposal.packages_data.length === 0 ? <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center text-slate-300">The studio is preparing your package options. Please check back soon.</div>
         : proposal && active ? <>
-          <div className="mb-3 flex items-center justify-between text-xs text-slate-400"><span>Package {index + 1} of {proposal.packages_data.length}</span><span>{proposal.is_locked ? 'Studio finalized' : 'Swipe or use arrows to compare'}</span></div>
-          <section onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="relative overflow-hidden rounded-3xl border border-amber-300/30 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 shadow-[0_24px_80px_rgba(0,0,0,.45)]">
+          {proposal.selected_package && <div role="status" className="mb-4 flex items-start gap-3 rounded-2xl border border-emerald-300/30 bg-emerald-950/60 p-4 text-emerald-100 shadow-lg">
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />
+            <div><p className="font-bold">Package selection submitted successfully</p><p className="mt-1 text-sm">{proposal.selected_package.package_name} · {proposal.selected_package.price} — submitted by {proposal.selected_package.client_name} on {new Date(proposal.selected_package.submitted_at).toLocaleDateString()}.</p><p className="mt-1 text-xs text-emerald-200/80">{proposal.is_locked ? 'The studio has locked this selection. It is now read-only.' : 'Your selection is saved. You can change it until the studio locks the proposal.'}</p></div>
+          </div>}
+          {proposal.is_locked && !proposal.selected_package && <div role="status" className="mb-4 flex items-center gap-3 rounded-2xl border border-amber-300/30 bg-amber-950/40 p-4 text-sm text-amber-100"><LockKeyhole className="h-5 w-5 shrink-0" />The studio has locked this proposal. Package details are read-only; contact the studio if you need a change.</div>}
+          <div className="mb-3 flex items-center justify-between text-xs text-slate-400"><span>Package {displayIndex + 1} of {proposal.packages_data.length}</span><span>{proposal.is_locked ? 'Read-only · locked by studio' : 'Swipe or use arrows to compare'}</span></div>
+          <section onTouchStart={proposal.is_locked ? undefined : onTouchStart} onTouchEnd={proposal.is_locked ? undefined : onTouchEnd} className="relative overflow-hidden rounded-3xl border border-amber-300/30 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 shadow-[0_24px_80px_rgba(0,0,0,.45)]">
             <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-500 via-yellow-200 to-amber-500" />
             <article key={active.id} className="animate-[fadeIn_.25s_ease-out]">
               <header className="relative flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b-[3px] border-amber-500 bg-[#11143b] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,.08),0_4px_0_rgba(0,0,0,.45)] sm:px-7 sm:py-4">
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
-                  <p className="max-w-full break-words text-xs font-extrabold uppercase tracking-[.12em] text-white sm:text-sm">{active.package_name || `PACKAGE ${index + 1}`}</p>
+                  <p className="max-w-full break-words text-xs font-extrabold uppercase tracking-[.12em] text-white sm:text-sm">{active.package_name || `PACKAGE ${displayIndex + 1}`}</p>
                   {active.badge && <span className="max-w-full break-words rounded-full border border-orange-300/60 bg-orange-500 px-3 py-1 text-[10px] font-extrabold uppercase leading-tight text-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,.35),0_2px_0_rgba(154,52,18,.8)] sm:text-[11px]">{active.badge}</span>}
                 </div>
                 <h2 className="ml-auto shrink-0 text-right text-2xl font-black leading-none text-amber-300 drop-shadow-[0_2px_0_rgba(120,53,15,.9)] sm:text-3xl">{displayPackagePrice(active.price)}</h2>
@@ -134,12 +155,12 @@ export function PublicProposalView() {
               </div>
               {sampleVideos.length > 0 && <div className="flex flex-wrap gap-2">{sampleVideos.map((url, videoIndex) => <button key={`${active.id}-sample-${videoIndex}`} onClick={() => setVideo(url)} className="inline-flex items-center gap-2 rounded-xl border border-amber-300/30 bg-amber-400/10 px-4 py-2.5 text-sm font-semibold text-amber-200"><Play className="h-4 w-4" /> Watch Sample Video{sampleVideos.length > 1 ? ` ${videoIndex + 1}` : ''}</button>)}</div>}
               {(albumPdf && isSafeLink(albumPdf) || photoFolder && isSafeLink(photoFolder)) && <div className="mt-3 flex flex-wrap gap-2">{albumPdf && isSafeLink(albumPdf) && <button onClick={() => setPdf(albumPdf)} className="rounded-xl border border-sky-300/25 bg-sky-400/10 px-4 py-2.5 text-sm font-semibold text-sky-200">View Album PDF</button>}{photoFolder && isSafeLink(photoFolder) && <a href={photoFolder} target="_blank" rel="noopener noreferrer" className="rounded-xl border border-sky-300/25 bg-sky-400/10 px-4 py-2.5 text-sm font-semibold text-sky-200">Open Photo Folder</a>}</div>}
-              {proposal.selected_package?.package_id === active.id && <div className="mt-5 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-200">Selected by {proposal.selected_package.client_name} on {new Date(proposal.selected_package.submitted_at).toLocaleDateString()}</div>}
-              <div className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5"><button onClick={() => go(-1)} disabled={index === 0} aria-label="Previous package" className="rounded-xl border border-white/10 p-3 text-slate-300 disabled:opacity-30"><ChevronLeft /></button>{proposal.is_locked ? <span className="rounded-xl border border-amber-300/20 px-4 py-3 text-center text-sm font-semibold text-amber-200"><LockKeyhole className="mr-2 inline h-4 w-4" />Package Finalized (Locked by Studio)</span> : <button onClick={() => setShowFinalize(true)} className="rounded-xl bg-gradient-to-r from-amber-300 to-orange-400 px-6 py-3 font-bold text-slate-950 shadow-lg shadow-amber-900/20">Finalize / Choose This Package</button>}<button onClick={() => go(1)} disabled={index >= proposal.packages_data.length - 1} aria-label="Next package" className="rounded-xl border border-white/10 p-3 text-slate-300 disabled:opacity-30"><ChevronRight /></button></div>
+              {proposal.selected_package?.package_id === active.id && <div className="mt-5 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-200">This is the package selected by {proposal.selected_package.client_name}.</div>}
+              {!proposal.is_locked && <div className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5"><button onClick={() => go(-1)} disabled={displayIndex === 0} aria-label="Previous package" className="rounded-xl border border-white/10 p-3 text-slate-300 disabled:opacity-30"><ChevronLeft /></button><button onClick={() => setShowFinalize(true)} className="rounded-xl bg-gradient-to-r from-amber-300 to-orange-400 px-6 py-3 font-bold text-slate-950 shadow-lg shadow-amber-900/20">{proposal.selected_package ? 'Change / Confirm Package' : 'Finalize / Choose This Package'}</button><button onClick={() => go(1)} disabled={displayIndex >= proposal.packages_data.length - 1} aria-label="Next package" className="rounded-xl border border-white/10 p-3 text-slate-300 disabled:opacity-30"><ChevronRight /></button></div>}
               </div>
             </article>
           </section>
-          <div className="mt-4 flex justify-center gap-2">{proposal.packages_data.map((slide, i) => <button key={slide.id} aria-label={`Show package ${i + 1}`} onClick={() => setIndex(i)} className={`h-2 rounded-full transition-all ${i === index ? 'w-8 bg-amber-300' : 'w-2 bg-slate-600'}`} />)}</div>
+          {!proposal.is_locked && <div className="mt-4 flex justify-center gap-2">{proposal.packages_data.map((slide, i) => <button key={slide.id} aria-label={`Show package ${i + 1}`} onClick={() => setIndex(i)} className={`h-2 rounded-full transition-all ${i === displayIndex ? 'w-8 bg-amber-300' : 'w-2 bg-slate-600'}`} />)}</div>}
         </> : null}
 
       {error && proposal && <p role="alert" className="mt-3 rounded-xl border border-rose-400/20 bg-rose-950/40 p-3 text-sm text-rose-200">{error}</p>}
@@ -148,7 +169,15 @@ export function PublicProposalView() {
 
     {showFinalize && active && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-3" role="dialog" aria-modal="true" aria-labelledby="proposal-finalize-title"><div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl"><div className="flex items-start justify-between"><div><h2 id="proposal-finalize-title" className="text-lg font-bold">Confirm package selection</h2><p className="mt-1 text-sm text-amber-200">{active.package_name} · {active.price}</p></div><button onClick={() => setShowFinalize(false)} aria-label="Close" className="text-slate-400"><X /></button></div><div className="mt-4 space-y-3"><input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Client name" /><input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} placeholder="Phone number" /><textarea className="min-h-24 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" /></div><button disabled={saving || !clientName.trim() || !clientPhone.trim()} onClick={() => void finalize()} className="mt-4 w-full rounded-xl bg-amber-400 px-4 py-3 font-bold text-slate-950 disabled:opacity-50">{saving ? 'Saving…' : 'Confirm & Send Selection'}</button></div></div>}
 
-    {video && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 p-3" role="dialog" aria-modal="true" aria-label="Sample video"><button onClick={() => setVideo('')} className="absolute right-4 top-4 rounded-full bg-slate-800 p-2" aria-label="Close video"><X /></button><div className="w-full max-w-5xl">{(() => { const url = embedUrl(video); const isVimeo = /(?:vimeo\.com|player\.vimeo\.com)/i.test(video); if (isVimeo) return <iframe className="aspect-video w-full rounded-xl" src={url} title="Wedding sample video" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />; return <UniversalMediaPreview url={video} kind="video" title="Wedding sample video" mediaClassName="aspect-video w-full rounded-xl" />; })()}</div></div>}
-    {pdf && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 p-3" role="dialog" aria-modal="true" aria-label="Album PDF"><button onClick={() => setPdf('')} className="absolute right-4 top-4 rounded-full bg-slate-800 p-2" aria-label="Close PDF"><X /></button><div className="w-full max-w-5xl"><UniversalMediaPreview url={pdf} kind="pdf" title="Album PDF" mediaClassName="h-[80vh] min-h-[360px] w-full rounded-xl" /></div></div>}
+    {video && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 p-3" role="dialog" aria-modal="true" aria-label="Sample video"><button onClick={() => setVideo('')} className="absolute right-4 top-4 rounded-full bg-slate-800 p-2" aria-label="Close video"><X /></button><div className="w-full max-w-5xl">{(() => { const media = resolveMediaUrl(video, 'video'); const isVimeo = /(?:vimeo\.com|player\.vimeo\.com)/i.test(video); const directPcloud = media?.provider === 'pcloud' ? directPcloudVideoUrl(video) : null; if (directPcloud) return <video controls controlsList="nodownload" disablePictureInPicture playsInline autoPlay onContextMenu={(event) => event.preventDefault()} className="max-h-[80vh] w-full rounded-xl bg-black object-contain" src={directPcloud}>Your browser does not support the video tag.</video>; if (media?.provider === 'pcloud') return <ProposalExternalMediaLink url={video} label="This pCloud share link does not expose a direct video stream" />; if (isVimeo) return <iframe className="aspect-video w-full rounded-xl" src={embedUrl(video)} title="Wedding sample video" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />; return <UniversalMediaPreview url={video} kind="video" title="Wedding sample video" mediaClassName="aspect-video w-full rounded-xl" />; })()}</div></div>}
+    {pdf && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 p-3" role="dialog" aria-modal="true" aria-label="Album PDF"><button onClick={() => setPdf('')} className="absolute right-4 top-4 rounded-full bg-slate-800 p-2" aria-label="Close PDF"><X /></button><div className="w-full max-w-5xl">{resolveMediaUrl(pdf, 'pdf')?.provider === 'pcloud' ? <ProposalExternalMediaLink url={pdf} label="Open album PDF" /> : <UniversalMediaPreview url={pdf} kind="pdf" title="Album PDF" mediaClassName="h-[80vh] min-h-[360px] w-full rounded-xl" />}</div></div>}
   </main>;
+}
+
+function ProposalExternalMediaLink({ url, label }: { url: string; label: string }) {
+  return <div className="mx-auto max-w-xl rounded-2xl border border-slate-700 bg-slate-900 p-6 text-center shadow-2xl">
+    <p className="text-lg font-semibold text-white">{label}</p>
+    <p className="mt-2 text-sm text-slate-300">This file is hosted externally. Open it in a new tab to view.</p>
+    <a href={url} target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex rounded-xl bg-amber-400 px-5 py-3 font-bold text-slate-950">Open file</a>
+  </div>;
 }
