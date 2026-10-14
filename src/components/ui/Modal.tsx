@@ -45,7 +45,7 @@ export function Modal({ open, onClose, title, children, size = 'md', dismissible
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-2 sm:p-4 backdrop-blur-sm no-print"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-2 sm:p-4 backdrop-blur-sm no-print overflow-x-hidden"
       onClick={(e) => { if (e.target === e.currentTarget && dismissibleRef.current) onCloseRef.current(); }}
       onTouchStart={(event) => {
         if (!onBackSwipeRef.current) return;
@@ -63,7 +63,7 @@ export function Modal({ open, onClose, title, children, size = 'md', dismissible
       }}
     >
       <div
-        className={`relative w-full ${sizeClass} ${size === 'xl' ? 'min-h-[500px] max-h-[90vh] md:min-w-[760px]' : 'max-h-[90vh]'} overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl dark:border-slate-800 dark:bg-slate-900`}
+        className={`relative w-full max-w-full ${sizeClass} ${size === 'xl' ? 'min-h-[500px] max-h-[90vh] md:min-w-[760px]' : 'max-h-[90vh]'} overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl dark:border-slate-800 dark:bg-slate-900`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-900 px-4 py-3 sm:px-5 sm:py-4">

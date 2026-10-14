@@ -2327,7 +2327,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                   <p className="text-xs font-medium text-amber-600 dark:text-amber-400">Album Items</p>
                   {client.album_rows.map((r, ai) => {
                     return (
-                      <div key={ai} className="rounded-lg border border-slate-200 p-2.5 dark:border-white/10">
+                      <div key={ai} className="rounded-lg border border-slate-200 p-2.5 dark:border-white/10 overflow-hidden">
                         {/* Master row */}
                         <div>
                           <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
@@ -2378,10 +2378,10 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                                     <option value="">Paper</option>
                                     {LAB_ALBUM_PAPERS.map((pp) => <option key={pp} value={pp}>{pp}</option>)}
                                   </select>
-                                  <div className="flex w-full items-center gap-2 sm:contents">
-                                    <input type="number" value={p.sheets || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { sheets: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-24 sm:w-auto min-w-0`} placeholder="Sheets" />
-                                    <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} flex-1 sm:flex-none sm:!w-full sm:!min-w-[110px] min-w-0`} placeholder="Rate/Sheet" />
-                                    <span className="flex min-w-[65px] sm:min-w-0 items-center justify-end sm:justify-start text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(p.total))}</span>
+                                  <div className="grid w-full grid-cols-[1fr_1fr_auto_auto] items-center gap-2 sm:contents">
+                                    <input type="number" value={p.sheets || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { sheets: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:w-auto`} placeholder="Sheets" />
+                                    <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-full sm:!min-w-[110px]`} placeholder="Rate/Sheet" />
+                                    <span className="flex items-center justify-end text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap min-w-[70px] sm:min-w-0">{formatINR(toNum(p.total))}</span>
                                     {r.papers.length > 1 && (
                                       <button onClick={() => removePaperRow(ci, ai, pi)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500">
                                         <Trash2 className="h-3.5 w-3.5" />
