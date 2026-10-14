@@ -2328,20 +2328,20 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                       <div key={ai} className="rounded-lg border border-slate-200 p-2.5 dark:border-white/10">
                         {/* Master row */}
                         <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <select value={r.album_type} onChange={(e) => { updateAlbumRow(ci, ai, { album_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[110px] flex-[1_1_130px] ${r.album_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+                          <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
+                            <select value={r.album_type} onChange={(e) => { updateAlbumRow(ci, ai, { album_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[145px] flex-[1_1_165px] ${r.album_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                               <option value="">Select Type</option>
                               {LAB_ALBUM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                             </select>
-                            <select value={r.size} onChange={(e) => { updateAlbumRow(ci, ai, { size: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[90px] flex-[1_1_100px] ${r.size ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+                            <select value={r.size} onChange={(e) => { updateAlbumRow(ci, ai, { size: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[115px] flex-[1_1_125px] ${r.size ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                               <option value="">Size</option>
                               {LAB_ALBUM_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
                             </select>
-                            <select value={r.packaging} onChange={(e) => { updateAlbumRow(ci, ai, { packaging: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[100px] flex-[1_1_115px] ${r.packaging ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+                            <select value={r.packaging} onChange={(e) => { updateAlbumRow(ci, ai, { packaging: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[130px] flex-[1_1_140px] ${r.packaging ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                               <option value="">Packaging</option>
                               {LAB_ALBUM_COVERS.map((c) => <option key={c} value={c}>{c}</option>)}
                             </select>
-                            <input type="number" value={r.packaging_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { packaging_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-24 min-w-0 shrink-0`} placeholder="Rate" />
+                            <input type="number" value={r.packaging_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { packaging_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[125px] !min-w-[125px] shrink-0`} placeholder="Rate" />
                             <span className="flex min-w-[90px] items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(r.packaging_total))}</span>
                             <button onClick={() => removeAlbumRow(ci, ai)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500">
                               <Trash2 className="h-4 w-4" />
@@ -2362,15 +2362,15 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                             )}
                           </div>
                           {/* Paper sub-rows */}
-                          <div className="mt-2 border-l-2 border-amber-200 pl-3 dark:border-amber-500/20"><div className="overflow-x-auto"><div className="space-y-1.5">
+                          <div className="mt-2 space-y-1.5 border-l-2 border-amber-200 pl-3 dark:border-amber-500/20">
                             {r.papers.map((p, pi) => (
-                              <div key={p.id} className="grid min-w-0 grid-cols-[2fr_1fr_1fr_auto_36px] items-center gap-2">
+                              <div key={p.id} className="grid min-w-[560px] grid-cols-[minmax(150px,2fr)_minmax(90px,1fr)_minmax(110px,1.25fr)_minmax(70px,.8fr)_36px] items-center gap-2">
                                 <select value={p.paper_type} onChange={(e) => { updatePaperRow(ci, ai, pi, { paper_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 ${p.paper_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                                   <option value="">Paper</option>
                                   {LAB_ALBUM_PAPERS.map((pp) => <option key={pp} value={pp}>{pp}</option>)}
                                 </select>
                                 <input type="number" value={p.sheets || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { sheets: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} min-w-0`} placeholder="Sheets" />
-                                <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} min-w-0`} placeholder="Rate/Sheet" />
+                                <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-full !min-w-[110px]`} placeholder="Rate/Sheet" />
                                 <span className="flex min-w-0 items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(p.total))}</span>
                                 {r.papers.length > 1 && (
                                   <button onClick={() => removePaperRow(ci, ai, pi)} className="flex h-10 w-9 items-center justify-center text-slate-400 hover:text-rose-500">
@@ -2380,8 +2380,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                                 {r.papers.length === 1 && <span className="h-10 w-9" aria-hidden="true" />}
                               </div>
                             ))}
-                            </div></div>
-                            <button onClick={() => addPaperRow(ci, ai)} className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 mt-1.5">
+                            <button onClick={() => addPaperRow(ci, ai)} className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400">
                               <Plus className="h-3 w-3" /> Add Paper
                             </button>
                           </div>
