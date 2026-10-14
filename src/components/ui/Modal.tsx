@@ -63,7 +63,7 @@ export function Modal({ open, onClose, title, children, size = 'md', dismissible
       }}
     >
       <div
-        className={`relative w-full ${sizeClass} ${size === 'xl' ? 'min-h-[500px] max-h-[90vh] md:min-w-[760px]' : 'max-h-[90vh]'} overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl dark:border-slate-800 dark:bg-slate-900`}
+        className={`relative w-full ${sizeClass} ${size === 'xl' ? 'min-h-[500px] max-h-[90vh]' : 'max-h-[90vh]'} overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl dark:border-slate-800 dark:bg-slate-900`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-900 px-5 py-4">
