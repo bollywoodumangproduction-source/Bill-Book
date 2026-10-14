@@ -45,7 +45,7 @@ export function Modal({ open, onClose, title, children, size = 'md', dismissible
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm no-print"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-2 sm:p-4 backdrop-blur-sm no-print"
       onClick={(e) => { if (e.target === e.currentTarget && dismissibleRef.current) onCloseRef.current(); }}
       onTouchStart={(event) => {
         if (!onBackSwipeRef.current) return;
@@ -66,7 +66,7 @@ export function Modal({ open, onClose, title, children, size = 'md', dismissible
         className={`relative w-full ${sizeClass} ${size === 'xl' ? 'min-h-[500px] max-h-[90vh] md:min-w-[760px]' : 'max-h-[90vh]'} overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl dark:border-slate-800 dark:bg-slate-900`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-900 px-5 py-4">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-900 px-4 py-3 sm:px-5 sm:py-4">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h2>
           <button
             onClick={onClose}
@@ -75,7 +75,7 @@ export function Modal({ open, onClose, title, children, size = 'md', dismissible
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="p-3 sm:p-5">{children}</div>
       </div>
     </div>
   );
