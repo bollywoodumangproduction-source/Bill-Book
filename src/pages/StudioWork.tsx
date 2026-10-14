@@ -2296,26 +2296,24 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                 <div className="mt-3 space-y-2">
                   <p className="text-xs font-medium text-sky-600 dark:text-sky-400">Video Items</p>
                   {client.video_rows.map((r, vi) => (
-                      <div key={vi} className="rounded-lg border border-slate-200 p-2.5 dark:border-white/10 sm:border-0 sm:p-0">
-                        <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-                          <select value={r.video_type} onChange={(e) => { updateVideoRow(ci, vi, { video_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} w-full min-w-0 sm:w-auto sm:min-w-[150px] sm:flex-[1_1_170px] ${r.video_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                            <option value="">Select Type</option>
-                            {LAB_VIDEO_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                          </select>
-                          <select value={r.quality} onChange={(e) => { updateVideoRow(ci, vi, { quality: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} w-full min-w-0 sm:w-auto sm:min-w-[120px] sm:flex-[1_1_135px] ${r.quality ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                            <option value="">Resolutions</option>
-                            {LAB_VIDEO_QUALITIES.map((q) => <option key={q} value={q}>{q}</option>)}
-                          </select>
-                          <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-start">
-                            <input type="number" value={r.qty || ''} onChange={(e) => updateVideoRow(ci, vi, { qty: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-20 sm:!w-[76px] shrink-0`} placeholder="Qty" />
-                            <input type="number" value={r.rate || ''} onChange={(e) => updateVideoRow(ci, vi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} flex-1 sm:flex-none sm:!w-[110px] sm:!min-w-[110px] shrink-0`} placeholder="Rate" />
-                            <span className="flex min-w-[70px] sm:min-w-[90px] items-center justify-end text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(computeRowTotal(r))}</span>
-                            <button onClick={() => removeVideoRow(ci, vi)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500">
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
+                    <div key={vi} className="overflow-x-auto rounded-lg border border-slate-200 p-2 dark:border-white/10 sm:border-0 sm:p-0">
+                      <div className="flex min-w-[540px] items-center gap-2">
+                        <select value={r.video_type} onChange={(e) => { updateVideoRow(ci, vi, { video_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[150px] flex-[1_1_170px] ${r.video_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+                          <option value="">Select Type</option>
+                          {LAB_VIDEO_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                        <select value={r.quality} onChange={(e) => { updateVideoRow(ci, vi, { quality: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[120px] flex-[1_1_135px] ${r.quality ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+                          <option value="">Resolutions</option>
+                          {LAB_VIDEO_QUALITIES.map((q) => <option key={q} value={q}>{q}</option>)}
+                        </select>
+                        <input type="number" value={r.qty || ''} onChange={(e) => updateVideoRow(ci, vi, { qty: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[76px] shrink-0`} placeholder="Qty" />
+                        <input type="number" value={r.rate || ''} onChange={(e) => updateVideoRow(ci, vi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[110px] !min-w-[110px] shrink-0`} placeholder="Rate" />
+                        <span className="flex min-w-[90px] items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(computeRowTotal(r))}</span>
+                        <button onClick={() => removeVideoRow(ci, vi)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
+                    </div>
                   ))}
                   <p className="text-right text-xs font-medium text-slate-600 dark:text-slate-400">Client Video Total: {formatINR(computeClientVideoTotal(client.video_rows))}</p>
                 </div>
@@ -2327,75 +2325,69 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                   <p className="text-xs font-medium text-amber-600 dark:text-amber-400">Album Items</p>
                   {client.album_rows.map((r, ai) => {
                     return (
-                      <div key={ai} className="rounded-lg border border-slate-200 p-2.5 dark:border-white/10 overflow-hidden">
+                      <div key={ai} className="rounded-lg border border-slate-200 p-2.5 dark:border-white/10">
                         {/* Master row */}
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-                            <div className="grid w-full grid-cols-2 gap-2 sm:contents">
-                              <select value={r.album_type} onChange={(e) => { updateAlbumRow(ci, ai, { album_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[145px] sm:flex-[1_1_165px] ${r.album_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                                <option value="">Select Type</option>
-                                {LAB_ALBUM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                              </select>
-                              <select value={r.size} onChange={(e) => { updateAlbumRow(ci, ai, { size: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[115px] sm:flex-[1_1_125px] ${r.size ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                                <option value="">Size</option>
-                                {LAB_ALBUM_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
-                              </select>
-                            </div>
-                            <div className="grid w-full grid-cols-[1fr_auto] gap-2 sm:contents">
-                              <select value={r.packaging} onChange={(e) => { updateAlbumRow(ci, ai, { packaging: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[130px] sm:flex-[1_1_140px] ${r.packaging ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                                <option value="">Packaging</option>
-                                {LAB_ALBUM_COVERS.map((c) => <option key={c} value={c}>{c}</option>)}
-                              </select>
-                              <input type="number" value={r.packaging_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { packaging_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-28 min-w-0 sm:!w-[125px] sm:!min-w-[125px] shrink-0`} placeholder="Rate" />
-                            </div>
-                            <div className="flex w-full items-center justify-between sm:w-auto sm:justify-start gap-2">
-                              <span className="flex min-w-[90px] items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(r.packaging_total))}</span>
-                              <button onClick={() => removeAlbumRow(ci, ai)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500">
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
+                        <div className="overflow-x-auto pb-1">
+                          <div className="flex min-w-[620px] items-center gap-2">
+                            <select value={r.album_type} onChange={(e) => { updateAlbumRow(ci, ai, { album_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[145px] flex-[1_1_165px] ${r.album_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+                              <option value="">Select Type</option>
+                              {LAB_ALBUM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                            <select value={r.size} onChange={(e) => { updateAlbumRow(ci, ai, { size: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[115px] flex-[1_1_125px] ${r.size ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+                              <option value="">Size</option>
+                              {LAB_ALBUM_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                            <select value={r.packaging} onChange={(e) => { updateAlbumRow(ci, ai, { packaging: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[130px] flex-[1_1_140px] ${r.packaging ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+                              <option value="">Packaging</option>
+                              {LAB_ALBUM_COVERS.map((c) => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                            <input type="number" value={r.packaging_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { packaging_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[110px] !min-w-[110px] shrink-0`} placeholder="Rate" />
+                            <span className="flex min-w-[90px] items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(r.packaging_total))}</span>
+                            <button onClick={() => removeAlbumRow(ci, ai)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
                           </div>
-                          {/* Mini album checkbox */}
-                          <div className="mt-2 flex items-center gap-3">
-                            <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
-                              <input type="checkbox" checked={r.mini_album} onChange={(e) => updateAlbumRow(ci, ai, { mini_album: e.target.checked })} className="h-3.5 w-3.5 rounded border-slate-300 text-amber-500 focus:ring-amber-400" />
-                              Mini Album
-                            </label>
-                            {r.mini_album && (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <input type="number" value={r.mini_qty || ''} onChange={(e) => updateAlbumRow(ci, ai, { mini_qty: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-20 shrink-0`} placeholder="Qty" />
-                                <input type="number" value={r.mini_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { mini_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[110px] !min-w-[110px] shrink-0`} placeholder="Rate" />
-                                <span className="min-w-[90px] text-xs font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(r.mini_total))}</span>
-                              </div>
-                            )}
-                          </div>
-                          {/* Paper sub-rows */}
-                          <div className="mt-2 space-y-2 border-l-2 border-amber-200 pl-2.5 sm:pl-3 dark:border-amber-500/20">
-                            {r.papers.map((p, pi) => (
-                              <div key={p.id} className="rounded-lg bg-slate-500/5 p-2 sm:rounded-none sm:bg-transparent sm:p-0">
-                                <div className="flex flex-wrap items-center gap-2 sm:grid sm:grid-cols-[minmax(150px,2fr)_minmax(90px,1fr)_minmax(110px,1.25fr)_minmax(70px,.8fr)_36px]">
-                                  <select value={p.paper_type} onChange={(e) => { updatePaperRow(ci, ai, pi, { paper_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} w-full min-w-0 sm:w-auto ${p.paper_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+                        </div>
+                        {/* Mini album checkbox */}
+                        <div className="mt-2 flex items-center gap-3">
+                          <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+                            <input type="checkbox" checked={r.mini_album} onChange={(e) => updateAlbumRow(ci, ai, { mini_album: e.target.checked })} className="h-3.5 w-3.5 rounded border-slate-300 text-amber-500 focus:ring-amber-400" />
+                            Mini Album
+                          </label>
+                          {r.mini_album && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input type="number" value={r.mini_qty || ''} onChange={(e) => updateAlbumRow(ci, ai, { mini_qty: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-20 shrink-0`} placeholder="Qty" />
+                              <input type="number" value={r.mini_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { mini_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[110px] !min-w-[110px] shrink-0`} placeholder="Rate" />
+                              <span className="min-w-[90px] text-xs font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(r.mini_total))}</span>
+                            </div>
+                          )}
+                        </div>
+                        {/* Paper sub-rows */}
+                        <div className="mt-2 space-y-2 border-l-2 border-amber-200 pl-3 dark:border-amber-500/20">
+                          <div className="overflow-x-auto pb-1">
+                            <div className="space-y-1.5 min-w-[560px]">
+                              {r.papers.map((p, pi) => (
+                                <div key={p.id} className="grid grid-cols-[minmax(150px,2fr)_minmax(90px,1fr)_minmax(110px,1.25fr)_minmax(70px,.8fr)_36px] items-center gap-2">
+                                  <select value={p.paper_type} onChange={(e) => { updatePaperRow(ci, ai, pi, { paper_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 ${p.paper_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                                     <option value="">Paper</option>
                                     {LAB_ALBUM_PAPERS.map((pp) => <option key={pp} value={pp}>{pp}</option>)}
                                   </select>
-                                  <div className="grid w-full grid-cols-[1fr_1fr_auto_auto] items-center gap-2 sm:contents">
-                                    <input type="number" value={p.sheets || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { sheets: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:w-auto`} placeholder="Sheets" />
-                                    <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-full sm:!min-w-[110px]`} placeholder="Rate/Sheet" />
-                                    <span className="flex items-center justify-end text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap min-w-[70px] sm:min-w-0">{formatINR(toNum(p.total))}</span>
-                                    {r.papers.length > 1 && (
-                                      <button onClick={() => removePaperRow(ci, ai, pi)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500">
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </button>
-                                    )}
-                                    {r.papers.length === 1 && <span className="h-10 w-9 shrink-0 sm:block hidden" aria-hidden="true" />}
-                                  </div>
+                                  <input type="number" value={p.sheets || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { sheets: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} min-w-0`} placeholder="Sheets" />
+                                  <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-full !min-w-[110px]`} placeholder="Rate/Sheet" />
+                                  <span className="flex min-w-0 items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(p.total))}</span>
+                                  {r.papers.length > 1 && (
+                                    <button onClick={() => removePaperRow(ci, ai, pi)} className="flex h-10 w-9 items-center justify-center text-slate-400 hover:text-rose-500">
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                  {r.papers.length === 1 && <span className="h-10 w-9" aria-hidden="true" />}
                                 </div>
-                              </div>
-                            ))}
-                            <button onClick={() => addPaperRow(ci, ai)} className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 pt-1">
-                              <Plus className="h-3 w-3" /> Add Paper
-                            </button>
+                              ))}
+                            </div>
                           </div>
+                          <button onClick={() => addPaperRow(ci, ai)} className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 pt-1">
+                            <Plus className="h-3 w-3" /> Add Paper
+                          </button>
                         </div>
                       </div>
                     );
