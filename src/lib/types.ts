@@ -240,6 +240,7 @@ export interface AlbumRow {
   packaging_rate: number;
   packaging_total: number;
   mini_album: boolean;
+  mini_only?: boolean;
   mini_qty: number;
   mini_rate: number;
   mini_total: number;
