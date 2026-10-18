@@ -2351,17 +2351,12 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                               {LAB_ALBUM_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
                             </select>
                             </div>
-                            <div className="grid w-full grid-cols-[1fr_auto] gap-2 sm:contents">
+                            <div className="grid w-full grid-cols-[minmax(0,1fr)_88px] gap-2 sm:contents">
                               <select value={r.packaging} onChange={(e) => { updateAlbumRow(ci, ai, { packaging: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[130px] sm:flex-[1_1_140px] ${r.packaging ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                                 <option value="">Packaging</option>
                                 {LAB_ALBUM_COVERS.map((c) => <option key={c} value={c}>{c}</option>)}
                               </select>
-                              <div className="min-w-0 sm:contents">
-                                <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents">
-                                  <span className="mb-1 block sm:hidden">Packaging Rate (₹)</span>
-                                  <input type="number" value={r.packaging_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { packaging_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-28 min-w-0 shrink-0 sm:!w-[110px] sm:!min-w-[110px]`} placeholder="Rate" />
-                                </label>
-                              </div>
+                              <input type="number" value={r.packaging_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { packaging_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[88px] !min-w-0 shrink-0 sm:!w-[110px] sm:!min-w-[110px]`} placeholder="Rate" />
                             </div>
                             <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-start">
                             <span className="flex min-w-[90px] items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(r.packaging_total))}</span>
