@@ -12,7 +12,7 @@ export function clientWorkTotal(client: LabClientRow, extras: LabExtraCharge[] =
       ? amount(row.bag_total)
       : row.mini_only
       ? amount(row.mini_total)
-      : amount(row.packaging_total) + amount(row.mini_total) + (row.papers ?? []).reduce((paperSum, paper) => paperSum + amount(paper.total), 0)
+      : amount(row.packaging_total) + amount(row.mini_total) + (row.papers ?? []).reduce((paperSum, paper) => paperSum + amount(paper.total ?? (amount(paper.sheets) + amount(paper.extra_sheets)) * amount(paper.rate)), 0)
   )), 0);
   const sameNameMatches = clients.filter((entry) => entry.client_name.trim().toLocaleLowerCase() === client.client_name.trim().toLocaleLowerCase());
   const clientExtras = extras.filter((item) => item.client_id

@@ -132,7 +132,7 @@ function computeClientAlbumTotal(rows: AlbumRow[]): number {
 
 const EMPTY_VIDEO_ROW: VideoRow = { video_type: '', quality: '', qty: 0, rate: 0, total: 0 };
 const EMPTY_ALBUM_ROW: AlbumRow = { id: uid(), album_type: '', size: '', packaging: '', packaging_rate: 0, packaging_total: 0, mini_album: false, mini_only: false, bag_only: false, bag_size: '', bag_rate: 0, bag_total: 0, mini_qty: 0, mini_rate: 0, mini_total: 0, papers: [{ id: uid(), paper_type: '', sheets: 0, rate: 0, total: 0 }], total: 0 };
-const EMPTY_PAPER_ROW: PaperRow = { id: uid(), paper_type: '', sheets: 0, rate: 0, total: 0 };
+const EMPTY_PAPER_ROW: PaperRow = { id: uid(), paper_type: '', sheets: 0, extra_sheets: 0, rate: 0, total: 0 };
 
 const EMPTY_STORAGE_LOCATION: StorageLocation = { id: '', device: '', drive: '', work: '', client_name: '' };
 
@@ -1363,7 +1363,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
                         {a.papers.map((p, pi) => p.paper_type && (
                           <tr key={pi} className="border-b border-slate-100 dark:border-white/5">
                             <td className="py-1 pl-4 text-slate-500 dark:text-slate-400">↳ {p.paper_type} Paper</td>
-                            <td className="py-1 text-right text-slate-700 dark:text-slate-300">{p.sheets}</td>
+                            <td className="py-1 text-right text-slate-700 dark:text-slate-300">{p.sheets}{toNum(p.extra_sheets) > 0 ? ` + ${p.extra_sheets} extra` : ''}</td>
                             <td className="py-1 text-right text-slate-700 dark:text-slate-300">{formatINR(toNum(p.rate))}</td>
                             <td className="py-1 text-right font-medium text-slate-900 dark:text-white">{formatINR(toNum(p.total))}</td>
                           </tr>
@@ -1435,7 +1435,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
         <div className="border-t border-slate-200 pt-3 dark:border-white/10">
           <h3 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Lab Partner Khata Breakdown</h3>
           <div className="space-y-2 text-xs">
-            {(order.album_rows ?? []).length > 0 && <div className="rounded-lg border border-slate-200 p-2 dark:border-white/10"><p className="font-semibold text-amber-600 dark:text-amber-400">Album Designing &amp; Printing</p>{order.album_rows.map((row, index) => <p key={index} className="text-slate-500 dark:text-slate-400">{row.bag_only ? `Bag · Size ${row.bag_size || '—'} · Rate ${formatINR(toNum(row.bag_rate))}` : row.mini_only ? `Mini Album · Qty ${row.mini_qty} × Rate ${formatINR(toNum(row.mini_rate))}` : `${row.album_type || 'Album'} · ${row.size} · ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} sheets · ${row.packaging || 'Cover'}`} · Amount ${formatINR(computeAlbumTotal(row))}</p>)}</div>}
+                        {(order.album_rows ?? []).length > 0 && <div className="rounded-lg border border-slate-200 p-2 dark:border-white/10"><p className="font-semibold text-amber-600 dark:text-amber-400">Album Designing &amp; Printing</p>{order.album_rows.map((row, index) => <p key={index} className="text-slate-500 dark:text-slate-400">{row.bag_only ? `Bag · Size ${row.bag_size || '—'} · Rate ${formatINR(toNum(row.bag_rate))}` : row.mini_only ? `Mini Album · Qty ${row.mini_qty} × Rate ${formatINR(toNum(row.mini_rate))}` : `${row.album_type || 'Album'} · ${row.size} · ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets) + toNum(paper.extra_sheets), 0)} sheets · ${row.packaging || 'Cover'}`} · Amount ${formatINR(computeAlbumTotal(row))}</p>)}</div>}
             {(order.video_rows ?? []).length > 0 && <div className="rounded-lg border border-slate-200 p-2 dark:border-white/10"><p className="font-semibold text-amber-600 dark:text-amber-400">Video Editing</p>{order.video_rows.map((row, index) => <p key={index} className="text-slate-500 dark:text-slate-400">{row.video_type || 'Video Edit'} · {row.quality} · Qty {row.qty} · {formatINR(computeRowTotal(row))}</p>)}</div>}
             {(order.album_rows ?? []).length === 0 && (order.video_rows ?? []).length === 0 && <p className="text-slate-400">No itemized work recorded.</p>}
           </div>
@@ -1531,7 +1531,7 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
       ? `Bag: Size ${row.bag_size || '—'} | Rate ${formatINR(toNum(row.bag_rate))} | Amount ${formatINR(toNum(row.bag_total))}`
       : row.mini_only
       ? `Mini Album: ${row.mini_qty} × ${formatINR(toNum(row.mini_rate))} = ${formatINR(toNum(row.mini_total))}`
-      : `Album: ${row.album_type || 'Album'} | Size: ${row.size || '—'} | Sheets: ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} | Paper: ${row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} | Cover/Box: ${row.packaging || '—'}`).join('\n');
+      : `Album: ${row.album_type || 'Album'} | Size: ${row.size || '—'} | Sheets: ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} | Extra sheets: ${row.papers.reduce((sum, paper) => sum + toNum(paper.extra_sheets), 0)} | Paper: ${row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} | Cover/Box: ${row.packaging || '—'}`).join('\n');
     const videos = videoRows.map((row) => `Video: ${row.video_type || 'Edit'} | Format: ${row.quality || '—'} | Output specs: ${row.quality || '—'}`).join('\n');
     const dates = order.date_pending ? 'Delivery date pending confirmation' : visibleLabOrderDates(order).map(({ label, date }) => `${label}: ${formatDate(date)}`).join('\n');
     const work = [hasLabAlbumWork(order) ? `Album status: ${order.album_status || 'Pending'}` : '', hasLabVideoWork(order) ? `Video status: ${order.video_status || 'Pending'}` : ''].filter(Boolean).join('\n');
@@ -1555,7 +1555,7 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
           <p className="text-xs">{settings?.address ?? ''}</p>
         </div>
         <div className="grid grid-cols-2 gap-3 text-sm"><p><strong>Lab Partner:</strong> {order.partner_name || '—'}</p><p><strong>Work Order:</strong> {order.order_no}</p><p><strong>Project:</strong> {order.project_name}</p><p><strong>Overall Status:</strong> {labOrderOverviewStatus(order)}</p>{order.is_emergency && <p><strong>Priority:</strong> Emergency</p>}{(order.date_pending ? ['Delivery date pending confirmation'] : visibleLabOrderDates(order).map(({ label, date }) => `${label}: ${formatDate(date)}`)).map((item) => <p key={item}><strong>Schedule:</strong> {item}</p>)}{hasLabAlbumWork(order) && <p><strong>Album Status:</strong> {order.album_status || 'Pending'}</p>}{hasLabVideoWork(order) && <p><strong>Video Status:</strong> {order.video_status || 'Pending'}</p>}</div>
-        {albumRows.length > 0 && <div><h3 className="mb-2 font-semibold">Album Designing &amp; Printing</h3><div className="space-y-1 text-sm">{albumRows.map((row, index) => <p key={index}>{row.bag_only ? `Bag · Size ${row.bag_size || '—'} · Rate ${formatINR(toNum(row.bag_rate))} · Amount ${formatINR(toNum(row.bag_total))}` : row.mini_only ? `Mini Album · Qty ${row.mini_qty} × Rate ${formatINR(toNum(row.mini_rate))} = Amount ${formatINR(toNum(row.mini_total))}` : `${row.album_type || 'Album'} · Size ${row.size || '—'} · ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} sheets · Paper ${row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} · Cover/Box ${row.packaging || '—'}`}</p>)}</div></div>}
+        {albumRows.length > 0 && <div><h3 className="mb-2 font-semibold">Album Designing &amp; Printing</h3><div className="space-y-1 text-sm">{albumRows.map((row, index) => <p key={index}>{row.bag_only ? `Bag · Size ${row.bag_size || '—'} · Rate ${formatINR(toNum(row.bag_rate))} · Amount ${formatINR(toNum(row.bag_total))}` : row.mini_only ? `Mini Album · Qty ${row.mini_qty} × Rate ${formatINR(toNum(row.mini_rate))} = Amount ${formatINR(toNum(row.mini_total))}` : `${row.album_type || 'Album'} · Size ${row.size || '—'} · ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets) + toNum(paper.extra_sheets), 0)} sheets · Extra ${row.papers.reduce((sum, paper) => sum + toNum(paper.extra_sheets), 0)} · Paper ${row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} · Cover/Box ${row.packaging || '—'}`}</p>)}</div></div>}
         {videoRows.length > 0 && <div><h3 className="mb-2 font-semibold">Video Editing</h3><div className="space-y-1 text-sm">{videoRows.map((row, index) => <p key={index}>{row.video_type || 'Video Edit'} · Format {row.quality || '—'} · Output specs {row.quality || '—'}</p>)}</div></div>}
         <div><h3 className="mb-2 font-semibold">Delivery / Drive Links</h3><p className="break-all text-sm">{order.parcel_tracking_details || 'No link provided'}</p></div>
         <div className="border-t border-black pt-2">
@@ -2049,8 +2049,13 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
       if (idx !== ai) return r;
       const newPapers = r.papers.map((p, pidx) => {
         if (pidx !== pi) return p;
-        const updated = { ...p, ...patch };
-        updated.total = toNum(updated.sheets) * toNum(updated.rate);
+        const matchingTypeRate = patch.paper_type
+          ? clients.flatMap((entry) => entry.album_rows ?? []).flatMap((album) => album.papers ?? []).find((paper) => paper.paper_type === patch.paper_type && toNum(paper.rate) > 0)?.rate
+          : undefined;
+        const fallbackRate = clients.flatMap((entry) => entry.album_rows ?? []).flatMap((album) => album.papers ?? []).find((paper) => toNum(paper.rate) > 0)?.rate;
+        const inferredRate = matchingTypeRate ?? (toNum(p.rate) > 0 ? p.rate : fallbackRate ?? 0);
+        const updated = { ...p, ...patch, rate: patch.rate ?? (patch.paper_type ? inferredRate : p.rate) };
+        updated.total = (toNum(updated.sheets) + toNum(updated.extra_sheets)) * toNum(updated.rate);
         return updated;
       });
       const updated = { ...r, papers: newPapers };
@@ -2064,7 +2069,8 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
     if (!client) return;
     const newRows = client.album_rows.map((r, idx) => {
       if (idx !== ai) return r;
-      const updated = { ...r, papers: [...r.papers, { ...EMPTY_PAPER_ROW, id: uid() }] };
+      const defaultRate = r.papers.find((paper) => toNum(paper.rate) > 0)?.rate ?? 0;
+      const updated = { ...r, papers: [...r.papers, { ...EMPTY_PAPER_ROW, id: uid(), rate: defaultRate }] };
       updated.total = computeAlbumTotal(updated);
       return updated;
     });
@@ -2432,7 +2438,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                           <div className="w-full min-w-0 max-w-full pb-1 sm:overflow-x-auto">
                             <div className="space-y-1.5 sm:min-w-[560px]">
                               {r.papers.map((p, pi) => (
-                                <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-500/5 p-2 sm:grid sm:grid-cols-[minmax(150px,2fr)_minmax(90px,1fr)_minmax(110px,1.25fr)_minmax(70px,.8fr)_36px] sm:rounded-none sm:bg-transparent sm:p-0">
+                                <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-500/5 p-2 sm:grid sm:grid-cols-[minmax(150px,2fr)_minmax(80px,.8fr)_minmax(90px,.9fr)_minmax(110px,1.1fr)_minmax(70px,.8fr)_36px] sm:rounded-none sm:bg-transparent sm:p-0">
                                   <select value={p.paper_type} onChange={(e) => { updatePaperRow(ci, ai, pi, { paper_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} w-full min-w-0 sm:w-auto ${p.paper_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
                                     <option value="">Paper</option>
                                     {LAB_ALBUM_PAPERS.map((pp) => <option key={pp} value={pp}>{pp}</option>)}
@@ -2442,12 +2448,19 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                                       <span className="mb-1 block sm:hidden">Sheets</span>
                                       <input type="number" value={p.sheets || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { sheets: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:w-auto`} placeholder="Sheets" />
                                     </label>
+                                    <label className="block min-w-0 text-[11px] font-medium text-amber-600 dark:text-amber-400 sm:contents">
+                                      <span className="mb-1 block sm:hidden">Extra Sheets</span>
+                                      <input type="number" min="0" value={p.extra_sheets || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { extra_sheets: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:w-auto`} placeholder="Extra" aria-label={`${p.paper_type || 'Paper'} extra sheets`} />
+                                    </label>
                                     <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents">
                                       <span className="mb-1 block sm:hidden">Rate per Sheet (₹)</span>
                                       <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-full sm:!min-w-[110px]`} placeholder="Rate/Sheet" />
                                     </label>
                                     <div className="col-span-2 flex items-center justify-between gap-2 sm:contents">
-                                      <span className="flex min-w-[70px] items-center justify-end whitespace-nowrap text-sm font-medium text-slate-700 dark:text-slate-300 sm:min-w-0">{formatINR(toNum(p.total))}</span>
+                                      <span className="flex min-w-[70px] flex-col items-end justify-center whitespace-nowrap text-sm font-medium text-slate-700 dark:text-slate-300 sm:min-w-0">
+                                        {formatINR(toNum(p.total))}
+                                        {toNum(p.extra_sheets) > 0 && <span className="text-[10px] font-normal text-slate-500">Main {formatINR(toNum(p.sheets) * toNum(p.rate))} + Extra {formatINR(toNum(p.extra_sheets) * toNum(p.rate))}</span>}
+                                      </span>
                                       {r.papers.length > 1 && (
                                         <button onClick={() => removePaperRow(ci, ai, pi)} className="flex h-10 w-9 items-center justify-center text-slate-400 hover:text-rose-500">
                                           <Trash2 className="h-3.5 w-3.5" />
@@ -2843,7 +2856,7 @@ export function LabOrderPrintTemplate({ order, settings, compact = false, termsT
                     {a.papers.map((p, pi) => p.paper_type && (
                       <tr key={pi}>
                         <td className="border border-black px-2 py-1 pl-4">↳ {p.paper_type} Paper</td>
-                        <td className="border border-black px-2 py-1 text-right">{p.sheets}</td>
+                        <td className="border border-black px-2 py-1 text-right">{p.sheets}{toNum(p.extra_sheets) > 0 ? ` + ${p.extra_sheets} extra` : ''}</td>
                         <td className="border border-black px-2 py-1 text-right">{formatINR(toNum(p.rate))}</td>
                         <td className="border border-black px-2 py-1 text-right">{formatINR(toNum(p.total))}</td>
                       </tr>

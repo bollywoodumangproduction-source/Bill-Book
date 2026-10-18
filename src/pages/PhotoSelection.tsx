@@ -73,15 +73,20 @@ function isLabSession(clientType: SelectionClientType): boolean {
 
 function bookingPackageSheets(booking: Booking): number {
   return (booking.deliverables_data?.album_rows ?? []).reduce(
-    (total, album) => total + album.papers.reduce((sheets, paper) => sheets + Number(paper.sheets || 0), 0),
+    (total, album) => total + album.papers.reduce((sheets, paper) => sheets + Number(paper.sheets || 0) + Number(paper.extra_sheets || 0), 0),
     0,
   );
+}
+
+function bookingSheetRate(booking: Booking): number | null {
+  const rates = (booking.deliverables_data?.album_rows ?? []).flatMap((album) => album.papers.map((paper) => Number(paper.rate || 0))).filter((rate) => rate > 0);
+  return rates[0] ?? null;
 }
 
 function labOrderSheetCount(order: StudioLabOrder): number {
   return (order.clients ?? []).reduce(
     (total, client) => total + (client.album_rows ?? []).reduce(
-      (albumTotal, album) => albumTotal + (album.papers ?? []).reduce((sheets, paper) => sheets + Number(paper.sheets || 0), 0),
+      (albumTotal, album) => albumTotal + (album.papers ?? []).reduce((sheets, paper) => sheets + Number(paper.sheets || 0) + Number(paper.extra_sheets || 0), 0),
       0,
     ),
     0,
@@ -102,15 +107,16 @@ function syncedLabOrderValues(order: StudioLabOrder): { packageSheets: number | 
   });
   const packageSheets = albumItems.reduce((total, album) => {
     const papers = Array.isArray(album.papers) ? album.papers as Array<Record<string, unknown>> : [];
-    return total + papers.reduce((paperTotal, paper) => paperTotal + (numericField(paper.sheets) ?? 0), 0);
+    return total + papers.reduce((paperTotal, paper) => paperTotal + (numericField(paper.sheets) ?? 0) + (numericField(paper.extra_sheets) ?? 0), 0);
   }, 0);
+  const paperRates = albumItems.flatMap((album) => Array.isArray(album.papers) ? (album.papers as Array<Record<string, unknown>>).map((paper) => paper.rate) : []);
   const rateSources = [
+    ...paperRates,
     rawOrder.rate_per_sheet,
     ...clients.map((client) => client.rate_per_sheet),
     ...albumItems.map((album) => album.rate_per_sheet),
-    ...albumItems.flatMap((album) => Array.isArray(album.papers) ? (album.papers as Array<Record<string, unknown>>).flatMap((paper) => [paper.rate_per_sheet, paper.rate]) : []),
   ];
-  const extraSheetRate = rateSources.map(numericField).find((value): value is number => value !== null);
+  const extraSheetRate = rateSources.map(numericField).find((value): value is number => value !== null && value > 0);
   return { packageSheets: packageSheets > 0 ? packageSheets : null, extraSheetRate: extraSheetRate ?? null };
 }
 
@@ -134,8 +140,10 @@ async function syncPhotoSelectionBilling(session: BillingSession, extraSheets: n
     const existingExtraTotal = extraItems.reduce((sum: number, item: any) => sum + Number(item.line_amount ?? 0), 0);
     const basePayable = Math.max(0, currentOrderTotal - existingExtraTotal - (extraItems.length === 0 ? legacyExtra : 0));
     const nextExtraItems = extraItems.filter((item: any) => item.id !== photoItemId);
+    const matchingClients = (order.clients ?? []).filter((client: any) => String(client.client_name ?? '').trim().toLowerCase() === session.clientName.trim().toLowerCase());
     if (extraSheets > 0 && extraAmount > 0) nextExtraItems.push({
       id: photoItemId,
+      ...(matchingClients.length === 1 ? { client_id: matchingClients[0].id } : {}),
       client_name: session.clientName,
       description: `Extra Sheets (+${extraSheets} Sheets)`,
       quantity: extraSheets,
@@ -431,12 +439,12 @@ function SessionDetail({
   const uploadedTotalSheets = session.proofSheets.filter((s) => s.sheetNumber !== 0).length;
   const totalSheets = session.total_sheets && session.total_sheets > 0 ? session.total_sheets : uploadedTotalSheets;
   const extraSheets = Math.max(0, totalSheets - session.packageSheets);
-  const extraCost = session.extra_amount && session.extra_amount > 0 ? session.extra_amount : extraSheets * session.extraSheetRate;
+  const extraCost = extraSheets * session.extraSheetRate;
 
   const saveProofing = async (patch: Partial<ClientSelectionSession>) => {
     await onUpdate(patch);
     if (patch.total_sheets == null || patch.extra_sheets == null || patch.extra_amount == null) return;
-    await syncPhotoSelectionBilling(session as BillingSession, patch.extra_sheets, patch.extra_amount);
+    await syncPhotoSelectionBilling({ ...session, ...patch } as BillingSession, patch.extra_sheets, patch.extra_amount);
   };
 
   const toggleLock = () => {
@@ -803,7 +811,7 @@ function CreateSessionModal({
   const [labOrderNo, setLabOrderNo] = useState('');
   const [phone, setPhone] = useState('');
   const [packageSheets, setPackageSheets] = useState('35');
-  const [extraSheetRate, setExtraSheetRate] = useState('50');
+  const [extraSheetRate, setExtraSheetRate] = useState('');
   const [labStep, setLabStep] = useState<'partners' | 'orders'>('partners');
   const [selectedPartner, setSelectedPartner] = useState<LabPartnerOption | null>(null);
 
@@ -815,6 +823,7 @@ function CreateSessionModal({
         phone: booking.client_mobile,
         type: 'B2C' as const,
         packageSheets: bookingPackageSheets(booking),
+        extraSheetRate: bookingSheetRate(booking) ?? 0,
       }));
     }
     return labOrders.filter((order) => !order.archived_at && !order.deleted_at).map((l) => ({
@@ -825,6 +834,7 @@ function CreateSessionModal({
       partnerName: l.partner_name || l.studio_name,
       labOrderNo: l.order_no,
       packageSheets: labOrderSheetCount(l),
+      extraSheetRate: syncedLabOrderValues(l).extraSheetRate ?? 0,
     }));
   }, [bookings, clientType, labOrders]);
 
@@ -861,31 +871,37 @@ function CreateSessionModal({
     const q = search.trim().toLowerCase();
     return !q || c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q);
   });
+  const manuallyLinkedOrder = labOrders.find((order) => order.order_no === labOrderNo);
 
   const selectClient = (c: typeof allClients[0]) => {
     setBillId(c.id);
-    setClientName(c.name);
+    const selectedOrder = c.type === 'B2B' ? labOrders.find((order) => order.order_no === c.id) : undefined;
+    setClientName(selectedOrder && selectedOrder.clients.length > 1 ? '' : c.name);
     setPhone(c.phone);
     setClientType(c.type);
     setPartnerName('partnerName' in c ? c.partnerName : '');
     setLabOrderNo('labOrderNo' in c ? c.labOrderNo : '');
     setPackageSheets(String(c.packageSheets));
+    setExtraSheetRate(c.extraSheetRate > 0 ? String(c.extraSheetRate) : '');
   };
 
   const selectLabOrder = (order: StudioLabOrder, partner: LabPartnerOption) => {
-    const clientName = (order.clients ?? []).map((client) => client.client_name).filter(Boolean).join(' + ') || order.project_name || 'Lab Client';
     setSelectedPartner(partner);
     setBillId(order.order_no);
     setLabOrderNo(order.order_no);
-    setClientName(clientName);
+    setClientName(order.clients.length === 1 ? order.clients[0].client_name : '');
     setPartnerName(partner.name);
     setPhone(partner.phone || order.studio_mobile || '');
     setPackageSheets(String(labOrderSheetCount(order)));
+    const actualRate = syncedLabOrderValues(order).extraSheetRate;
+    setExtraSheetRate(actualRate && actualRate > 0 ? String(actualRate) : '');
     setLinkMode('manual');
   };
 
   const handleCreate = () => {
-    if (!clientName.trim()) return;
+    const needsClientSelection = clientType === 'B2B' && Boolean(manuallyLinkedOrder && manuallyLinkedOrder.clients.length > 1);
+    const clientIsValid = !needsClientSelection || Boolean(manuallyLinkedOrder?.clients.some((client) => client.client_name === clientName));
+    if (!clientName.trim() || !clientIsValid) return;
     void onCreate({
       clientType,
       billId: billId || 'MANUAL',
@@ -894,7 +910,7 @@ function CreateSessionModal({
       ...(labOrderNo ? { labOrderNo: labOrderNo.trim() } : {}),
       phone: phone.trim(),
       packageSheets: parseInt(packageSheets) || 0,
-      extraSheetRate: parseInt(extraSheetRate) || 0,
+      extraSheetRate: Number(extraSheetRate) || 0,
     });
   };
 
@@ -975,7 +991,7 @@ function CreateSessionModal({
           )}
 
           <Field label="Session Type">
-            <select value={clientType} onChange={(e) => { setClientType(e.target.value as SelectionClientType); setSearch(''); setBillId(''); setClientName(''); setPartnerName(''); setLabOrderNo(''); }} className={selectClass}>
+            <select value={clientType} onChange={(e) => { setClientType(e.target.value as SelectionClientType); setSearch(''); setBillId(''); setClientName(''); setPartnerName(''); setLabOrderNo(''); setPackageSheets('0'); setExtraSheetRate(''); setSelectedPartner(null); }} className={selectClass}>
               {CLIENT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </Field>
@@ -985,15 +1001,16 @@ function CreateSessionModal({
             {linkMode === 'manual' && <button type="button" onClick={() => { setLinkMode('search'); setLabStep(selectedPartner ? 'orders' : 'partners'); }} className="text-xs font-medium text-amber-600 hover:text-amber-500 dark:text-amber-400">Change Partner / Order</button>}
             <Field label="Lab Partner"><input value={partnerName} onChange={(e) => setPartnerName(e.target.value)} className={inputClass} placeholder="Lab partner name" /></Field>
             <Field label="Lab Order No."><input value={labOrderNo} onChange={(e) => setLabOrderNo(e.target.value)} className={inputClass} placeholder="e.g. BUF-LAB-001" /></Field>
+            {manuallyLinkedOrder && manuallyLinkedOrder.clients.length > 1 && <Field label="Client for extra-sheet billing"><select value={clientName} onChange={(event) => setClientName(event.target.value)} className={selectClass}><option value="">Select client</option>{manuallyLinkedOrder.clients.map((client, index) => <option key={client.id || index} value={client.client_name}>{client.client_name || `Client ${index + 1}`}</option>)}</select></Field>}
           </>}
           <Field label="Phone"><input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputClass} placeholder="Mobile number" /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Package Sheets"><input type="number" value={packageSheets} onChange={(e) => setPackageSheets(e.target.value)} className={inputClass} /></Field>
-            <Field label="Extra Sheet Rate (₹)"><input type="number" value={extraSheetRate} onChange={(e) => setExtraSheetRate(e.target.value)} className={inputClass} /></Field>
+            <Field label="Extra Sheet Rate (₹)"><input type="number" min="0" value={extraSheetRate} onChange={(e) => setExtraSheetRate(e.target.value)} className={inputClass} placeholder="Album paper rate auto-fills" /></Field>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
-            <button onClick={handleCreate} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400">Create Session</button>
+            <button onClick={handleCreate} disabled={!clientName.trim() || (clientType === 'B2B' && Boolean(manuallyLinkedOrder && manuallyLinkedOrder.clients.length > 1) && !manuallyLinkedOrder?.clients.some((client) => client.client_name === clientName))} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50">Create Session</button>
           </div>
         </div>
       </div>
@@ -1005,10 +1022,15 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
   const { toast } = useToast();
   type UploadedSheet = SheetProofItem & { fileName?: string };
   const [sheets, setSheets] = useState<UploadedSheet[]>(session.proofSheets);
+  const [extraSheetRate, setExtraSheetRate] = useState(session.extraSheetRate > 0 ? String(session.extraSheetRate) : '');
   const coverInputRef = useRef<HTMLInputElement>(null);
   const innerInputRef = useRef<HTMLInputElement>(null);
   const [sheetRangeStart, setSheetRangeStart] = useState(session.proofSheets.length > 0 ? String(Math.min(...session.proofSheets.map((s) => s.sheetNumber))) : '0');
   const [sheetRangeEnd, setSheetRangeEnd] = useState(session.total_sheets != null ? String(Number(sheetRangeStart) + session.total_sheets) : session.proofSheets.length > 0 ? String(Math.max(...session.proofSheets.map((s) => s.sheetNumber))) : '50');
+
+  useEffect(() => {
+    if (session.extraSheetRate > 0) setExtraSheetRate(String(session.extraSheetRate));
+  }, [session.id, session.extraSheetRate]);
 
   const startPage = Number(sheetRangeStart);
   const endPage = Number(sheetRangeEnd);
@@ -1016,7 +1038,8 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
   const uploadedTotal = sheets.filter((sheet) => sheet.sheetNumber !== 0).length;
   const totalSheets = uploadedTotal > 0 ? uploadedTotal : rangeTotal;
   const extraSheets = Math.max(0, totalSheets - session.packageSheets);
-  const extraCost = extraSheets * session.extraSheetRate;
+  const rate = Number(extraSheetRate) || 0;
+  const extraCost = extraSheets * rate;
 
   const handleCoverUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -1073,7 +1096,8 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
   };
 
   const save = async () => {
-    await onUpdate({ proofSheets: sheets, total_sheets: totalSheets, extra_sheets: extraSheets, extra_amount: extraCost });
+    if (extraSheets > 0 && rate <= 0) { toast('Enter the album paper rate per sheet before saving extra sheets.', 'error'); return; }
+    await onUpdate({ proofSheets: sheets, total_sheets: totalSheets, extra_sheets: extraSheets, extraSheetRate: rate, extra_amount: extraCost });
     toast('Proofing sheets saved', 'success');
     onClose();
   };
@@ -1100,6 +1124,7 @@ function ProofingModal({ session, onUpdate, onClose }: { session: ClientSelectio
             <p className="text-xl font-bold text-rose-600 dark:text-rose-400">₹{extraCost}</p>
           </div>
         </div>
+        <Field label="Rate per Extra Sheet (₹)"><input type="number" min="0" value={extraSheetRate} onChange={(event) => setExtraSheetRate(event.target.value)} className={inputClass} placeholder="Auto-filled from album paper rate" /></Field>
 
         <div className="mb-4 grid gap-3 sm:grid-cols-2">
           <div className="rounded-xl border-2 border-dashed border-slate-300 p-4 dark:border-white/10">

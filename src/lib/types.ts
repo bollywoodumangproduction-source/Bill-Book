@@ -77,6 +77,7 @@ export interface BookingPaperRow {
   id: string;
   paper_type: string;
   sheets: string;
+  extra_sheets?: string;
   rate: string;
   total: string;
 }
@@ -227,6 +228,8 @@ export interface PaperRow {
   id: string;
   paper_type: string;
   sheets: number;
+  /** Additional sheets charged manually beyond the album's main sheet quantity. */
+  extra_sheets?: number;
   rate: number;
   total: number;
 }
