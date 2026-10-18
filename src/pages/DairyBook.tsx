@@ -81,7 +81,7 @@ export function DairyBook() {
       supabase.from('dairy_book_entries').select('*').order('entry_date', { ascending: false }),
       supabase.from('dairy_book_opening_balance').select('*').maybeSingle(),
       supabase.from('partners').select('name,mobile,studio_name'),
-      supabase.from('studio_lab_orders').select('id,partner_name,studio_name'),
+      supabase.from('studio_lab_orders').select('id,order_no,partner_name,studio_name'),
     ]);
     if (entriesRes.error || openingRes.error) {
       setLoadError(entriesRes.error?.message || openingRes.error?.message || 'Could not load Dairy Book data.');
