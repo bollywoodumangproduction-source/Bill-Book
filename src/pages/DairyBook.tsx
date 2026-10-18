@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Plus, Search, Sparkles, TrendingUp, TrendingDown, Wallet,
   Lock, Unlock, Trash2, ArrowDownCircle, ArrowUpCircle,
-  BookOpen, IndianRupee, Calendar, Filter, PieChart,
+  BookOpen, IndianRupee, Calendar, Filter, PieChart, Pencil,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { DairyBookEntry, DairyOpeningBalance, DairyEntryType } from '@/lib/types';
@@ -59,6 +59,7 @@ export function DairyBook() {
   const { toast } = useToast();
   const { refreshToken } = useRefresh();
   const [entries, setEntries] = useState<DairyBookEntry[]>([]);
+  const [partnerNamesByEntry, setPartnerNamesByEntry] = useState<Record<string, { partner: string; studio: string; orderNo?: string }>>({});
   const [opening, setOpening] = useState<DairyOpeningBalance | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -66,17 +67,43 @@ export function DairyBook() {
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [showArchived, setShowArchived] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [showIncomeForm, setShowIncomeForm] = useState(false);
   const [showOpeningForm, setShowOpeningForm] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<DairyBookEntry | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [entriesRes, openingRes] = await Promise.all([
+    setLoading(true);
+    const [entriesRes, openingRes, partnersRes, labOrdersRes] = await Promise.all([
       supabase.from('dairy_book_entries').select('*').order('entry_date', { ascending: false }),
       supabase.from('dairy_book_opening_balance').select('*').maybeSingle(),
+      supabase.from('partners').select('name,mobile,studio_name'),
+      supabase.from('studio_lab_orders').select('id,partner_name,studio_name'),
     ]);
-    setEntries((entriesRes.data ?? []) as DairyBookEntry[]);
+    if (entriesRes.error || openingRes.error) {
+      setLoadError(entriesRes.error?.message || openingRes.error?.message || 'Could not load Dairy Book data.');
+      setLoading(false);
+      return;
+    }
+    setLoadError('');
+    const loadedEntries = (entriesRes.data ?? []) as DairyBookEntry[];
+    const profiles = partnersRes.data ?? [];
+    const orders = new Map((labOrdersRes.data ?? []).map((order) => [order.id, order]));
+    const detailsByEntry: Record<string, { partner: string; studio: string; orderNo?: string }> = {};
+    for (const entry of loadedEntries) {
+      const sourceParts = String(entry.source_id ?? '').split(':');
+      const order = sourceParts[0] === 'lab-order' ? orders.get(sourceParts[1]) : undefined;
+      const party = String(entry.party_name ?? '').trim().toLocaleLowerCase();
+      const profile = profiles.find((item) => String(item.name ?? '').trim().toLocaleLowerCase() === party || String(item.studio_name ?? '').trim().toLocaleLowerCase() === party);
+      const partnerName = order?.partner_name || profile?.name || '';
+      const studioName = order?.studio_name || profile?.studio_name || '';
+      if (partnerName || studioName || order?.order_no) detailsByEntry[entry.id] = { partner: partnerName, studio: studioName, ...(order?.order_no ? { orderNo: order.order_no } : {}) };
+    }
+    setEntries(loadedEntries);
+    setPartnerNamesByEntry(detailsByEntry);
     setOpening((openingRes.data as DairyOpeningBalance) ?? null);
     setLoading(false);
   }, []);
@@ -104,22 +131,31 @@ export function DairyBook() {
         (e.party_name ?? '').toLowerCase().includes(q) ||
         (e.note ?? '').toLowerCase().includes(q) ||
         (e.category ?? '').toLowerCase().includes(q) ||
-        (e.source_ref ?? '').toLowerCase().includes(q);
+        (e.source_ref ?? '').toLowerCase().includes(q) ||
+        (partnerNamesByEntry[e.id]?.partner ?? '').toLowerCase().includes(q) ||
+        (partnerNamesByEntry[e.id]?.studio ?? '').toLowerCase().includes(q) ||
+        (partnerNamesByEntry[e.id]?.orderNo ?? '').toLowerCase().includes(q);
       const matchesType = typeFilter === 'all' || e.entry_type === typeFilter;
       const matchesFrom = !dateFrom || (e.entry_date ?? '') >= dateFrom;
       const matchesTo = !dateTo || (e.entry_date ?? '') <= dateTo;
-      return !e.deleted_at && matchesSearch && matchesType && matchesFrom && matchesTo;
+      return Boolean(e.deleted_at) === showArchived && matchesSearch && matchesType && matchesFrom && matchesTo;
     });
-  }, [entries, search, typeFilter, dateFrom, dateTo]);
+  }, [entries, search, typeFilter, dateFrom, dateTo, showArchived, partnerNamesByEntry]);
+
+  const periodEntries = useMemo(() => entries.filter((entry) => {
+    const matchesFrom = !dateFrom || (entry.entry_date ?? '') >= dateFrom;
+    const matchesTo = !dateTo || (entry.entry_date ?? '') <= dateTo;
+    return !entry.deleted_at && matchesFrom && matchesTo;
+  }), [entries, dateFrom, dateTo]);
 
   const totals = useMemo(() => {
-    const totalKamai = filtered
+    const totalKamai = periodEntries
       .filter((e) => e.entry_type === 'B2C_CASH_IN' || e.entry_type === 'B2B_CASH_IN' || e.entry_type === 'MANUAL_INCOME')
       .reduce((s, e) => s + Number(e.amount ?? 0), 0);
-    const totalB2BLab = filtered
+    const totalB2BLab = periodEntries
       .filter((e) => e.entry_type === 'B2B_CASH_OUT')
       .reduce((s, e) => s + Number(e.amount ?? 0), 0);
-    const totalExtraKharcha = filtered
+    const totalExtraKharcha = periodEntries
       .filter((e) => e.entry_type === 'MANUAL_EXPENSE')
       .reduce((s, e) => s + Number(e.amount ?? 0), 0);
     const totalKharcha = totalB2BLab + totalExtraKharcha;
@@ -127,9 +163,15 @@ export function DairyBook() {
     const totalIn = totalKamai;
     const totalOut = totalKharcha;
     const openingAmount = Number(opening?.opening_amount ?? 0);
-    const inHandBalance = openingAmount + totalIn - totalOut;
+    const effectiveDate = opening?.effective_date || '';
+    const balanceAsOf = dateTo || todayISO();
+    const hasOpeningBalance = !effectiveDate || balanceAsOf >= effectiveDate;
+    const carriedEntries = entries.filter((entry) => !entry.deleted_at && (!effectiveDate || entry.entry_date >= effectiveDate) && entry.entry_date <= balanceAsOf);
+    const carriedIn = carriedEntries.filter((entry) => entry.entry_type === 'B2C_CASH_IN' || entry.entry_type === 'B2B_CASH_IN' || entry.entry_type === 'MANUAL_INCOME').reduce((sum, entry) => sum + Number(entry.amount ?? 0), 0);
+    const carriedOut = carriedEntries.filter((entry) => entry.entry_type === 'B2B_CASH_OUT' || entry.entry_type === 'MANUAL_EXPENSE').reduce((sum, entry) => sum + Number(entry.amount ?? 0), 0);
+    const inHandBalance = hasOpeningBalance ? openingAmount + carriedIn - carriedOut : null;
     return { totalKamai, totalB2BLab, totalExtraKharcha, totalKharcha, asliFayda, totalIn, totalOut, openingAmount, inHandBalance };
-  }, [filtered, opening]);
+  }, [periodEntries, entries, opening, dateTo]);
 
   const categoryBreakdown = useMemo(() => {
     const map = new Map<string, number>();
@@ -153,10 +195,18 @@ export function DairyBook() {
     load();
   };
 
+  const restoreEntry = async (id: string) => {
+    const { error } = await supabase.from('dairy_book_entries').update({ deleted_at: null }).eq('id', id);
+    if (error) { toast(`Could not restore entry: ${error.message}`, 'error'); return; }
+    toast('Entry restored', 'success');
+    void load();
+  };
+
   const toggleOpeningLock = async () => {
     if (!opening) return;
     const updated = { ...opening, is_locked: !opening.is_locked, updated_at: new Date().toISOString() };
-    await supabase.from('dairy_book_opening_balance').update(updated).eq('id', 1);
+    const { error } = await supabase.from('dairy_book_opening_balance').update(updated).eq('id', 1);
+    if (error) { toast(`Could not update opening balance lock: ${error.message}`, 'error'); return; }
     setOpening(updated);
     toast(opening.is_locked ? 'Opening balance unlocked' : 'Opening balance locked', 'success');
   };
@@ -190,6 +240,7 @@ export function DairyBook() {
       </div>
 
       <div className="w-full space-y-3 px-0 sm:px-3 md:px-4">
+      {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300"><span>Could not load Dairy Book: {loadError}</span><button onClick={() => { void load(); }} className="font-semibold underline">Retry</button></div>}
       {/* Opening Balance Card */}
       <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-3 dark:border-white/10 dark:from-slate-900/50 dark:to-slate-900/30">
         <div className="flex items-center gap-3">
@@ -197,7 +248,7 @@ export function DairyBook() {
             <Wallet className="h-5 w-5 text-blue-500" />
           </div>
           <div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Daily Opening Balance</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Opening Balance · from {opening?.effective_date ? formatDate(opening.effective_date) : 'start date not set'}</p>
             <p className="text-lg font-bold text-slate-900 dark:text-white">{formatINR(Number(opening?.opening_amount ?? 0))}</p>
           </div>
         </div>
@@ -231,7 +282,7 @@ export function DairyBook() {
               <TrendingUp className="h-5 w-5 text-emerald-500" />
             </div>
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Total Kamai (Gross Revenue)</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Cash Received (Collected)</p>
               <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{formatINR(totals.totalKamai)}</p>
             </div>
           </div>
@@ -242,7 +293,7 @@ export function DairyBook() {
               <TrendingDown className="h-5 w-5 text-rose-500" />
             </div>
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Total Kharcha (Expenses)</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Cash Expenses (Paid)</p>
               <p className="text-lg font-bold text-rose-600 dark:text-rose-400">{formatINR(totals.totalKharcha)}</p>
               <p className="text-[10px] text-slate-400">B2B Lab: {formatINR(totals.totalB2BLab)} + Extra: {formatINR(totals.totalExtraKharcha)}</p>
             </div>
@@ -254,7 +305,7 @@ export function DairyBook() {
               <IndianRupee className="h-5 w-5 text-amber-500" />
             </div>
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Asli Fayda (Net Profit)</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Net Cash Flow (Income − Expenses)</p>
               <p className={`text-lg font-bold ${totals.asliFayda >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatINR(totals.asliFayda)}</p>
             </div>
           </div>
@@ -266,14 +317,15 @@ export function DairyBook() {
             </div>
             <div>
               <p className="text-xs text-slate-500 dark:text-slate-400">In-Hand Closing Balance</p>
-              <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatINR(totals.inHandBalance)}</p>
-              <p className="text-[10px] text-slate-400">Opening {formatINR(totals.openingAmount)} + In {formatINR(totals.totalIn)} - Out {formatINR(totals.totalOut)}</p>
+              <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{totals.inHandBalance == null ? 'Not available' : formatINR(totals.inHandBalance)}</p>
+              <p className="text-[10px] text-slate-400">Closing cash as of {formatDate(dateTo || todayISO())}; includes entries since opening date</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Filters */}
+      <div className="flex gap-2"><button onClick={() => setShowArchived(false)} className={`rounded-lg px-3 py-2 text-xs font-medium ${!showArchived ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Active</button><button onClick={() => setShowArchived(true)} className={`rounded-lg px-3 py-2 text-xs font-medium ${showArchived ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Archived</button></div>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -316,7 +368,7 @@ export function DairyBook() {
       </div>
 
       {/* Category Breakdown */}
-      {categoryBreakdown.length > 0 && (
+      {!showArchived && categoryBreakdown.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900/50">
           <div className="mb-3 flex items-center gap-2">
             <PieChart className="h-4 w-4 text-orange-500" />
@@ -342,7 +394,7 @@ export function DairyBook() {
       {loading ? (
         <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
       ) : filtered.length === 0 ? (
-        <EmptyState icon={BookOpen} title="No entries found" subtitle="Add an expense or income, or change filters" />
+        <EmptyState icon={BookOpen} title={showArchived ? 'No archived entries' : 'No entries found'} subtitle={showArchived ? 'Archived manual entries will appear here' : 'Add an expense or income, or change filters'} />
       ) : (
         <>
         <div className="space-y-2 md:hidden">
@@ -353,6 +405,7 @@ export function DairyBook() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="break-words font-medium text-slate-900 dark:text-white">{e.party_name || '—'}</p>
+                    {partnerNamesByEntry[e.id] && <p className="mt-0.5 text-[11px] text-amber-600 dark:text-amber-400">{partnerNamesByEntry[e.id].orderNo ? `Order: ${partnerNamesByEntry[e.id].orderNo} · ` : ''}Partner: {partnerNamesByEntry[e.id].partner || '—'} · Studio: {partnerNamesByEntry[e.id].studio || '—'}</p>}
                     {e.note && <p className="mt-0.5 break-words text-xs text-slate-500 dark:text-slate-400">{e.note}</p>}
                     {e.source_ref && <p className="mt-0.5 break-all text-[10px] text-slate-400">Ref: {e.source_ref}</p>}
                   </div>
@@ -363,7 +416,7 @@ export function DairyBook() {
                   <span className="text-slate-500 dark:text-slate-400">{e.category || '—'}</span>
                   <Badge color="slate" size="sm">{e.payment_mode}</Badge>
                   <span className="ml-auto text-slate-500 dark:text-slate-400">{formatDate(e.entry_date)}</span>
-                  {!e.is_auto && <button onClick={() => setDeleteId(e.id)} aria-label="Delete entry" className="p-1 text-slate-400 hover:text-rose-500"><Trash2 className="h-4 w-4" /></button>}
+                  {showArchived ? <button onClick={() => void restoreEntry(e.id)} className="rounded border border-emerald-500/30 px-2 py-1 text-emerald-500">Restore</button> : !e.is_auto && <><button onClick={() => { setEditingEntry(e); if (e.entry_type === 'MANUAL_EXPENSE') setShowExpenseForm(true); else setShowIncomeForm(true); }} aria-label="Edit entry" className="p-1 text-slate-400 hover:text-amber-500"><Pencil className="h-4 w-4" /></button><button onClick={() => setDeleteId(e.id)} aria-label="Archive entry" className="p-1 text-slate-400 hover:text-rose-500"><Trash2 className="h-4 w-4" /></button></>}
                 </div>
               </div>
             );
@@ -403,6 +456,7 @@ export function DairyBook() {
                       </td>
                       <td className="px-2.5 py-2">
                         <p className="font-medium text-slate-900 dark:text-white">{e.party_name || '—'}</p>
+                        {partnerNamesByEntry[e.id] && <p className="text-[11px] text-amber-600 dark:text-amber-400">{partnerNamesByEntry[e.id].orderNo ? `Order: ${partnerNamesByEntry[e.id].orderNo} · ` : ''}Partner: {partnerNamesByEntry[e.id].partner || '—'} · Studio: {partnerNamesByEntry[e.id].studio || '—'}</p>}
                         {e.note && <p className="text-xs text-slate-400">{e.note}</p>}
                         {e.source_ref && <p className="text-[10px] text-slate-400">Ref: {e.source_ref}</p>}
                       </td>
@@ -413,11 +467,7 @@ export function DairyBook() {
                       </td>
                       <td className="px-2.5 py-2 text-slate-500 dark:text-slate-400">{formatDate(e.entry_date)}</td>
                       <td className="px-2.5 py-2">
-                        {!e.is_auto && (
-                          <button onClick={() => setDeleteId(e.id)} className="text-slate-400 hover:text-rose-500">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        )}
+                        {showArchived ? <button onClick={() => void restoreEntry(e.id)} className="text-emerald-500">Restore</button> : !e.is_auto && <div className="flex items-center gap-2"><button onClick={() => { setEditingEntry(e); if (e.entry_type === 'MANUAL_EXPENSE') setShowExpenseForm(true); else setShowIncomeForm(true); }} aria-label="Edit entry" className="text-slate-400 hover:text-amber-500"><Pencil className="h-4 w-4" /></button><button onClick={() => setDeleteId(e.id)} aria-label="Archive entry" className="text-slate-400 hover:text-rose-500"><Trash2 className="h-4 w-4" /></button></div>}
                       </td>
                     </tr>
                   );
@@ -432,17 +482,19 @@ export function DairyBook() {
       {/* Manual Entry Forms */}
       <ManualEntryForm
         open={showExpenseForm}
-        onClose={() => setShowExpenseForm(false)}
-        onSaved={() => { setShowExpenseForm(false); load(); }}
+        onClose={() => { setShowExpenseForm(false); setEditingEntry(null); }}
+        onSaved={() => { setShowExpenseForm(false); setEditingEntry(null); void load(); }}
         entryType="MANUAL_EXPENSE"
         categories={[...EXPENSE_CATEGORIES]}
+        existing={editingEntry?.entry_type === 'MANUAL_EXPENSE' ? editingEntry : null}
       />
       <ManualEntryForm
         open={showIncomeForm}
-        onClose={() => setShowIncomeForm(false)}
-        onSaved={() => { setShowIncomeForm(false); load(); }}
+        onClose={() => { setShowIncomeForm(false); setEditingEntry(null); }}
+        onSaved={() => { setShowIncomeForm(false); setEditingEntry(null); void load(); }}
         entryType="MANUAL_INCOME"
         categories={[...INCOME_CATEGORIES]}
+        existing={editingEntry?.entry_type === 'MANUAL_INCOME' ? editingEntry : null}
       />
 
       {/* Opening Balance Form */}
@@ -455,11 +507,11 @@ export function DairyBook() {
 
       {/* Delete Confirm */}
       {deleteId && (
-        <Modal open={!!deleteId} onClose={() => setDeleteId(null)} title="Delete Entry" size="sm">
-          <p className="text-sm text-slate-600 dark:text-slate-300">Are you sure you want to delete this entry? This cannot be undone.</p>
+        <Modal open={!!deleteId} onClose={() => setDeleteId(null)} title="Archive Entry" size="sm">
+          <p className="text-sm text-slate-600 dark:text-slate-300">Archive this entry? You can restore it later from Archived entries.</p>
           <div className="mt-4 flex justify-end gap-3">
             <button onClick={() => setDeleteId(null)} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
-            <button onClick={handleDelete} className="rounded-lg bg-rose-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-rose-400">Delete</button>
+            <button onClick={handleDelete} className="rounded-lg bg-rose-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-rose-400">Archive</button>
           </div>
         </Modal>
       )}
@@ -469,22 +521,34 @@ export function DairyBook() {
 }
 
 function ManualEntryForm({
-  open, onClose, onSaved, entryType, categories,
+  open, onClose, onSaved, entryType, categories, existing,
 }: {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
   entryType: DairyEntryType;
   categories: string[];
+  existing: DairyBookEntry | null;
 }) {
   const { toast } = useToast();
   const isExpense = entryType === 'MANUAL_EXPENSE';
-  const [amount, setAmount] = useDraftState<string>(`dairy-${entryType}-amount`, '');
-  const [category, setCategory] = useDraftState<string>(`dairy-${entryType}-category`, categories[0]);
-  const [note, setNote] = useDraftState<string>(`dairy-${entryType}-note`, '');
-  const [paymentMode, setPaymentMode] = useDraftState<string>(`dairy-${entryType}-mode`, 'Cash');
-  const [entryDate, setEntryDate] = useDraftState<string>(`dairy-${entryType}-date`, todayISO());
-  const [partyName, setPartyName] = useDraftState<string>(`dairy-${entryType}-party`, '');
+  const [saving, setSaving] = useState(false);
+  const [amount, setAmount] = useDraftState<string>(`dairy-${entryType}-amount`, String(existing?.amount ?? ''));
+  const [category, setCategory] = useDraftState<string>(`dairy-${entryType}-category`, existing?.category || categories[0]);
+  const [note, setNote] = useDraftState<string>(`dairy-${entryType}-note`, existing?.note || '');
+  const [paymentMode, setPaymentMode] = useDraftState<string>(`dairy-${entryType}-mode`, existing?.payment_mode || 'Cash');
+  const [entryDate, setEntryDate] = useDraftState<string>(`dairy-${entryType}-date`, existing?.entry_date || todayISO());
+  const [partyName, setPartyName] = useDraftState<string>(`dairy-${entryType}-party`, existing?.party_name || '');
+
+  useEffect(() => {
+    if (!open) return;
+    setAmount(String(existing?.amount ?? ''));
+    setCategory(existing?.category || categories[0]);
+    setNote(existing?.note || '');
+    setPaymentMode(existing?.payment_mode || 'Cash');
+    setEntryDate(existing?.entry_date || todayISO());
+    setPartyName(existing?.party_name || '');
+  }, [open, existing, categories, setAmount, setCategory, setNote, setPaymentMode, setEntryDate, setPartyName]);
 
   const clearDraft = () => {
     setAmount('');
@@ -496,8 +560,9 @@ function ManualEntryForm({
   };
 
   const handleSave = async () => {
+    if (saving) return;
     const amt = Number(amount);
-    if (isNaN(amt) || amt <= 0) { toast('Valid amount is required', 'error'); return; }
+    if (!Number.isFinite(amt) || amt <= 0) { toast('Valid amount is required', 'error'); return; }
     const payload: Omit<DairyBookEntry, 'id' | 'created_at' | 'updated_at' | 'is_demo' | 'isDemo'> = {
       entry_type: entryType,
       is_auto: false,
@@ -511,10 +576,20 @@ function ManualEntryForm({
       note,
       entry_date: entryDate,
     };
-    await supabase.from('dairy_book_entries').insert(payload);
-    toast(isExpense ? 'Expense recorded' : 'Income recorded', 'success');
-    clearDraft();
-    onSaved();
+    setSaving(true);
+    try {
+      const { error } = existing
+        ? await supabase.from('dairy_book_entries').update(payload).eq('id', existing.id)
+        : await supabase.from('dairy_book_entries').insert(payload);
+      if (error) throw error;
+      toast(existing ? 'Entry updated' : isExpense ? 'Expense recorded' : 'Income recorded', 'success');
+      clearDraft();
+      onSaved();
+    } catch (error) {
+      toast(`Could not save entry: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleClose = () => {
@@ -523,7 +598,7 @@ function ManualEntryForm({
   };
 
   return (
-    <Modal open={open} onClose={handleClose} title={isExpense ? 'Add Extra Expense' : 'Add Extra Income'} size="md" dismissible={false}>
+    <Modal open={open} onClose={handleClose} title={existing ? `Edit ${isExpense ? 'Expense' : 'Income'}` : isExpense ? 'Add Extra Expense' : 'Add Extra Income'} size="md" dismissible={false}>
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <Field label="Amount (₹)">
@@ -536,6 +611,7 @@ function ManualEntryForm({
         <div className="grid grid-cols-2 gap-4">
           <Field label="Category">
             <select value={category} onChange={(e) => setCategory(e.target.value)} className={selectClass}>
+              {category && !categories.includes(category) && <option value={category}>{category}</option>}
               {categories.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </Field>
@@ -555,9 +631,10 @@ function ManualEntryForm({
           <button onClick={handleClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
           <button
             onClick={handleSave}
+            disabled={saving}
             className={`rounded-lg px-4 py-2.5 text-sm font-medium text-white ${isExpense ? 'bg-rose-500 hover:bg-rose-400' : 'bg-emerald-500 hover:bg-emerald-400'}`}
           >
-            {isExpense ? 'Record Expense' : 'Record Income'}
+            {saving ? 'Saving…' : existing ? 'Save Changes' : isExpense ? 'Record Expense' : 'Record Income'}
           </button>
         </div>
       </div>
@@ -574,6 +651,7 @@ function OpeningBalanceForm({
   current: DairyOpeningBalance | null;
 }) {
   const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
   const [amount, setAmount] = useDraftState<string>('dairy-opening-amount', String(current?.opening_amount ?? '0'));
   const [effectiveDate, setEffectiveDate] = useDraftState<string>('dairy-opening-date', current?.effective_date || todayISO());
 
@@ -585,8 +663,9 @@ function OpeningBalanceForm({
   }, [open, current, setAmount, setEffectiveDate]);
 
   const handleSave = async () => {
+    if (saving) return;
     const amt = Number(amount);
-    if (isNaN(amt) || amt < 0) { toast('Valid amount is required', 'error'); return; }
+    if (!Number.isFinite(amt) || amt < 0) { toast('Valid amount is required', 'error'); return; }
     const payload = {
       id: 1,
       opening_amount: amt,
@@ -594,9 +673,17 @@ function OpeningBalanceForm({
       effective_date: effectiveDate,
       updated_at: new Date().toISOString(),
     };
-    await supabase.from('dairy_book_opening_balance').upsert(payload);
-    toast('Opening balance updated', 'success');
-    onSaved();
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('dairy_book_opening_balance').upsert(payload);
+      if (error) throw error;
+      toast('Opening balance updated', 'success');
+      onSaved();
+    } catch (error) {
+      toast(`Could not save opening balance: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -611,7 +698,7 @@ function OpeningBalanceForm({
         <p className="text-xs text-slate-400">Lock the opening balance from the main screen to prevent accidental changes.</p>
         <div className="flex justify-end gap-3 pt-2">
           <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
-          <button onClick={handleSave} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 hover:bg-amber-400">Save</button>
+          <button onClick={handleSave} disabled={saving} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 hover:bg-amber-400 disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
         </div>
       </div>
     </Modal>

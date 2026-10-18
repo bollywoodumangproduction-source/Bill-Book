@@ -832,6 +832,7 @@ function PartnerCard({
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{b.partner.name}</p>
             <p className="truncate text-xs text-slate-500 dark:text-slate-400">{b.partner.mobile}</p>
+            {b.partner.studio_name && b.partner.studio_name !== b.partner.name && <p className="truncate text-xs font-medium text-amber-600 dark:text-amber-400">Studio: {b.partner.studio_name}</p>}
           </div>
         </button>
         <Badge color={CATEGORY_COLORS[b.partner.category]}>{b.partner.category}</Badge>
@@ -839,7 +840,6 @@ function PartnerCard({
 
       {!showFinancials && (
         <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
-          {b.partner.studio_name && b.partner.studio_name !== b.partner.name && <p className="truncate">{b.partner.studio_name}</p>}
           {b.partner.studio_address && <p className="truncate">{b.partner.studio_address}</p>}
           <p>{b.partner.status === 'Inactive' ? 'Left Studio / Inactive' : b.partner.status}</p>
         </div>

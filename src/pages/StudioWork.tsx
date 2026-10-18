@@ -95,6 +95,10 @@ function labOrderClientLabels(order: StudioLabOrder): string {
   return (order.clients ?? []).map((client, index) => `Client ${index + 1}: ${client.client_name || 'Unnamed'}`).join(' · ');
 }
 
+function projectNameFromClients(clients: LabClientRow[]): string {
+  return clients.map((client) => client.client_name.trim()).filter(Boolean).join(' + ');
+}
+
 function getDeliveryYear(order: StudioLabOrder): string {
   const rawDate = order.delivered_at || order.archived_at || order.created_at;
   if (!rawDate) return 'Unknown year';
@@ -1848,6 +1852,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
   const [taxRate, setTaxRate] = useDraftState<string>(`${draftKey}-taxRate`, '0');
   const [discountAmount, setDiscountAmount] = useDraftState<string>(`${draftKey}-discountAmount`, '0');
   const [projectName, setProjectName] = useDraftState<string>(`${draftKey}-projectName`, '');
+  const [projectNameManuallyEdited, setProjectNameManuallyEdited] = useDraftState<boolean>(`${draftKey}-projectNameManuallyEdited`, false);
   const [orderStatus, setOrderStatus] = useDraftState<string>(`${draftKey}-orderStatus`, 'Pending');
   const [deliveryMode, setDeliveryMode] = useDraftState<string>(`${draftKey}-deliveryMode`, 'By Hand');
   const [parcelTracking, setParcelTracking] = useDraftState<string>(`${draftKey}-parcelTracking`, '');
@@ -1874,6 +1879,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
     setBackDue('');
     setBalanceSourceOrderId('');
     setProjectName('');
+    setProjectNameManuallyEdited(false);
     setOrderStatus('Pending');
     setDeliveryMode('By Hand');
     setParcelTracking('');
@@ -1938,6 +1944,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
       setTaxRate(String(editing?.tax_rate ?? 0));
       setDiscountAmount(String(editing?.discount_amount ?? 0));
       setProjectName(editing?.project_name ?? '');
+      setProjectNameManuallyEdited((editing?.project_name ?? '').trim() !== projectNameFromClients(editing?.clients ?? []));
       setOrderStatus(editing?.order_status ?? 'Pending');
       setDeliveryMode(editing?.delivery_mode ?? 'By Hand');
       setParcelTracking(editing?.parcel_tracking_details ?? '');
@@ -1997,22 +2004,28 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
     }
   };
 
+  const syncProjectNameFromClients = (nextClients: LabClientRow[]) => {
+    if (!projectNameManuallyEdited) setProjectName(projectNameFromClients(nextClients));
+  };
+
   const updateClient = (ci: number, patch: Partial<LabClientRow>) => {
-    if ('client_name' in patch && clients.length === 1) setProjectName(patch.client_name?.trim() ?? '');
-    setClients((prev) => {
-      const next = prev.map((c, idx) => {
-        if (idx !== ci) return c;
-        const updated = { ...c, ...patch };
-        updated.video_total = computeClientVideoTotal(updated.video_rows);
-        updated.album_total = computeClientAlbumTotal(updated.album_rows);
-        return updated;
-      });
-      return next;
+    const next = clients.map((client, idx) => {
+      if (idx !== ci) return client;
+      const updated = { ...client, ...patch };
+      updated.video_total = computeClientVideoTotal(updated.video_rows);
+      updated.album_total = computeClientAlbumTotal(updated.album_rows);
+      return updated;
     });
+    setClients(next);
+    if ('client_name' in patch) syncProjectNameFromClients(next);
   };
 
   const addClient = () => setClients((prev) => [...prev, emptyClient()]);
-  const removeClient = (ci: number) => setClients((prev) => prev.filter((_, idx) => idx !== ci));
+  const removeClient = (ci: number) => {
+    const next = clients.filter((_, idx) => idx !== ci);
+    setClients(next);
+    syncProjectNameFromClients(next);
+  };
 
   const addVideoRow = (ci: number) => updateClient(ci, { video_rows: [...(clients[ci]?.video_rows ?? []), { ...EMPTY_VIDEO_ROW }] });
   const removeVideoRow = (ci: number, vi: number) => updateClient(ci, { video_rows: (clients[ci]?.video_rows ?? []).filter((_, idx) => idx !== vi) });
@@ -2210,7 +2223,15 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
               <Field label="Partner (from Ledger)">
                 <select value={selectedPartnerId} onChange={(e) => handlePartnerSelect(e.target.value)} className={selectClass}>
                   <option value="">— No Partner —</option>
-                  {partners.map((p) => <option key={p.id} value={p.id}>{partnerNameWithoutMobile(p)} ({partnerMobile(p)})</option>)}
+                  {partners.map((p) => {
+                    const partnerName = partnerNameWithoutMobile(p);
+                    const studioName = p.studio_name?.trim();
+                    const mobile = partnerMobile(p);
+                    const identity = studioName && studioName.toLocaleLowerCase() !== partnerName.toLocaleLowerCase()
+                      ? `${partnerName} · ${studioName}`
+                      : partnerName;
+                    return <option key={p.id} value={p.id}>{identity} · {mobile || 'No mobile'}</option>;
+                  })}
                 </select>
               </Field>
               <Field label="Partner Name">
@@ -2253,7 +2274,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
             </div>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Field label="Project / Party Name"><input value={projectName} onChange={(e) => setProjectName(e.target.value)} className={inputClass} /></Field>
+            <Field label="Project / Party Name"><input value={projectName} onChange={(e) => { setProjectNameManuallyEdited(true); setProjectName(e.target.value); }} className={inputClass} /></Field>
             <Field label="Delivery Mode">
               <select value={deliveryMode} onChange={(e) => setDeliveryMode(e.target.value)} className={selectClass}>
                 {DELIVERY_MODES.map((m) => <option key={m} value={m}>{m}</option>)}

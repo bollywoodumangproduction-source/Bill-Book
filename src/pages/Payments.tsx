@@ -38,6 +38,7 @@ export function Payments() {
   const { settings } = useSettings();
   const { refreshToken } = useRefresh();
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [sourceReferences, setSourceReferences] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
@@ -50,14 +51,30 @@ export function Payments() {
   const [pendingDelete, setPendingDelete] = useState<'soft' | 'permanent'>('soft');
 
   const load = useCallback(async () => {
-    const { data, error } = await supabase.from('payments').select('*').order('date', { ascending: false });
+    const [paymentsResult, bookingsResult, ordersResult] = await Promise.all([
+      supabase.from('payments').select('*').order('date', { ascending: false }),
+      supabase.from('bookings').select('id,booking_no'),
+      supabase.from('studio_lab_orders').select('id,order_no'),
+    ]);
+    const { data, error } = paymentsResult;
     if (error) {
       setLoadError(error.message);
       setLoading(false);
       return;
     }
     setLoadError('');
-    setPayments((data ?? []) as Payment[]);
+    const loadedPayments = (data ?? []) as Payment[];
+    setPayments(loadedPayments);
+    const references: Record<string, string> = {};
+    const bookingNumbers = new Map((bookingsResult.data ?? []).map((booking) => [booking.id, booking.booking_no]));
+    const orderNumbers = new Map((ordersResult.data ?? []).map((order) => [order.id, order.order_no]));
+    for (const payment of loadedPayments) {
+      const [sourceType, sourceId] = String(payment.source_id ?? '').split(':');
+      if (sourceType === 'booking' && sourceId && bookingNumbers.has(sourceId)) references[payment.id] = bookingNumbers.get(sourceId)!;
+      else if (sourceType === 'lab-order' && sourceId && orderNumbers.has(sourceId)) references[payment.id] = orderNumbers.get(sourceId)!;
+      else references[payment.id] = payment.source_id ? payment.source_id.split(':')[0] : '—';
+    }
+    setSourceReferences(references);
     setLoading(false);
   }, []);
 
@@ -65,7 +82,7 @@ export function Payments() {
 
   const filtered = payments.filter((p) => {
     const q = search.toLowerCase();
-    const matchesSearch = (p.party_name ?? '').toLowerCase().includes(q) || (p.receipt_no ?? '').toLowerCase().includes(q) || (p.note ?? '').toLowerCase().includes(q);
+    const matchesSearch = (p.party_name ?? '').toLowerCase().includes(q) || (p.receipt_no ?? '').toLowerCase().includes(q) || (p.note ?? '').toLowerCase().includes(q) || (sourceReferences[p.id] ?? '').toLowerCase().includes(q);
     const matchesMode = modeFilter === 'all' || p.mode === modeFilter;
     const matchesFrom = !dateFrom || (p.date ?? '') >= dateFrom;
     const matchesTo = !dateTo || (p.date ?? '') <= dateTo;
@@ -74,7 +91,7 @@ export function Payments() {
 
   const activePayments = payments.filter((p) => !p.deleted_at);
   const todayTotal = activePayments.filter((p) => p.date === todayISO() && paymentDirection(p) === 'IN').reduce((s, p) => s + Number(p.amount ?? 0), 0);
-  const thisMonth = new Date().toISOString().slice(0, 7);
+  const thisMonth = todayISO().slice(0, 7);
   const monthTotal = activePayments.filter((p) => (p.date ?? '').startsWith(thisMonth) && paymentDirection(p) === 'IN').reduce((s, p) => s + Number(p.amount ?? 0), 0);
   const totalOut = activePayments.filter((p) => paymentDirection(p) === 'OUT').reduce((s, p) => s + Number(p.amount ?? 0), 0);
 
@@ -148,6 +165,7 @@ export function Payments() {
           </div>
         </div>
       </div>
+      <p className="text-[11px] text-slate-500">Summary totals include all active payments. Search and date filters below apply to the list.</p>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
@@ -181,9 +199,10 @@ export function Payments() {
                 <div className="min-w-0">
                   <p className="break-all text-xs font-semibold text-slate-900 dark:text-white">{p.receipt_no ?? ''}</p>
               <p className="mt-0.5 break-words text-sm font-medium text-slate-700 dark:text-slate-200">{p.party_name ?? ''}</p>
+              <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">Bill / Source: {sourceReferences[p.id] || '—'}</p>
               {p.note && <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{p.note}</p>}
                 </div>
-                <p className="shrink-0 text-right text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatINR(Number(p.amount ?? 0))}</p>
+                <p className={`shrink-0 text-right text-sm font-bold ${paymentDirection(p) === 'IN' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{paymentDirection(p) === 'IN' ? '+' : '−'}{formatINR(Number(p.amount ?? 0))}</p>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
                 <Badge color={SOURCE_COLORS[p.source] ?? 'slate'}>{p.source ?? ''}</Badge>
@@ -202,6 +221,7 @@ export function Payments() {
                 <th className="px-3 py-2.5">Receipt</th>
                 <th className="px-3 py-2.5">Party</th>
                 <th className="px-3 py-2.5">Source</th>
+                <th className="px-3 py-2.5">Bill / Source Ref</th>
                 <th className="px-3 py-2.5">Direction</th>
                 <th className="px-3 py-2.5">Mode</th>
                 <th className="px-3 py-2.5 text-right">Amount</th>
@@ -217,9 +237,10 @@ export function Payments() {
                   <td className="px-3 py-2.5 font-medium text-slate-900 dark:text-white">{p.receipt_no ?? ''}</td>
                   <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">{p.party_name ?? ''}</td>
                   <td className="px-3 py-2.5"><Badge color={SOURCE_COLORS[p.source] ?? 'slate'}>{p.source ?? ''}</Badge></td>
+                  <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">{sourceReferences[p.id] || '—'}</td>
                   <td className="px-3 py-2.5"><Badge color={paymentDirection(p) === 'IN' ? 'emerald' : 'rose'}>{paymentDirection(p) === 'IN' ? 'Received' : 'Paid'}</Badge></td>
                   <td className="px-3 py-2.5"><Badge color={MODE_COLORS[p.mode] ?? 'slate'}>{p.mode ?? ''}</Badge></td>
-                  <td className="px-3 py-2.5 text-right font-semibold text-emerald-600 dark:text-emerald-400">{formatINR(Number(p.amount ?? 0))}</td>
+                  <td className={`px-3 py-2.5 text-right font-semibold ${paymentDirection(p) === 'IN' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{paymentDirection(p) === 'IN' ? '+' : '−'}{formatINR(Number(p.amount ?? 0))}</td>
                   <td className="px-3 py-2.5 text-slate-500 dark:text-slate-400">{formatDate(p.date)}</td>
                   <td className="px-3 py-2.5 text-slate-500 dark:text-slate-400">{formatDateTime(p.created_at)}</td>
                   <td className="max-w-[220px] truncate px-3 py-2.5 text-slate-500 dark:text-slate-400" title={p.note ?? ''}>{p.note || '—'}</td>
