@@ -1994,7 +1994,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
     updateClient(ci, { video_rows: newRows });
   };
 
-  const addAlbumRow = (ci: number) => updateClient(ci, { album_rows: [...(clients[ci]?.album_rows ?? []), { ...EMPTY_ALBUM_ROW, id: uid(), papers: [{ ...EMPTY_PAPER_ROW, id: uid() }] }] });
+  const addAlbumRow = (ci: number, miniAlbum = false) => updateClient(ci, { album_rows: [...(clients[ci]?.album_rows ?? []), { ...EMPTY_ALBUM_ROW, id: uid(), mini_album: miniAlbum, papers: [{ ...EMPTY_PAPER_ROW, id: uid() }] }] });
   const removeAlbumRow = (ci: number, ai: number) => updateClient(ci, { album_rows: (clients[ci]?.album_rows ?? []).filter((_, idx) => idx !== ai) });
   const updateAlbumRow = (ci: number, ai: number, patch: Partial<AlbumRow>) => {
     const client = clients[ci];
@@ -2282,12 +2282,15 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
               </div>
 
               {/* Action buttons */}
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button onClick={() => addVideoRow(ci)} className="flex items-center gap-1 rounded-lg bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-600 hover:bg-sky-500/20 dark:text-sky-400">
                   <Video className="h-3.5 w-3.5" /> + Video
                 </button>
                 <button onClick={() => addAlbumRow(ci)} className="flex items-center gap-1 rounded-lg bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 hover:bg-amber-500/20 dark:text-amber-400">
                   <Book className="h-3.5 w-3.5" /> + Album
+                </button>
+                <button onClick={() => addAlbumRow(ci, true)} className="flex items-center gap-1 rounded-lg bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 hover:bg-amber-500/20 dark:text-amber-400">
+                  <Book className="h-3.5 w-3.5" /> + Mini Album
                 </button>
               </div>
 
@@ -2366,20 +2369,20 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                             </div>
                           </div>
                         </div>
-                        {/* Mini album checkbox */}
-                        <div className="mt-2 flex items-center gap-3">
-                          <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
-                            <input type="checkbox" checked={r.mini_album} onChange={(e) => updateAlbumRow(ci, ai, { mini_album: e.target.checked })} className="h-3.5 w-3.5 rounded border-slate-300 text-amber-500 focus:ring-amber-400" />
-                            Mini Album
-                          </label>
-                          {r.mini_album && (
-                            <div className="flex flex-wrap items-center gap-2">
-                              <input type="number" value={r.mini_qty || ''} onChange={(e) => updateAlbumRow(ci, ai, { mini_qty: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-20 shrink-0`} placeholder="Qty" />
-                              <input type="number" value={r.mini_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { mini_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[110px] !min-w-[110px] shrink-0`} placeholder="Rate" />
-                              <span className="min-w-[90px] text-xs font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(r.mini_total))}</span>
-                            </div>
-                          )}
-                        </div>
+                        {r.mini_album && (
+                          <div className="mt-2 grid w-full grid-cols-2 items-end gap-2 sm:flex sm:w-auto sm:items-center">
+                            <p className="col-span-2 text-xs font-medium text-amber-600 dark:text-amber-400 sm:sr-only">Mini Album</p>
+                            <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents">
+                              <span className="mb-1 block sm:hidden">Mini Album Qty</span>
+                              <input type="number" value={r.mini_qty || ''} onChange={(e) => updateAlbumRow(ci, ai, { mini_qty: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-20 shrink-0`} placeholder="Qty" />
+                            </label>
+                            <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents">
+                              <span className="mb-1 block sm:hidden">Mini Album Rate (₹)</span>
+                              <input type="number" value={r.mini_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { mini_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-[110px] sm:!min-w-[110px] shrink-0`} placeholder="Rate" />
+                            </label>
+                            <span className="col-span-2 min-w-[90px] text-right text-xs font-medium text-slate-700 dark:text-slate-300 sm:col-span-1 sm:text-left">{formatINR(toNum(r.mini_total))}</span>
+                          </div>
+                        )}
                         {/* Paper sub-rows */}
                         <div className="mt-2 space-y-2 border-l-2 border-amber-200 pl-3 dark:border-amber-500/20">
                           <div className="w-full min-w-0 max-w-full pb-1 sm:overflow-x-auto">
