@@ -616,6 +616,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
     const clientCount = (o.clients ?? []).length;
     const totalVideo = toNum(o.total_video_bill);
     const totalAlbum = toNum(o.total_album_bill);
+    const customerBalanceDue = Math.max(0, toNum(o.net_final_due ?? o.net_due));
     return (
       <div key={`${o.id}-${stationView ? 'station' : 'order'}`} className={`rounded-xl border bg-white p-3 dark:bg-slate-900/50 ${o.is_emergency ? 'border-rose-300 dark:border-rose-500/40 ring-1 ring-rose-200 dark:ring-rose-500/20' : 'border-slate-200 dark:border-white/10'}`}>
         <div className="mb-2 flex items-start justify-between gap-2">
@@ -645,6 +646,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
           {stationView && hasAlbumWork(o) && o.album_status !== 'Pending' && o.album_status !== 'Complete' && <Badge color="amber">Album · {o.album_status}</Badge>}
           {stationView && hasVideoWork(o) && o.video_status !== 'Pending' && o.video_status !== 'Complete' && <Badge color="amber">Video · {o.video_status}</Badge>}
           <Badge color={STATUS_COLORS[labOrderOverviewStatus(o)] ?? 'slate'}>{labOrderOverviewStatus(o)}</Badge>
+          {o.order_status === 'Delivered' && <Badge color={customerBalanceDue > 0 ? 'rose' : 'emerald'}>{customerBalanceDue > 0 ? `Payment Due · ${formatINR(customerBalanceDue)}` : 'Paid'}</Badge>}
           <Badge color="slate">{o.delivery_mode}</Badge>
           {o.date_pending && <Badge color="amber">Date Pending</Badge>}
         </div>
@@ -994,6 +996,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
                           <p className="text-sm font-semibold text-zinc-100">{labOrderTitle(order)}</p>
                           <p className="mt-1 text-xs text-zinc-400">{order.order_no} · {labOrderClientLabels(order) || 'No client listed'}</p>
                           <p className="mt-2 text-xs text-emerald-400">Delivered {order.delivered_at ? formatDate(order.delivered_at) : 'date unavailable'}</p>
+                          <p className={`mt-1 text-xs font-semibold ${toNum(order.net_final_due ?? order.net_due) > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>{toNum(order.net_final_due ?? order.net_due) > 0 ? `Payment due · ${formatINR(toNum(order.net_final_due ?? order.net_due))}` : 'Payment complete'}</p>
                         </button>
                       ))}
                     </div>
