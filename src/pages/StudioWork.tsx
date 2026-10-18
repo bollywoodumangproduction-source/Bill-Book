@@ -122,6 +122,7 @@ function computeClientVideoTotal(rows: VideoRow[]): number {
   return rows.reduce((s, r) => s + computeRowTotal(r), 0);
 }
 function computeAlbumTotal(r: AlbumRow): number {
+  if (r.bag_only) return toNum(r.bag_total);
   if (r.mini_only) return toNum(r.mini_total);
   return toNum(r.packaging_total) + toNum(r.mini_total) + r.papers.reduce((s, p) => s + toNum(p.total), 0);
 }
@@ -130,7 +131,7 @@ function computeClientAlbumTotal(rows: AlbumRow[]): number {
 }
 
 const EMPTY_VIDEO_ROW: VideoRow = { video_type: '', quality: '', qty: 0, rate: 0, total: 0 };
-const EMPTY_ALBUM_ROW: AlbumRow = { id: uid(), album_type: '', size: '', packaging: '', packaging_rate: 0, packaging_total: 0, mini_album: false, mini_only: false, mini_qty: 0, mini_rate: 0, mini_total: 0, papers: [{ id: uid(), paper_type: '', sheets: 0, rate: 0, total: 0 }], total: 0 };
+const EMPTY_ALBUM_ROW: AlbumRow = { id: uid(), album_type: '', size: '', packaging: '', packaging_rate: 0, packaging_total: 0, mini_album: false, mini_only: false, bag_only: false, bag_size: '', bag_rate: 0, bag_total: 0, mini_qty: 0, mini_rate: 0, mini_total: 0, papers: [{ id: uid(), paper_type: '', sheets: 0, rate: 0, total: 0 }], total: 0 };
 const EMPTY_PAPER_ROW: PaperRow = { id: uid(), paper_type: '', sheets: 0, rate: 0, total: 0 };
 
 const EMPTY_STORAGE_LOCATION: StorageLocation = { id: '', device: '', drive: '', work: '', client_name: '' };
@@ -1334,7 +1335,12 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
                   <tbody>
                     {c.album_rows.map((a, ai) => (
                       <Fragment key={ai}>
-                        {a.mini_only ? <tr className="border-b border-slate-100 dark:border-white/5">
+                        {a.bag_only ? <tr className="border-b border-slate-100 dark:border-white/5">
+                          <td className="py-1 text-slate-700 dark:text-slate-300">Bag · {a.bag_size || '—'}</td>
+                          <td className="py-1 text-right text-slate-700 dark:text-slate-300">1</td>
+                          <td className="py-1 text-right text-slate-700 dark:text-slate-300">{formatINR(toNum(a.bag_rate))}</td>
+                          <td className="py-1 text-right font-medium text-slate-900 dark:text-white">{formatINR(toNum(a.bag_total))}</td>
+                        </tr> : a.mini_only ? <tr className="border-b border-slate-100 dark:border-white/5">
                           <td className="py-1 text-slate-700 dark:text-slate-300">Mini Album</td>
                           <td className="py-1 text-right text-slate-700 dark:text-slate-300">{a.mini_qty}</td>
                           <td className="py-1 text-right text-slate-700 dark:text-slate-300">{formatINR(toNum(a.mini_rate))}</td>
@@ -1429,7 +1435,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
         <div className="border-t border-slate-200 pt-3 dark:border-white/10">
           <h3 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Lab Partner Khata Breakdown</h3>
           <div className="space-y-2 text-xs">
-            {(order.album_rows ?? []).length > 0 && <div className="rounded-lg border border-slate-200 p-2 dark:border-white/10"><p className="font-semibold text-amber-600 dark:text-amber-400">Album Designing &amp; Printing</p>{order.album_rows.map((row, index) => <p key={index} className="text-slate-500 dark:text-slate-400">{row.mini_only ? `Mini Album · ${row.mini_qty} × ${formatINR(toNum(row.mini_rate))}` : `${row.album_type || 'Album'} · ${row.size} · ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} sheets · ${row.packaging || 'Cover'}`} · {formatINR(computeAlbumTotal(row))}</p>)}</div>}
+            {(order.album_rows ?? []).length > 0 && <div className="rounded-lg border border-slate-200 p-2 dark:border-white/10"><p className="font-semibold text-amber-600 dark:text-amber-400">Album Designing &amp; Printing</p>{order.album_rows.map((row, index) => <p key={index} className="text-slate-500 dark:text-slate-400">{row.bag_only ? `Bag · Size ${row.bag_size || '—'} · Rate ${formatINR(toNum(row.bag_rate))}` : row.mini_only ? `Mini Album · Qty ${row.mini_qty} × Rate ${formatINR(toNum(row.mini_rate))}` : `${row.album_type || 'Album'} · ${row.size} · ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} sheets · ${row.packaging || 'Cover'}`} · Amount ${formatINR(computeAlbumTotal(row))}</p>)}</div>}
             {(order.video_rows ?? []).length > 0 && <div className="rounded-lg border border-slate-200 p-2 dark:border-white/10"><p className="font-semibold text-amber-600 dark:text-amber-400">Video Editing</p>{order.video_rows.map((row, index) => <p key={index} className="text-slate-500 dark:text-slate-400">{row.video_type || 'Video Edit'} · {row.quality} · Qty {row.qty} · {formatINR(computeRowTotal(row))}</p>)}</div>}
             {(order.album_rows ?? []).length === 0 && (order.video_rows ?? []).length === 0 && <p className="text-slate-400">No itemized work recorded.</p>}
           </div>
@@ -1521,7 +1527,9 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
   const shareSlip = () => {
     let phone = (order.studio_mobile ?? '').replace(/\D/g, '');
     if (phone.length === 10) phone = '91' + phone;
-    const albums = albumRows.map((row) => row.mini_only
+    const albums = albumRows.map((row) => row.bag_only
+      ? `Bag: Size ${row.bag_size || '—'} | Rate ${formatINR(toNum(row.bag_rate))} | Amount ${formatINR(toNum(row.bag_total))}`
+      : row.mini_only
       ? `Mini Album: ${row.mini_qty} × ${formatINR(toNum(row.mini_rate))} = ${formatINR(toNum(row.mini_total))}`
       : `Album: ${row.album_type || 'Album'} | Size: ${row.size || '—'} | Sheets: ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} | Paper: ${row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} | Cover/Box: ${row.packaging || '—'}`).join('\n');
     const videos = videoRows.map((row) => `Video: ${row.video_type || 'Edit'} | Format: ${row.quality || '—'} | Output specs: ${row.quality || '—'}`).join('\n');
@@ -1547,7 +1555,7 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
           <p className="text-xs">{settings?.address ?? ''}</p>
         </div>
         <div className="grid grid-cols-2 gap-3 text-sm"><p><strong>Lab Partner:</strong> {order.partner_name || '—'}</p><p><strong>Work Order:</strong> {order.order_no}</p><p><strong>Project:</strong> {order.project_name}</p><p><strong>Overall Status:</strong> {labOrderOverviewStatus(order)}</p>{order.is_emergency && <p><strong>Priority:</strong> Emergency</p>}{(order.date_pending ? ['Delivery date pending confirmation'] : visibleLabOrderDates(order).map(({ label, date }) => `${label}: ${formatDate(date)}`)).map((item) => <p key={item}><strong>Schedule:</strong> {item}</p>)}{hasLabAlbumWork(order) && <p><strong>Album Status:</strong> {order.album_status || 'Pending'}</p>}{hasLabVideoWork(order) && <p><strong>Video Status:</strong> {order.video_status || 'Pending'}</p>}</div>
-        {albumRows.length > 0 && <div><h3 className="mb-2 font-semibold">Album Designing &amp; Printing</h3><div className="space-y-1 text-sm">{albumRows.map((row, index) => <p key={index}>{row.mini_only ? `Mini Album · Qty ${row.mini_qty} × Rate ${formatINR(toNum(row.mini_rate))} = Amount ${formatINR(toNum(row.mini_total))}` : `${row.album_type || 'Album'} · Size ${row.size || '—'} · ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} sheets · Paper ${row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} · Cover/Box ${row.packaging || '—'}`}</p>)}</div></div>}
+        {albumRows.length > 0 && <div><h3 className="mb-2 font-semibold">Album Designing &amp; Printing</h3><div className="space-y-1 text-sm">{albumRows.map((row, index) => <p key={index}>{row.bag_only ? `Bag · Size ${row.bag_size || '—'} · Rate ${formatINR(toNum(row.bag_rate))} · Amount ${formatINR(toNum(row.bag_total))}` : row.mini_only ? `Mini Album · Qty ${row.mini_qty} × Rate ${formatINR(toNum(row.mini_rate))} = Amount ${formatINR(toNum(row.mini_total))}` : `${row.album_type || 'Album'} · Size ${row.size || '—'} · ${row.papers.reduce((sum, paper) => sum + toNum(paper.sheets), 0)} sheets · Paper ${row.papers.map((paper) => paper.paper_type).filter(Boolean).join(', ') || '—'} · Cover/Box ${row.packaging || '—'}`}</p>)}</div></div>}
         {videoRows.length > 0 && <div><h3 className="mb-2 font-semibold">Video Editing</h3><div className="space-y-1 text-sm">{videoRows.map((row, index) => <p key={index}>{row.video_type || 'Video Edit'} · Format {row.quality || '—'} · Output specs {row.quality || '—'}</p>)}</div></div>}
         <div><h3 className="mb-2 font-semibold">Delivery / Drive Links</h3><p className="break-all text-sm">{order.parcel_tracking_details || 'No link provided'}</p></div>
         <div className="border-t border-black pt-2">
@@ -2005,6 +2013,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
   };
 
   const addAlbumRow = (ci: number, miniAlbum = false) => updateClient(ci, { album_rows: [...(clients[ci]?.album_rows ?? []), { ...EMPTY_ALBUM_ROW, id: uid(), mini_album: miniAlbum, mini_only: miniAlbum, papers: miniAlbum ? [] : [{ ...EMPTY_PAPER_ROW, id: uid() }] }] });
+  const addBagRow = (ci: number) => updateClient(ci, { album_rows: [...(clients[ci]?.album_rows ?? []), { ...EMPTY_ALBUM_ROW, id: uid(), mini_only: false, bag_only: true, papers: [] }] });
   const removeAlbumRow = (ci: number, ai: number) => updateClient(ci, { album_rows: (clients[ci]?.album_rows ?? []).filter((_, idx) => idx !== ai) });
   const updateAlbumRow = (ci: number, ai: number, patch: Partial<AlbumRow>) => {
     const client = clients[ci];
@@ -2014,6 +2023,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
       const updated = { ...r, ...patch };
       updated.packaging_total = toNum(updated.packaging_rate);
       updated.mini_total = toNum(updated.mini_qty) * toNum(updated.mini_rate);
+      updated.bag_total = toNum(updated.bag_rate);
       updated.total = computeAlbumTotal(updated);
       return updated;
     });
@@ -2302,6 +2312,9 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                 <button onClick={() => addAlbumRow(ci, true)} className="flex items-center gap-1 rounded-lg bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 hover:bg-amber-500/20 dark:text-amber-400">
                   <Book className="h-3.5 w-3.5" /> + Mini Album
                 </button>
+                <button onClick={() => addBagRow(ci)} className="flex items-center gap-1 rounded-lg bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 hover:bg-amber-500/20 dark:text-amber-400">
+                  <Book className="h-3.5 w-3.5" /> + Bag
+                </button>
               </div>
 
               {/* Video repeater */}
@@ -2352,7 +2365,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                     return (
                       <div key={ai} className="min-w-0 max-w-full rounded-lg border border-slate-200 p-2.5 dark:border-white/10">
                         {/* Master row */}
-                        {!r.mini_only && <div className="w-full min-w-0 max-w-full pb-1 sm:overflow-x-auto">
+                        {!r.mini_only && !r.bag_only && <div className="w-full min-w-0 max-w-full pb-1 sm:overflow-x-auto">
                           <div className="flex flex-wrap items-center gap-2 sm:min-w-[620px] sm:flex-nowrap">
                             <div className="grid w-full grid-cols-2 gap-2 sm:contents">
                             <select value={r.album_type} onChange={(e) => { updateAlbumRow(ci, ai, { album_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[145px] sm:flex-[1_1_165px] ${r.album_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
@@ -2379,7 +2392,14 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                             </div>
                           </div>
                         </div>}
-                        {r.mini_album && (
+                        {r.bag_only && <div className="mt-2 grid w-full grid-cols-2 items-end gap-2 sm:flex sm:w-auto sm:items-center">
+                          <p className="col-span-2 w-full text-xs font-medium text-amber-600 dark:text-amber-400 sm:col-span-auto sm:w-auto">Bag</p>
+                          <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents"><span className="mb-1 block sm:hidden">Bag Size</span><input type="text" value={r.bag_size || ''} onChange={(e) => updateAlbumRow(ci, ai, { bag_size: e.target.value })} className={`${inputClass} w-full min-w-0 sm:!w-32 shrink-0`} placeholder="Size" /></label>
+                          <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents"><span className="mb-1 block sm:hidden">Bag Rate (₹)</span><input type="number" value={r.bag_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { bag_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-[110px] sm:!min-w-[110px] shrink-0`} placeholder="Rate" /></label>
+                          <span className="col-span-2 flex items-center justify-between text-xs font-medium text-slate-700 dark:text-slate-300 sm:col-span-1 sm:block"><span className="sm:hidden">Amount</span><span>{formatINR(toNum(r.bag_total))}</span></span>
+                          <button onClick={() => removeAlbumRow(ci, ai)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500"><Trash2 className="h-4 w-4" /></button>
+                        </div>}
+                        {r.mini_album && !r.bag_only && (
                           <div className="mt-2 grid w-full grid-cols-2 items-end gap-2 sm:flex sm:w-auto sm:items-center">
                             <p className="col-span-2 w-full text-xs font-medium text-amber-600 dark:text-amber-400 sm:col-span-auto sm:w-auto">Mini Album</p>
                             <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents">
@@ -2394,7 +2414,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                           </div>
                         )}
                         {/* Paper sub-rows */}
-                        {!r.mini_only && <>
+                        {!r.mini_only && !r.bag_only && <>
                         <div className="mt-2 space-y-2 border-l-2 border-amber-200 pl-3 dark:border-amber-500/20">
                           <div className="w-full min-w-0 max-w-full pb-1 sm:overflow-x-auto">
                             <div className="space-y-1.5 sm:min-w-[560px]">
@@ -2782,7 +2802,12 @@ export function LabOrderPrintTemplate({ order, settings, compact = false, termsT
               <tbody>
                 {c.album_rows.map((a, ai) => (
                   <Fragment key={ai}>
-                    {a.mini_only ? <tr>
+                    {a.bag_only ? <tr>
+                      <td className="border border-black px-2 py-1">Bag · {a.bag_size || '—'}</td>
+                      <td className="border border-black px-2 py-1 text-right">1</td>
+                      <td className="border border-black px-2 py-1 text-right">{formatINR(toNum(a.bag_rate))}</td>
+                      <td className="border border-black px-2 py-1 text-right">{formatINR(toNum(a.bag_total))}</td>
+                    </tr> : a.mini_only ? <tr>
                       <td className="border border-black px-2 py-1">Mini Album</td>
                       <td className="border border-black px-2 py-1 text-right">{a.mini_qty}</td>
                       <td className="border border-black px-2 py-1 text-right">{formatINR(toNum(a.mini_rate))}</td>

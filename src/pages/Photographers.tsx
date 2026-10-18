@@ -1604,7 +1604,9 @@ function PermanentLabOrderHistory({ orders, onOpenLabOrder }: { orders: StudioLa
                       <p className="font-semibold text-cyan-700 dark:text-cyan-300">Client {index + 1}: {client.client_name || `Client ${index + 1}`} · Work {formatINR(work)} · Paid {formatINR(paid)} · Due {formatINR(Math.max(0, work - paid))}</p>
                       <div className="mt-1 space-y-0.5 text-slate-600 dark:text-slate-400">
                         {(client.video_rows ?? []).map((row, rowIndex) => <p key={`video-${rowIndex}`}>Video · {row.video_type} / {row.quality} · {row.qty} × {formatINR(Number(row.rate))} = {formatINR(Number(row.total ?? Number(row.qty) * Number(row.rate)))}</p>)}
-                        {(client.album_rows ?? []).map((row, rowIndex) => row.mini_only
+                        {(client.album_rows ?? []).map((row, rowIndex) => row.bag_only
+                          ? <p key={`album-${rowIndex}`}>Bag · Size {row.bag_size || '—'} · Rate {formatINR(Number(row.bag_rate))} · Amount {formatINR(Number(row.bag_total))}</p>
+                          : row.mini_only
                           ? <p key={`album-${rowIndex}`}>Mini Album · {row.mini_qty} × {formatINR(Number(row.mini_rate))} = {formatINR(Number(row.mini_total))}</p>
                           : <div key={`album-${rowIndex}`}><p>Album · {row.album_type} ({row.size}) · {formatINR(Number(row.total ?? 0))}</p>{(row.papers ?? []).filter((paper) => paper.paper_type).map((paper) => <p key={paper.id} className="pl-3">{paper.paper_type} · {paper.sheets} sheets × {formatINR(Number(paper.rate))} = {formatINR(Number(paper.total))}</p>)}</div>)}
                         {(order.extra_items ?? []).filter((item) => item.client_id ? item.client_id === client.id : item.client_name === client.client_name).map((item) => <p key={item.id}>Extra · {item.description} · {item.quantity} × {formatINR(item.unit_rate)} = {formatINR(item.line_amount)}</p>)}

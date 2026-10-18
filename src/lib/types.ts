@@ -241,6 +241,10 @@ export interface AlbumRow {
   packaging_total: number;
   mini_album: boolean;
   mini_only?: boolean;
+  bag_only?: boolean;
+  bag_size?: string;
+  bag_rate?: number;
+  bag_total?: number;
   mini_qty: number;
   mini_rate: number;
   mini_total: number;

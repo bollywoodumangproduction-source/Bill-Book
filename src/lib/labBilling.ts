@@ -8,7 +8,9 @@ const amount = (value: unknown) => {
 export function clientWorkTotal(client: LabClientRow, extras: LabExtraCharge[] = [], clients: LabClientRow[] = []): number {
   const video = (client.video_rows ?? []).reduce((sum, row) => sum + amount(row.total ?? amount(row.qty) * amount(row.rate)), 0);
   const album = (client.album_rows ?? []).reduce((sum, row) => sum + amount(row.total ?? (
-    row.mini_only
+    row.bag_only
+      ? amount(row.bag_total)
+      : row.mini_only
       ? amount(row.mini_total)
       : amount(row.packaging_total) + amount(row.mini_total) + (row.papers ?? []).reduce((paperSum, paper) => paperSum + amount(paper.total), 0)
   )), 0);
