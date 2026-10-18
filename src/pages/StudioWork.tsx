@@ -2296,22 +2296,34 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                 <div className="mt-3 space-y-2">
                   <p className="text-xs font-medium text-sky-600 dark:text-sky-400">Video Items</p>
                   {client.video_rows.map((r, vi) => (
-                    <div key={vi} className="overflow-x-auto rounded-lg border border-slate-200 p-2 dark:border-white/10 sm:border-0 sm:p-0">
-                      <div className="flex min-w-[540px] items-center gap-2">
-                        <select value={r.video_type} onChange={(e) => { updateVideoRow(ci, vi, { video_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[150px] flex-[1_1_170px] ${r.video_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                          <option value="">Select Type</option>
-                          {LAB_VIDEO_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                        </select>
-                        <select value={r.quality} onChange={(e) => { updateVideoRow(ci, vi, { quality: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-[120px] flex-[1_1_135px] ${r.quality ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                          <option value="">Resolutions</option>
-                          {LAB_VIDEO_QUALITIES.map((q) => <option key={q} value={q}>{q}</option>)}
-                        </select>
-                        <input type="number" value={r.qty || ''} onChange={(e) => updateVideoRow(ci, vi, { qty: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[76px] shrink-0`} placeholder="Qty" />
-                        <input type="number" value={r.rate || ''} onChange={(e) => updateVideoRow(ci, vi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[110px] !min-w-[110px] shrink-0`} placeholder="Rate" />
-                        <span className="flex min-w-[90px] items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(computeRowTotal(r))}</span>
-                        <button onClick={() => removeVideoRow(ci, vi)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                    <div key={vi} className="min-w-0 max-w-full rounded-lg border border-slate-200 p-2 dark:border-white/10 sm:overflow-x-auto sm:border-0 sm:p-0">
+                      <div className="flex flex-wrap items-center gap-2 sm:min-w-[540px] sm:flex-nowrap">
+                        <div className="grid w-full grid-cols-2 gap-2 sm:contents">
+                          <select value={r.video_type} onChange={(e) => { updateVideoRow(ci, vi, { video_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[150px] sm:flex-[1_1_170px] ${r.video_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+                            <option value="">Select Type</option>
+                            {LAB_VIDEO_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                          <select value={r.quality} onChange={(e) => { updateVideoRow(ci, vi, { quality: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[120px] sm:flex-[1_1_135px] ${r.quality ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+                            <option value="">Resolutions</option>
+                            {LAB_VIDEO_QUALITIES.map((q) => <option key={q} value={q}>{q}</option>)}
+                          </select>
+                        </div>
+                        <div className="grid w-full grid-cols-2 items-end gap-2 sm:contents">
+                          <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents">
+                            <span className="mb-1 block sm:hidden">Quantity</span>
+                            <input type="number" value={r.qty || ''} onChange={(e) => updateVideoRow(ci, vi, { qty: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-[76px] shrink-0`} placeholder="Qty" />
+                          </label>
+                          <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents">
+                            <span className="mb-1 block sm:hidden">Rate (₹)</span>
+                            <input type="number" value={r.rate || ''} onChange={(e) => updateVideoRow(ci, vi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-[110px] sm:!min-w-[110px] shrink-0`} placeholder="Rate" />
+                          </label>
+                        </div>
+                        <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-start">
+                          <span className="flex min-w-[90px] items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(computeRowTotal(r))}</span>
+                          <button onClick={() => removeVideoRow(ci, vi)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -2340,11 +2352,16 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                             </select>
                             </div>
                             <div className="grid w-full grid-cols-[1fr_auto] gap-2 sm:contents">
-                            <select value={r.packaging} onChange={(e) => { updateAlbumRow(ci, ai, { packaging: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[130px] sm:flex-[1_1_140px] ${r.packaging ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                              <option value="">Packaging</option>
-                              {LAB_ALBUM_COVERS.map((c) => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                            <input type="number" value={r.packaging_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { packaging_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-28 min-w-0 shrink-0 sm:!w-[110px] sm:!min-w-[110px]`} placeholder="Rate" />
+                              <select value={r.packaging} onChange={(e) => { updateAlbumRow(ci, ai, { packaging: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[130px] sm:flex-[1_1_140px] ${r.packaging ? '' : 'text-slate-400 dark:text-slate-500'}`}>
+                                <option value="">Packaging</option>
+                                {LAB_ALBUM_COVERS.map((c) => <option key={c} value={c}>{c}</option>)}
+                              </select>
+                              <div className="min-w-0 sm:contents">
+                                <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents">
+                                  <span className="mb-1 block sm:hidden">Packaging Rate (₹)</span>
+                                  <input type="number" value={r.packaging_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { packaging_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-28 min-w-0 shrink-0 sm:!w-[110px] sm:!min-w-[110px]`} placeholder="Rate" />
+                                </label>
+                              </div>
                             </div>
                             <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-start">
                             <span className="flex min-w-[90px] items-center text-sm font-medium text-slate-700 dark:text-slate-300">{formatINR(toNum(r.packaging_total))}</span>
@@ -2378,16 +2395,24 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                                     <option value="">Paper</option>
                                     {LAB_ALBUM_PAPERS.map((pp) => <option key={pp} value={pp}>{pp}</option>)}
                                   </select>
-                                  <div className="grid w-full grid-cols-[1fr_1fr_auto_auto] items-center gap-2 sm:contents">
-                                    <input type="number" value={p.sheets || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { sheets: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:w-auto`} placeholder="Sheets" />
-                                    <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-full sm:!min-w-[110px]`} placeholder="Rate/Sheet" />
-                                    <span className="flex min-w-[70px] items-center justify-end whitespace-nowrap text-sm font-medium text-slate-700 dark:text-slate-300 sm:min-w-0">{formatINR(toNum(p.total))}</span>
-                                    {r.papers.length > 1 && (
-                                      <button onClick={() => removePaperRow(ci, ai, pi)} className="flex h-10 w-9 items-center justify-center text-slate-400 hover:text-rose-500">
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </button>
-                                    )}
-                                    {r.papers.length === 1 && <span className="hidden h-10 w-9 shrink-0 sm:block" aria-hidden="true" />}
+                                  <div className="grid w-full grid-cols-2 items-end gap-2 sm:contents">
+                                    <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents">
+                                      <span className="mb-1 block sm:hidden">Sheets</span>
+                                      <input type="number" value={p.sheets || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { sheets: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:w-auto`} placeholder="Sheets" />
+                                    </label>
+                                    <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents">
+                                      <span className="mb-1 block sm:hidden">Rate per Sheet (₹)</span>
+                                      <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-full sm:!min-w-[110px]`} placeholder="Rate/Sheet" />
+                                    </label>
+                                    <div className="col-span-2 flex items-center justify-between gap-2 sm:contents">
+                                      <span className="flex min-w-[70px] items-center justify-end whitespace-nowrap text-sm font-medium text-slate-700 dark:text-slate-300 sm:min-w-0">{formatINR(toNum(p.total))}</span>
+                                      {r.papers.length > 1 && (
+                                        <button onClick={() => removePaperRow(ci, ai, pi)} className="flex h-10 w-9 items-center justify-center text-slate-400 hover:text-rose-500">
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      )}
+                                      {r.papers.length === 1 && <span className="hidden h-10 w-9 shrink-0 sm:block" aria-hidden="true" />}
+                                    </div>
                                   </div>
                                 </div>
                               ))}
