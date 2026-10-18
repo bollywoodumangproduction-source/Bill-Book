@@ -1605,6 +1605,7 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
 
 function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder; onClose: () => void; onSaved: (updated: StudioLabOrder) => void }) {
   const { toast } = useToast();
+  const { triggerRefresh } = useRefresh();
   const remainingDue = labOrderBillingSnapshot(order, order.advance_paid).balanceDue;
   const [amount, setAmount] = useState(String(remainingDue));
   const [paymentDate, setPaymentDate] = useState(todayISO());
@@ -1627,6 +1628,7 @@ function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder
       if (error) throw error;
       const { data: refreshed, error: refreshError } = await supabase.from('studio_lab_orders').select('*').eq('id', order.id).single();
       if (refreshError) throw refreshError;
+      triggerRefresh();
       toast('Lab settlement recorded instantly!', 'success');
       onSaved(refreshed as StudioLabOrder);
     } catch (error) {
@@ -1649,6 +1651,7 @@ function LabSettlementModal({ order, onClose, onSaved }: { order: StudioLabOrder
 
 function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; onClose: () => void; onSaved: (updated: StudioLabOrder) => void }) {
   const { toast } = useToast();
+  const { triggerRefresh } = useRefresh();
   const paymentOptions = ['Cash', 'UPI / Online', 'Bank Transfer', 'Cheque'];
   const [currentOrder, setCurrentOrder] = useState<StudioLabOrder>(order);
   const [amount, setAmount] = useState('');
@@ -1658,12 +1661,20 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
   const [paymentClientId, setPaymentClientId] = useState(order.clients.length === 1 ? order.clients[0].id : '');
   const [saving, setSaving] = useState(false);
   const paymentAttemptScope = `lab-quick:${order.id}`;
-  const [paymentAttemptId] = useState(() => getPaymentAttemptId(paymentAttemptScope));
+  const [paymentAttemptId, setPaymentAttemptId] = useState(() => getPaymentAttemptId(paymentAttemptScope));
 
   useEffect(() => {
     setCurrentOrder(order);
     setPaymentClientId(order.clients.length === 1 ? order.clients[0].id : '');
   }, [order]);
+
+  useEffect(() => {
+    const selectedClient = currentOrder.clients.find((client) => client.id === paymentClientId);
+    const due = selectedClient
+      ? Math.max(0, clientWorkTotal(selectedClient, currentOrder.extra_items ?? [], currentOrder.clients) - clientPaidTotal(selectedClient, labOrderPayments(currentOrder), currentOrder.clients))
+      : labOrderBillingSnapshot(currentOrder, currentOrder.advance_paid).balanceDue;
+    setAmount(due > 0 ? String(due) : '');
+  }, [paymentClientId, currentOrder]);
 
   const orderTotal = Number(currentOrder.current_order_total ?? currentOrder.total_album_bill ?? currentOrder.total_video_bill ?? 0);
   const previousBackDue = Number(currentOrder.previous_back_due ?? currentOrder.back_due ?? 0);
@@ -1704,6 +1715,8 @@ function LabQuickPayModal({ order, onClose, onSaved }: { order: StudioLabOrder; 
       if (refreshError) throw refreshError;
       const nextOrder = refreshed as StudioLabOrder;
       setCurrentOrder(nextOrder);
+      setPaymentAttemptId(completePaymentAttempt(paymentAttemptScope));
+      triggerRefresh();
 
       toast((paymentResult as { duplicate?: boolean } | null)?.duplicate ? 'This payment was already saved; history refreshed without adding a duplicate.' : 'Payment recorded instantly!', 'success');
       onSaved(nextOrder);

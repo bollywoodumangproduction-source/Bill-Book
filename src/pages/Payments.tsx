@@ -255,6 +255,7 @@ function paymentDirection(payment: Payment): 'IN' | 'OUT' {
 
 function PaymentForm({ open, onClose, onSaved, existing }: { open: boolean; onClose: () => void; onSaved: () => void; existing: Payment[] }) {
   const { toast } = useToast();
+  const { triggerRefresh } = useRefresh();
   const [isSaving, setIsSaving] = useState(false);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [labOrders, setLabOrders] = useState<StudioLabOrder[]>([]);
@@ -335,6 +336,7 @@ function PaymentForm({ open, onClose, onSaved, existing }: { open: boolean; onCl
         const { error } = await supabase.from('payments').insert({ receipt_no: nextReceiptNo(existing), source, direction: source === 'Photographer' ? 'OUT' : 'IN', party_name: partyName.trim(), party_mobile: partyMobile.trim(), mode, amount: amt, date, note });
         if (error) throw error;
       }
+      triggerRefresh();
       toast('Payment recorded', 'success');
       clearDraft();
       onSaved();

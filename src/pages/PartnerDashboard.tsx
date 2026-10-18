@@ -38,6 +38,7 @@ import { Field } from '@/components/ui/Field';
 import { isRightEdgeBackSwipe } from '@/lib/touchNavigation';
 import { useAppBackGuard } from '@/lib/useAppBackGuard';
 import { useToast } from '@/context/ToastContext';
+import { useRefresh } from '@/context/RefreshContext';
 import { copyToClipboard } from '@/lib/clipboard';
 import { PortalMarketingFeed } from '@/components/PortalMarketingFeed';
 import { useSettings } from '@/context/SettingsContext';
@@ -244,6 +245,7 @@ export function PartnerDashboardContent({
   adminPreview?: boolean;
 }) {
   const { toast } = useToast();
+  const { refreshToken } = useRefresh();
   const { settings } = useSettings();
   const [bookings, setBookings] = useState<CrewBooking[]>([]);
   const [labOrders, setLabOrders] = useState<StudioLabOrder[]>([]);
@@ -329,7 +331,7 @@ export function PartnerDashboardContent({
       supabase.removeChannel(transactionsChannel);
       supabase.removeChannel(photoSessionsChannel);
     };
-  }, [partner, adminPreview, loadRevision, toast]);
+  }, [partner, adminPreview, loadRevision, refreshToken, toast]);
 
   useEffect(() => {
     if (labOrders.length === 0) { setOrderSessions({}); return; }
