@@ -752,18 +752,18 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
             <div className="flex items-center gap-2">
               <button
                 onClick={() => openPartnerLocation(o)}
-                className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-900 transition-colors hover:bg-amber-400"
+                className="flex min-w-0 flex-[0.8] items-center justify-center gap-2 rounded-lg bg-amber-500 px-2 py-2 text-xs font-semibold text-slate-900 transition-colors hover:bg-amber-400"
               >
                 <FolderOpen className="h-4 w-4" /> Open Location
               </button>
               <button
                 type="button"
                 onClick={() => setStorageDetailsOrder(o)}
-                className="flex h-9 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:border-amber-500/50 hover:text-amber-500 dark:border-white/10 dark:text-slate-300 dark:hover:text-amber-400"
+                className="flex h-9 min-w-0 flex-[1.2] items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-2 text-[11px] font-medium text-slate-500 transition-colors hover:border-amber-500/50 hover:text-amber-500 dark:border-white/10 dark:text-slate-300 dark:hover:text-amber-400"
                 title="Edit storage details"
                 aria-label={`Edit storage details for ${labOrderTitle(o)}`}
               >
-                <HardDrive className="h-4 w-4" />
+                <HardDrive className="h-3.5 w-3.5" /> <span>Storage</span>
               </button>
             </div>
           </div>
@@ -1846,12 +1846,12 @@ function StorageDetailsModal({ order, onClose, onSaved }: {
   const clients = order.clients ?? [];
   const updateLocation = (index: number, patch: Partial<StorageLocation>) =>
     setLocations((current) => current.map((location, rowIndex) => rowIndex === index ? { ...location, ...patch } : location));
-  const addLocation = (workType: 'Album' | 'Video', stage: 'Raw Data' | 'Final Data') => {
+  const addLocation = (stage: 'Raw Data' | 'Final Data') => {
     setLocations((current) => [...current, {
       ...EMPTY_STORAGE_LOCATION,
       id: uid(),
-      work_type: workType,
       data_stage: stage,
+      work: stage,
     }]);
   };
   const save = async () => {
@@ -1869,77 +1869,34 @@ function StorageDetailsModal({ order, onClose, onSaved }: {
       setSaving(false);
     }
   };
-  const renderStructuredRows = (workType: 'Album' | 'Video') => {
-    const indices = locations.map((location, index) => ({ location, index }))
-      .filter(({ location }) => location.work_type === workType);
-    return (
-      <section key={workType} className="rounded-xl border border-slate-700 p-3">
-        <h3 className="mb-2 text-sm font-semibold text-white">{workType} locations</h3>
-        <div className="space-y-3">
-          {indices.map(({ location, index }) => {
-            const stage = location.data_stage ?? 'Raw Data';
-            const partyValue = location.party_type && location.party_name
-              ? `${location.party_type}:${location.party_id ?? location.party_name}` : '';
-            return (
-              <div key={`${location.id || 'storage'}-${index}`} className="rounded-lg border border-slate-700 bg-slate-950/50 p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-amber-300">{workType} · {stage}</span>
-                  <button type="button" onClick={() => setLocations((current) => current.filter((_, rowIndex) => rowIndex !== index))} className="rounded p-1 text-rose-400 hover:bg-rose-400/10" title="Remove location" aria-label="Remove location"><Trash2 className="h-4 w-4" /></button>
-                </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <Field label="Stage">
-                    <select value={stage} onChange={(event) => updateLocation(index, { data_stage: event.target.value as StorageLocation['data_stage'], work: event.target.value, data_type: '' })} className={`${selectClass} text-xs`}>
-                      <option value="Raw Data">Raw Data</option><option value="Final Data">Final Data</option>
-                    </select>
-                  </Field>
-                  <Field label="Data Type">
-                    <select value={location.data_type ?? ''} onChange={(event) => updateLocation(index, { data_type: event.target.value })} className={`${selectClass} text-xs`}>
-                      <option value="">— Data Type —</option>
-                      {(stage === 'Raw Data' ? ['Image', 'Video', 'Image + Video'] : ['Album PDF', 'Video', 'Album PDF + Video', 'Other']).map((type) => <option key={type} value={type}>{type}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="PC / Device">
-                    <select value={location.device} onChange={(event) => updateLocation(index, { device: event.target.value })} className={`${selectClass} text-xs`}>
-                      <option value="">— Device —</option>{STORAGE_DEVICES.map((device) => <option key={device} value={device}>{device}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Drive">
-                    <select value={location.drive} onChange={(event) => updateLocation(index, { drive: event.target.value })} className={`${selectClass} text-xs`}>
-                      <option value="">— Drive —</option>{STORAGE_DRIVES.map((drive) => <option key={drive} value={drive}>{drive}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Partner / Client">
-                    <select value={partyValue} onChange={(event) => {
-                      const [partyType, partyKey] = event.target.value.split(':');
-                      const partner = partyType === 'Partner';
-                      const client = clients.find((row) => row.id === partyKey);
-                      const name = partner ? (order.partner_name || order.studio_name || '') : (client?.client_name || '');
-                      updateLocation(index, { party_type: partyType as StorageLocation['party_type'], party_id: partyKey, party_name: name, client_name: name });
-                    }} className={`${selectClass} text-xs`}>
-                      <option value="">— Partner / Client —</option>
-                      {(order.partner_name || order.studio_name) && <option value={`Partner:${order.partner_id || order.partner_name || order.studio_name}`}>Partner · {order.partner_name || order.studio_name}</option>}
-                      {clients.map((client, clientIndex) => <option key={client.id || clientIndex} value={`Client:${client.id}`}>Client · {client.client_name || `Client ${clientIndex + 1}`}</option>)}
-                    </select>
-                  </Field>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" onClick={() => addLocation(workType, 'Raw Data')} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:border-amber-400">+ Add Raw Data</button>
-          <button type="button" onClick={() => addLocation(workType, 'Final Data')} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:border-amber-400">+ Add Final Data</button>
-        </div>
-      </section>
-    );
-  };
-  const legacyRows = locations.map((location, index) => ({ location, index })).filter(({ location }) => !location.work_type);
+  const structuredRows = locations.map((location, index) => ({ location, index })).filter(({ location }) => !!location.data_stage || !!location.work_type);
+  const legacyRows = locations.map((location, index) => ({ location, index })).filter(({ location }) => !location.data_stage && !location.work_type);
 
   return <Modal open onClose={onClose} title={`Storage Details — ${order.order_no}`} size="lg" dismissible={false}>
     <div className="space-y-3">
       <p className="text-xs text-slate-400">Edit where the order’s working and final files are saved. These details are stored with this order; status and billing stay unchanged.</p>
-      {renderStructuredRows('Album')}
-      {renderStructuredRows('Video')}
+      <section className="rounded-xl border border-slate-700 p-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold text-white">Raw / Final Data Locations</h3><div className="flex gap-2"><button type="button" onClick={() => addLocation('Raw Data')} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:border-amber-400">+ Raw Data</button><button type="button" onClick={() => addLocation('Final Data')} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:border-amber-400">+ Final Data</button></div></div>
+        {structuredRows.length === 0 ? <p className="text-xs text-slate-400">Add a Raw Data or Final Data row for this order.</p> : <div className="space-y-3">{structuredRows.map(({ location, index }) => {
+          const stage = location.data_stage ?? (location.work === 'Final Data' ? 'Final Data' : 'Raw Data');
+          const partyValue = location.party_type && location.party_name ? `${location.party_type}:${location.party_id ?? location.party_name}` : '';
+          return <div key={`${location.id || 'storage'}-${index}`} className="rounded-lg border border-slate-700 bg-slate-950/50 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2"><span className="text-xs font-medium text-amber-300">{stage}</span><button type="button" onClick={() => setLocations((current) => current.filter((_, rowIndex) => rowIndex !== index))} className="rounded p-1 text-rose-400 hover:bg-rose-400/10" title="Remove location" aria-label="Remove location"><Trash2 className="h-4 w-4" /></button></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <Field label="PC / Device"><select value={location.device} onChange={(event) => updateLocation(index, { device: event.target.value })} className={`${selectClass} text-xs`}><option value="">— Device —</option>{STORAGE_DEVICES.map((device) => <option key={device} value={device}>{device}</option>)}</select></Field>
+              <Field label="Drive"><select value={location.drive} onChange={(event) => updateLocation(index, { drive: event.target.value })} className={`${selectClass} text-xs`}><option value="">— Drive —</option>{STORAGE_DRIVES.map((drive) => <option key={drive} value={drive}>{drive}</option>)}</select></Field>
+              <Field label="Partner / Client"><select value={partyValue} onChange={(event) => {
+                const [partyType, partyKey] = event.target.value.split(':');
+                const isPartner = partyType === 'Partner';
+                const client = clients.find((row) => row.id === partyKey);
+                const name = isPartner ? (order.partner_name || order.studio_name || '') : (client?.client_name || '');
+                updateLocation(index, { party_type: partyType as StorageLocation['party_type'], party_id: partyKey, party_name: name, client_name: name });
+              }} className={`${selectClass} text-xs`}><option value="">— Partner / Client —</option>{(order.partner_name || order.studio_name) && <option value={`Partner:${order.partner_id || order.partner_name || order.studio_name}`}>Partner · {order.partner_name || order.studio_name}</option>}{clients.map((client, clientIndex) => <option key={client.id || clientIndex} value={`Client:${client.id}`}>Client · {client.client_name || `Client ${clientIndex + 1}`}</option>)}</select></Field>
+              <Field label={stage === 'Raw Data' ? 'Raw Data Type' : 'Final Data Type'}><select value={location.data_type ?? ''} onChange={(event) => updateLocation(index, { data_type: event.target.value })} className={`${selectClass} text-xs`}><option value="">— Select Type —</option>{(stage === 'Raw Data' ? ['Image', 'Video', 'Image + Video', 'Mixed Data'] : ['Album PDF', 'Video', 'Album PDF + Video', 'Other']).map((type) => <option key={type} value={type}>{type}</option>)}</select></Field>
+            </div>
+          </div>;
+        })}</div>}
+      </section>
       {legacyRows.length > 0 && <section className="rounded-xl border border-slate-700 p-3">
         <h3 className="mb-2 text-sm font-semibold text-white">Previously saved locations</h3>
         <p className="mb-2 text-xs text-slate-400">Older location entries are preserved as-is. Remove one only if it is no longer needed.</p>
@@ -2688,58 +2645,41 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
         <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-white"><HardDrive className="h-4 w-4 text-slate-500" /> Storage Location</h3>
-            <button onClick={() => setStorageLocations((prev) => [...prev, { ...EMPTY_STORAGE_LOCATION, id: uid() }])} className="flex items-center gap-1 rounded-lg bg-slate-500/10 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-500/20 dark:text-slate-400">
-              <Plus className="h-3.5 w-3.5" /> Add Location
-            </button>
+            <div className="flex gap-1.5">
+              <button type="button" onClick={() => setStorageLocations((prev) => [...prev, { ...EMPTY_STORAGE_LOCATION, id: uid(), work: 'Raw Data', data_stage: 'Raw Data' }])} className="flex items-center gap-1 rounded-lg bg-slate-500/10 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-500/20 dark:text-slate-300"><Plus className="h-3.5 w-3.5" /> Raw Data</button>
+              <button type="button" onClick={() => setStorageLocations((prev) => [...prev, { ...EMPTY_STORAGE_LOCATION, id: uid(), work: 'Final Data', data_stage: 'Final Data' }])} className="flex items-center gap-1 rounded-lg bg-slate-500/10 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-500/20 dark:text-slate-300"><Plus className="h-3.5 w-3.5" /> Final Data</button>
+            </div>
           </div>
-          {(() => {
-            const studioOrProject = studioName || projectName || '';
-            const clientNames = clients.map((c) => c.client_name.trim()).filter(Boolean);
-            return storageLocations.length === 0 ? (
-              <p className="py-2 text-center text-xs text-slate-400">No storage locations added — click + Add Location</p>
-            ) : (
-              <div className="space-y-2">
-                {storageLocations.map((loc, si) => (
-                  <div key={loc.id} className="rounded-lg border border-slate-200 p-2.5 dark:border-white/10">
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
-                      <Field label="PC / Device">
-                        <select value={loc.device} onChange={(e) => setStorageLocations((prev) => prev.map((l, idx) => idx === si ? { ...l, device: e.target.value } : l))} className={`${selectClass} text-xs`}>
-                          <option value="">— Device —</option>
-                          {STORAGE_DEVICES.map((d) => <option key={d} value={d}>{d}</option>)}
-                        </select>
-                      </Field>
-                      <Field label="Drive">
-                        <select value={loc.drive} onChange={(e) => setStorageLocations((prev) => prev.map((l, idx) => idx === si ? { ...l, drive: e.target.value } : l))} className={`${selectClass} text-xs`}>
-                          <option value="">— Drive —</option>
-                          {STORAGE_DRIVES.map((d) => <option key={d} value={d}>{d}</option>)}
-                        </select>
-                      </Field>
-                      <Field label="Work">
-                        <select value={loc.work} onChange={(e) => setStorageLocations((prev) => prev.map((l, idx) => idx === si ? { ...l, work: e.target.value } : l))} className={`${selectClass} text-xs`}>
-                          <option value="">— Work —</option>
-                          {STORAGE_WORK_TYPES.map((w) => <option key={w} value={w}>{w}</option>)}
-                        </select>
-                      </Field>
-                      <Field label="Client">
-                        <select value={loc.client_name} onChange={(e) => setStorageLocations((prev) => prev.map((l, idx) => idx === si ? { ...l, client_name: e.target.value } : l))} className={`${selectClass} text-xs`}>
-                          <option value="">— Client —</option>
-                          {clientNames.map((cn) => <option key={cn} value={cn}>{cn}</option>)}
-                        </select>
-                      </Field>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <p className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-                        <HardDrive className="h-3 w-3 shrink-0" /> {buildStoragePath(loc, studioOrProject) || '—'}
-                      </p>
-                      <button onClick={() => setStorageLocations((prev) => prev.filter((_, idx) => idx !== si))} className="flex items-center gap-1 text-xs text-rose-500 hover:text-rose-600">
-                        <Trash2 className="h-3.5 w-3.5" /> Remove
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
+          {storageLocations.length === 0 ? <p className="py-2 text-center text-xs text-slate-400">Add Raw Data or Final Data location as needed.</p> : <div className="space-y-2">
+            {storageLocations.map((loc, si) => {
+              const isStructured = !!loc.data_stage || !!loc.work_type;
+              const stage = loc.data_stage ?? (loc.work === 'Final Data' ? 'Final Data' : 'Raw Data');
+              const partyValue = loc.party_type && (loc.party_id || loc.party_name) ? `${loc.party_type}:${loc.party_id || loc.party_name}` : '';
+              const partnerKey = selectedPartnerId || editing?.partner_id || partnerName || studioName;
+              return <div key={`${loc.id || 'location'}-${si}`} className="rounded-lg border border-slate-200 p-2.5 dark:border-white/10">
+                <div className="mb-2 flex items-center justify-between gap-2"><span className="text-xs font-semibold text-amber-600 dark:text-amber-400">{stage}</span><button type="button" onClick={() => setStorageLocations((prev) => prev.filter((_, idx) => idx !== si))} className="flex items-center gap-1 text-xs text-rose-500 hover:text-rose-600"><Trash2 className="h-3.5 w-3.5" /> Remove</button></div>
+                {isStructured ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <Field label="PC / Device"><select value={loc.device} onChange={(event) => setStorageLocations((prev) => prev.map((row, idx) => idx === si ? { ...row, device: event.target.value } : row))} className={`${selectClass} text-xs`}><option value="">— Device —</option>{STORAGE_DEVICES.map((device) => <option key={device} value={device}>{device}</option>)}</select></Field>
+                  <Field label="Drive"><select value={loc.drive} onChange={(event) => setStorageLocations((prev) => prev.map((row, idx) => idx === si ? { ...row, drive: event.target.value } : row))} className={`${selectClass} text-xs`}><option value="">— Drive —</option>{STORAGE_DRIVES.map((drive) => <option key={drive} value={drive}>{drive}</option>)}</select></Field>
+                  <Field label="Partner / Client"><select value={partyValue} onChange={(event) => setStorageLocations((prev) => prev.map((row, idx) => {
+                    if (idx !== si) return row;
+                    const [partyType, partyKeyValue] = event.target.value.split(':');
+                    const isPartner = partyType === 'Partner';
+                    const client = clients.find((candidate) => candidate.id === partyKeyValue);
+                    const name = isPartner ? (partnerName || studioName) : (client?.client_name ?? '');
+                    return { ...row, party_type: partyType as StorageLocation['party_type'], party_id: partyKeyValue, party_name: name, client_name: name };
+                  }))} className={`${selectClass} text-xs`}><option value="">— Partner / Client —</option>{partnerKey && <option value={`Partner:${selectedPartnerId || editing?.partner_id || partnerName || studioName}`}>Partner · {partnerName || studioName}</option>}{clients.map((client, clientIndex) => <option key={client.id || clientIndex} value={`Client:${client.id}`}>Client · {client.client_name || `Client ${clientIndex + 1}`}</option>)}</select></Field>
+                  <Field label={stage === 'Raw Data' ? 'Raw Data Type' : 'Final Data Type'}><select value={loc.data_type ?? ''} onChange={(event) => setStorageLocations((prev) => prev.map((row, idx) => idx === si ? { ...row, data_type: event.target.value } : row))} className={`${selectClass} text-xs`}><option value="">— Data Type —</option>{(stage === 'Raw Data' ? ['Image', 'Video', 'Image + Video', 'Mixed Data'] : ['Album PDF', 'Video', 'Album PDF + Video', 'Other']).map((type) => <option key={type} value={type}>{type}</option>)}</select></Field>
+                </div> : <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <Field label="PC / Device"><select value={loc.device} onChange={(event) => setStorageLocations((prev) => prev.map((row, idx) => idx === si ? { ...row, device: event.target.value } : row))} className={`${selectClass} text-xs`}><option value="">— Device —</option>{STORAGE_DEVICES.map((device) => <option key={device} value={device}>{device}</option>)}</select></Field>
+                  <Field label="Drive"><select value={loc.drive} onChange={(event) => setStorageLocations((prev) => prev.map((row, idx) => idx === si ? { ...row, drive: event.target.value } : row))} className={`${selectClass} text-xs`}><option value="">— Drive —</option>{STORAGE_DRIVES.map((drive) => <option key={drive} value={drive}>{drive}</option>)}</select></Field>
+                  <Field label="Work"><select value={loc.work} onChange={(event) => setStorageLocations((prev) => prev.map((row, idx) => idx === si ? { ...row, work: event.target.value } : row))} className={`${selectClass} text-xs`}><option value="">— Work —</option>{STORAGE_WORK_TYPES.map((work) => <option key={work} value={work}>{work}</option>)}</select></Field>
+                  <Field label="Client"><select value={loc.client_name} onChange={(event) => setStorageLocations((prev) => prev.map((row, idx) => idx === si ? { ...row, client_name: event.target.value } : row))} className={`${selectClass} text-xs`}><option value="">— Client —</option>{clients.map((client, clientIndex) => <option key={client.id || clientIndex} value={client.client_name}>{client.client_name || `Client ${clientIndex + 1}`}</option>)}</select></Field>
+                  <p className="sm:col-span-2 lg:col-span-4 text-[11px] text-slate-500">Previously saved format — kept intact. Add a Raw Data or Final Data row to use the updated fields.</p>
+                </div>}
+              </div>;
+            })}
+          </div>}
         </div>
 
         {/* Payment Section */}
