@@ -18,6 +18,16 @@ import { Badge } from '@/components/ui/Badge';
 import { useRefresh } from '@/context/RefreshContext';
 import type { PageKey } from '@/lib/types';
 import { PortalModal } from '@/components/PortalModal';
+import { bookingBillingSnapshot, labOrderBillingSnapshot } from '@/lib/billing';
+
+interface OutstandingDueItem {
+  id: string;
+  name: string;
+  reference: string;
+  date: string;
+  type: 'Booking' | 'Lab order';
+  amount: number;
+}
 
 interface DashboardProps {
   onNavigate: (page: PageKey) => void;
@@ -30,7 +40,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([]);
   const [activeLabOrders, setActiveLabOrders] = useState<StudioLabOrder[]>([]);
   const [labOrdersError, setLabOrdersError] = useState('');
+  const [bookingsError, setBookingsError] = useState('');
   const [totalDue, setTotalDue] = useState(0);
+  const [outstandingDueItems, setOutstandingDueItems] = useState<OutstandingDueItem[]>([]);
   const [showClientPortal, setShowClientPortal] = useState(false);
   const [showPartnerPortal, setShowPartnerPortal] = useState(false);
 
@@ -39,12 +51,13 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
     const loadDashboard = async () => {
       try {
-        const [{ data: bookings }, { data: lab, error: labError }] = await Promise.all([
+        const [{ data: bookings, error: bookingError }, { data: lab, error: labError }] = await Promise.all([
           supabase.from('bookings').select('*').order('shoot_date'),
           supabase.from('studio_lab_orders').select('*').order('created_at', { ascending: false }),
         ]);
 
         if (!mounted) return;
+        setBookingsError(bookingError?.message ?? '');
         setLabOrdersError(labError?.message ?? '');
         const allBookings = Array.isArray(bookings) ? bookings as Booking[] : [];
         const activeBookings = allBookings.filter((b) => !b.archived_at && !b.deleted_at && (b.booking_status ?? '').toUpperCase() !== 'CANCELLED');
@@ -60,7 +73,34 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           !String(order.order_no ?? '').startsWith('DEMO-') &&
           !String(order.id ?? '').startsWith('demo-')
         ));
-        setTotalDue(activeBookings.reduce((s, b) => s + Number(b.net_due ?? 0), 0));
+
+        const bookingDues: OutstandingDueItem[] = activeBookings.flatMap((booking) => {
+          const amount = Math.max(0, Number(booking.net_due ?? bookingBillingSnapshot(booking).balanceDue));
+          return amount > 0 ? [{
+            id: `booking-${booking.id}`,
+            name: booking.client_name || 'Booking',
+            reference: booking.booking_no || '',
+            date: booking.shoot_date || '',
+            type: 'Booking',
+            amount,
+          }] : [];
+        });
+        const labDues: OutstandingDueItem[] = allLabOrders.flatMap((order) => {
+          const status = String(order.order_status ?? '').toLowerCase();
+          if (order.archived_at || order.deleted_at || order.isDemo || order.is_demo || status === 'cancelled' || status === 'canceled' || String(order.order_no ?? '').startsWith('DEMO-') || String(order.id ?? '').startsWith('demo-')) return [];
+          const amount = labOrderBillingSnapshot(order, order.advance_paid).balanceDue;
+          return amount > 0 ? [{
+            id: `lab-${order.id}`,
+            name: order.project_name || order.studio_name || 'Lab order',
+            reference: order.order_no || '',
+            date: order.created_at || '',
+            type: 'Lab order',
+            amount,
+          }] : [];
+        });
+        const dueItems = [...bookingDues, ...labDues].sort((a, b) => b.amount - a.amount);
+        setOutstandingDueItems(dueItems);
+        setTotalDue(dueItems.reduce((sum, item) => sum + item.amount, 0));
       } catch (error) {
         console.error('Failed to load dashboard:', error);
         if (mounted) {
@@ -68,6 +108,8 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           setUpcomingBookings([]);
           setActiveLabOrders([]);
           setLabOrdersError(error instanceof Error ? error.message : 'Could not load lab orders.');
+          setBookingsError(error instanceof Error ? error.message : 'Could not load bookings.');
+          setOutstandingDueItems([]);
           setTotalDue(0);
         }
       } finally {
@@ -193,17 +235,18 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         {/* Total due summary */}
         <Card title="Outstanding Dues" onMore={() => onNavigate('bookings')}>
           <div className="space-y-2">
-            {todaysBookings.length === 0 && upcomingBookings.length === 0 ? (
-              <p className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">No bookings</p>
+            {(bookingsError || labOrdersError) && <p role="status" className="rounded-lg border border-rose-500/20 bg-rose-500/5 p-2 text-xs text-rose-500 dark:text-rose-300">Some due records could not load: {[bookingsError, labOrdersError].filter(Boolean).join(' · ')}</p>}
+            {outstandingDueItems.length === 0 ? (
+              <p className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">No outstanding dues</p>
             ) : (
-              [...todaysBookings, ...upcomingBookings].slice(0, 5).map((b) => (
-                <div key={b.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-white/5 dark:bg-white/5">
+              outstandingDueItems.slice(0, 5).map((item) => (
+                <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-white/5 dark:bg-white/5">
                   <div>
-                    <p className="text-sm font-medium text-slate-900 dark:text-white">{b.client_name ?? ''}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{b.booking_no ?? ''} · {formatDate(b.shoot_date)}</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">{item.name}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{item.type} · {item.reference}{item.date ? ` · ${formatDate(item.date)}` : ''}</p>
                   </div>
-                  <span className={`text-sm font-bold ${Number(b.net_due ?? 0) > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-500 dark:text-emerald-400'}`}>
-                    {formatINR(Number(b.net_due ?? 0))}
+                  <span className="shrink-0 text-sm font-bold text-rose-500 dark:text-rose-400">
+                    {formatINR(item.amount)}
                   </span>
                 </div>
               ))
