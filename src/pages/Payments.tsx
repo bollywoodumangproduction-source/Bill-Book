@@ -39,6 +39,7 @@ export function Payments() {
   const { refreshToken } = useRefresh();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [sourceReferences, setSourceReferences] = useState<Record<string, string>>({});
+  const [partyNames, setPartyNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
@@ -53,8 +54,8 @@ export function Payments() {
   const load = useCallback(async () => {
     const [paymentsResult, bookingsResult, ordersResult] = await Promise.all([
       supabase.from('payments').select('*').order('date', { ascending: false }),
-      supabase.from('bookings').select('id,booking_no'),
-      supabase.from('studio_lab_orders').select('id,order_no'),
+      supabase.from('bookings').select('id,booking_no,client_name'),
+      supabase.from('studio_lab_orders').select('id,order_no,partner_name,studio_name,project_name'),
     ]);
     const { data, error } = paymentsResult;
     if (error) {
@@ -66,15 +67,25 @@ export function Payments() {
     const loadedPayments = (data ?? []) as Payment[];
     setPayments(loadedPayments);
     const references: Record<string, string> = {};
-    const bookingNumbers = new Map((bookingsResult.data ?? []).map((booking) => [booking.id, booking.booking_no]));
-    const orderNumbers = new Map((ordersResult.data ?? []).map((order) => [order.id, order.order_no]));
+    const parties: Record<string, string> = {};
+    const bookingMap = new Map((bookingsResult.data ?? []).map((booking) => [booking.id, booking]));
+    const orderMap = new Map((ordersResult.data ?? []).map((order) => [order.id, order]));
     for (const payment of loadedPayments) {
       const [sourceType, sourceId] = String(payment.source_id ?? '').split(':');
-      if (sourceType === 'booking' && sourceId && bookingNumbers.has(sourceId)) references[payment.id] = bookingNumbers.get(sourceId)!;
-      else if (sourceType === 'lab-order' && sourceId && orderNumbers.has(sourceId)) references[payment.id] = orderNumbers.get(sourceId)!;
+      if (sourceType === 'booking' && sourceId && bookingMap.has(sourceId)) {
+        const booking = bookingMap.get(sourceId)!;
+        references[payment.id] = booking.booking_no;
+        parties[payment.id] = booking.client_name || payment.party_name;
+      } else if (sourceType === 'lab-order' && sourceId && orderMap.has(sourceId)) {
+        const order = orderMap.get(sourceId)!;
+        references[payment.id] = order.order_no;
+        const names = [order.studio_name, order.partner_name].map((name) => String(name ?? '').trim()).filter(Boolean);
+        parties[payment.id] = [...new Set(names)].join(' · ') || order.project_name || payment.party_name;
+      }
       else references[payment.id] = payment.source_id ? payment.source_id.split(':')[0] : '—';
     }
     setSourceReferences(references);
+    setPartyNames(parties);
     setLoading(false);
   }, []);
 
@@ -82,7 +93,7 @@ export function Payments() {
 
   const filtered = payments.filter((p) => {
     const q = search.toLowerCase();
-    const matchesSearch = (p.party_name ?? '').toLowerCase().includes(q) || (p.receipt_no ?? '').toLowerCase().includes(q) || (p.note ?? '').toLowerCase().includes(q) || (sourceReferences[p.id] ?? '').toLowerCase().includes(q);
+    const matchesSearch = (partyNames[p.id] || p.party_name || '').toLowerCase().includes(q) || (p.receipt_no ?? '').toLowerCase().includes(q) || (p.note ?? '').toLowerCase().includes(q) || (sourceReferences[p.id] ?? '').toLowerCase().includes(q);
     const matchesMode = modeFilter === 'all' || p.mode === modeFilter;
     const matchesFrom = !dateFrom || (p.date ?? '') >= dateFrom;
     const matchesTo = !dateTo || (p.date ?? '') <= dateTo;
@@ -198,7 +209,7 @@ export function Payments() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="break-all text-xs font-semibold text-slate-900 dark:text-white">{p.receipt_no ?? ''}</p>
-              <p className="mt-0.5 break-words text-sm font-medium text-slate-700 dark:text-slate-200">{p.party_name ?? ''}</p>
+              <p className="mt-0.5 break-words text-sm font-medium text-slate-700 dark:text-slate-200">{partyNames[p.id] || p.party_name || ''}</p>
               <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">Bill / Source: {sourceReferences[p.id] || '—'}</p>
               {p.note && <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{p.note}</p>}
                 </div>
@@ -235,7 +246,7 @@ export function Payments() {
               {filtered.map((p) => (
                 <tr key={p.id} className="border-t border-slate-100 dark:border-white/5">
                   <td className="px-3 py-2.5 font-medium text-slate-900 dark:text-white">{p.receipt_no ?? ''}</td>
-                  <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">{p.party_name ?? ''}</td>
+                  <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">{partyNames[p.id] || p.party_name || ''}</td>
                   <td className="px-3 py-2.5"><Badge color={SOURCE_COLORS[p.source] ?? 'slate'}>{p.source ?? ''}</Badge></td>
                   <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">{sourceReferences[p.id] || '—'}</td>
                   <td className="px-3 py-2.5"><Badge color={paymentDirection(p) === 'IN' ? 'emerald' : 'rose'}>{paymentDirection(p) === 'IN' ? 'Received' : 'Paid'}</Badge></td>
