@@ -283,6 +283,13 @@ export interface StorageLocation {
   drive: string;
   work: string;
   client_name: string;
+  /** Optional structured location details; legacy fields above remain intact for older orders. */
+  work_type?: 'Album' | 'Video';
+  data_stage?: 'Raw Data' | 'Final Data';
+  party_type?: 'Partner' | 'Client';
+  party_name?: string;
+  party_id?: string;
+  data_type?: string;
 }
 
 export interface StudioLabOrder {

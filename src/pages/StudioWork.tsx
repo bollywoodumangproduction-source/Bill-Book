@@ -267,6 +267,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
   const [selectedDeliveryYear, setSelectedDeliveryYear] = useState<string | null>(null);
   const [showReadyDeliveries, setShowReadyDeliveries] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<StudioLabOrder | null>(null);
+  const [storageDetailsOrder, setStorageDetailsOrder] = useState<StudioLabOrder | null>(null);
   const orderDetailTouchStart = useRef<{ x: number; y: number } | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
@@ -673,18 +674,6 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
             <Truck className="h-3 w-3" /> {o.parcel_tracking_details}
           </p>
         )}
-        {o.storage_locations && o.storage_locations.length > 0 && (
-          <div className="mb-2 space-y-0.5">
-            {o.storage_locations.map((loc) => {
-              const studioOrProject = o.studio_name || o.project_name || '';
-              return (
-                <p key={loc.id} className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-                  <HardDrive className="h-3 w-3 shrink-0" /> {buildStoragePath(loc, studioOrProject)}
-                </p>
-              );
-            })}
-          </div>
-        )}
         {o.order_no && photoSessions[o.order_no] && (
           <a
             href={photoSessions[o.order_no]!.shareableUrl}
@@ -760,12 +749,23 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
                 </label>
               )}
             </div>
-            <button
-              onClick={() => openPartnerLocation(o)}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-900 transition-colors hover:bg-amber-400"
-            >
-              <FolderOpen className="h-4 w-4" /> Open Location
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => openPartnerLocation(o)}
+                className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-900 transition-colors hover:bg-amber-400"
+              >
+                <FolderOpen className="h-4 w-4" /> Open Location
+              </button>
+              <button
+                type="button"
+                onClick={() => setStorageDetailsOrder(o)}
+                className="flex h-9 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:border-amber-500/50 hover:text-amber-500 dark:border-white/10 dark:text-slate-300 dark:hover:text-amber-400"
+                title="Edit storage details"
+                aria-label={`Edit storage details for ${labOrderTitle(o)}`}
+              >
+                <HardDrive className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         ) : (
         <div className="mt-3 flex items-center gap-2">
@@ -1058,6 +1058,16 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
       <ErrorBoundary>
         <ViewBillModal order={viewBillOrder} onClose={() => setViewBillOrder(null)} settings={settings} onCopySummary={copyOrderSummary} />
       </ErrorBoundary>
+      {storageDetailsOrder && <StorageDetailsModal
+        order={storageDetailsOrder}
+        onClose={() => setStorageDetailsOrder(null)}
+        onSaved={(updated) => {
+          setStorageDetailsOrder(null);
+          setOrders((prev) => prev.map((order) => getOrderKey(order) === getOrderKey(updated) ? updated : order));
+          setSelectedOrder((current) => current && getOrderKey(current) === getOrderKey(updated) ? updated : current);
+          toast('Storage details saved.', 'success');
+        }}
+      />}
       <LabWorkSlipModal order={viewSlipOrder} onClose={() => setViewSlipOrder(null)} settings={settings} onDualPrint={(includeStamp) => { if (viewSlipOrder) { setDualPrintShowStamp(includeStamp); setDualPrintOrder(viewSlipOrder); setTimeout(() => { window.print(); setDualPrintOrder(null); }, 100); } }} />
       {dualPrintOrder && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><LabOrderPrintTemplate order={dualPrintOrder} settings={settings} compact showStamp={dualPrintShowStamp} /></PrintableDualCopies></div>, document.body)}
       {quickPayOrder && <LabQuickPayModal order={quickPayOrder} onClose={() => setQuickPayOrder(null)} onSaved={(updated) => { setQuickPayOrder(null); setOrders((prev) => prev.map((order) => (getOrderKey(order) === getOrderKey(updated) ? updated : order))); setSelectedOrder((current) => current && getOrderKey(current) === getOrderKey(updated) ? updated : current); load(); }} />}
@@ -1825,6 +1835,133 @@ function partnerNameWithoutMobile(partner: Partner) {
   return partner.name.trim().replace(/\s*\(\s*[\d\s+().-]{7,}\s*\)\s*$/, '').trim();
 }
 
+function StorageDetailsModal({ order, onClose, onSaved }: {
+  order: StudioLabOrder;
+  onClose: () => void;
+  onSaved: (updated: StudioLabOrder) => void;
+}) {
+  const { toast } = useToast();
+  const [locations, setLocations] = useState<StorageLocation[]>(() => (order.storage_locations ?? []).map((location) => ({ ...location })));
+  const [saving, setSaving] = useState(false);
+  const clients = order.clients ?? [];
+  const updateLocation = (index: number, patch: Partial<StorageLocation>) =>
+    setLocations((current) => current.map((location, rowIndex) => rowIndex === index ? { ...location, ...patch } : location));
+  const addLocation = (workType: 'Album' | 'Video', stage: 'Raw Data' | 'Final Data') => {
+    setLocations((current) => [...current, {
+      ...EMPTY_STORAGE_LOCATION,
+      id: uid(),
+      work_type: workType,
+      data_stage: stage,
+    }]);
+  };
+  const save = async () => {
+    setSaving(true);
+    try {
+      const isDemo = !order.id || String(order.id).startsWith('DEMO-') || String(order.id).startsWith('demo-');
+      const result = isDemo
+        ? await supabase.from('studio_lab_orders').update({ storage_locations: locations }).eq('order_no', order.order_no)
+        : await supabase.from('studio_lab_orders').update({ storage_locations: locations }).eq('id', order.id);
+      if (result.error) throw result.error;
+      onSaved({ ...order, storage_locations: locations });
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+  const renderStructuredRows = (workType: 'Album' | 'Video') => {
+    const indices = locations.map((location, index) => ({ location, index }))
+      .filter(({ location }) => location.work_type === workType);
+    return (
+      <section key={workType} className="rounded-xl border border-slate-700 p-3">
+        <h3 className="mb-2 text-sm font-semibold text-white">{workType} locations</h3>
+        <div className="space-y-3">
+          {indices.map(({ location, index }) => {
+            const stage = location.data_stage ?? 'Raw Data';
+            const partyValue = location.party_type && location.party_name
+              ? `${location.party_type}:${location.party_id ?? location.party_name}` : '';
+            return (
+              <div key={`${location.id || 'storage'}-${index}`} className="rounded-lg border border-slate-700 bg-slate-950/50 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-amber-300">{workType} · {stage}</span>
+                  <button type="button" onClick={() => setLocations((current) => current.filter((_, rowIndex) => rowIndex !== index))} className="rounded p-1 text-rose-400 hover:bg-rose-400/10" title="Remove location" aria-label="Remove location"><Trash2 className="h-4 w-4" /></button>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <Field label="Stage">
+                    <select value={stage} onChange={(event) => updateLocation(index, { data_stage: event.target.value as StorageLocation['data_stage'], work: event.target.value, data_type: '' })} className={`${selectClass} text-xs`}>
+                      <option value="Raw Data">Raw Data</option><option value="Final Data">Final Data</option>
+                    </select>
+                  </Field>
+                  <Field label="Data Type">
+                    <select value={location.data_type ?? ''} onChange={(event) => updateLocation(index, { data_type: event.target.value })} className={`${selectClass} text-xs`}>
+                      <option value="">— Data Type —</option>
+                      {(stage === 'Raw Data' ? ['Image', 'Video', 'Image + Video'] : ['Album PDF', 'Video', 'Album PDF + Video', 'Other']).map((type) => <option key={type} value={type}>{type}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="PC / Device">
+                    <select value={location.device} onChange={(event) => updateLocation(index, { device: event.target.value })} className={`${selectClass} text-xs`}>
+                      <option value="">— Device —</option>{STORAGE_DEVICES.map((device) => <option key={device} value={device}>{device}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Drive">
+                    <select value={location.drive} onChange={(event) => updateLocation(index, { drive: event.target.value })} className={`${selectClass} text-xs`}>
+                      <option value="">— Drive —</option>{STORAGE_DRIVES.map((drive) => <option key={drive} value={drive}>{drive}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Partner / Client">
+                    <select value={partyValue} onChange={(event) => {
+                      const [partyType, partyKey] = event.target.value.split(':');
+                      const partner = partyType === 'Partner';
+                      const client = clients.find((row) => row.id === partyKey);
+                      const name = partner ? (order.partner_name || order.studio_name || '') : (client?.client_name || '');
+                      updateLocation(index, { party_type: partyType as StorageLocation['party_type'], party_id: partyKey, party_name: name, client_name: name });
+                    }} className={`${selectClass} text-xs`}>
+                      <option value="">— Partner / Client —</option>
+                      {(order.partner_name || order.studio_name) && <option value={`Partner:${order.partner_id || order.partner_name || order.studio_name}`}>Partner · {order.partner_name || order.studio_name}</option>}
+                      {clients.map((client, clientIndex) => <option key={client.id || clientIndex} value={`Client:${client.id}`}>Client · {client.client_name || `Client ${clientIndex + 1}`}</option>)}
+                    </select>
+                  </Field>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" onClick={() => addLocation(workType, 'Raw Data')} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:border-amber-400">+ Add Raw Data</button>
+          <button type="button" onClick={() => addLocation(workType, 'Final Data')} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:border-amber-400">+ Add Final Data</button>
+        </div>
+      </section>
+    );
+  };
+  const legacyRows = locations.map((location, index) => ({ location, index })).filter(({ location }) => !location.work_type);
+
+  return <Modal open onClose={onClose} title={`Storage Details — ${order.order_no}`} size="lg" dismissible={false}>
+    <div className="space-y-3">
+      <p className="text-xs text-slate-400">Edit where the order’s working and final files are saved. These details are stored with this order; status and billing stay unchanged.</p>
+      {renderStructuredRows('Album')}
+      {renderStructuredRows('Video')}
+      {legacyRows.length > 0 && <section className="rounded-xl border border-slate-700 p-3">
+        <h3 className="mb-2 text-sm font-semibold text-white">Previously saved locations</h3>
+        <p className="mb-2 text-xs text-slate-400">Older location entries are preserved as-is. Remove one only if it is no longer needed.</p>
+        <div className="space-y-2">{legacyRows.map(({ location, index }) => <div key={`${location.id || 'legacy'}-${index}`} className="rounded-lg bg-slate-950/50 p-2.5">
+          <div className="mb-2 flex items-center justify-between gap-3"><p className="text-xs font-medium text-slate-300">{location.work || 'Saved location'}</p><button type="button" onClick={() => setLocations((current) => current.filter((_, rowIndex) => rowIndex !== index))} className="rounded p-1 text-rose-400 hover:bg-rose-400/10" title="Remove old location" aria-label="Remove old location"><Trash2 className="h-4 w-4" /></button></div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Field label="PC / Device"><select value={location.device} onChange={(event) => updateLocation(index, { device: event.target.value })} className={`${selectClass} text-xs`}><option value="">— Device —</option>{STORAGE_DEVICES.map((device) => <option key={device} value={device}>{device}</option>)}</select></Field>
+            <Field label="Drive"><select value={location.drive} onChange={(event) => updateLocation(index, { drive: event.target.value })} className={`${selectClass} text-xs`}><option value="">— Drive —</option>{STORAGE_DRIVES.map((drive) => <option key={drive} value={drive}>{drive}</option>)}</select></Field>
+            <Field label="Work"><select value={location.work} onChange={(event) => updateLocation(index, { work: event.target.value })} className={`${selectClass} text-xs`}><option value="">— Work —</option>{STORAGE_WORK_TYPES.map((work) => <option key={work} value={work}>{work}</option>)}{location.work && !STORAGE_WORK_TYPES.includes(location.work as typeof STORAGE_WORK_TYPES[number]) && <option value={location.work}>{location.work}</option>}</select></Field>
+            <Field label="Client"><select value={location.client_name} onChange={(event) => updateLocation(index, { client_name: event.target.value })} className={`${selectClass} text-xs`}><option value="">— Client —</option>{clients.map((client, clientIndex) => <option key={client.id || clientIndex} value={client.client_name}>{client.client_name || `Client ${clientIndex + 1}`}</option>)}{location.client_name && !clients.some((client) => client.client_name === location.client_name) && <option value={location.client_name}>{location.client_name}</option>}</select></Field>
+          </div>
+          <p className="mt-2 break-words text-[11px] text-slate-500">{buildStoragePath(location, order.studio_name || order.project_name || '') || 'Location details not set'}</p>
+        </div>)}</div>
+      </section>}
+      <div className="flex justify-end gap-2 pt-1">
+        <button type="button" onClick={onClose} disabled={saving} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300">Cancel</button>
+        <button type="button" onClick={() => void save()} disabled={saving} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60">{saving ? 'Saving…' : 'Save Details'}</button>
+      </div>
+    </div>
+  </Modal>;
+}
+
 function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defaultPartnerName, defaultStudioName, onSaved }: {
   open: boolean;
   onClose: () => void;
@@ -2367,11 +2504,11 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                       <div className="flex flex-wrap items-center gap-2 sm:min-w-[540px] sm:flex-nowrap">
                         <div className="grid w-full grid-cols-2 gap-2 sm:contents">
                           <select value={r.video_type} onChange={(e) => { updateVideoRow(ci, vi, { video_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[150px] sm:flex-[1_1_170px] ${r.video_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                            <option value="">Select Type</option>
+                            <option value="" disabled hidden>Video Category</option>
                             {LAB_VIDEO_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                           </select>
                           <select value={r.quality} onChange={(e) => { updateVideoRow(ci, vi, { quality: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[120px] sm:flex-[1_1_135px] ${r.quality ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                            <option value="">Resolutions</option>
+                            <option value="" disabled hidden>Video Resolution</option>
                             {LAB_VIDEO_QUALITIES.map((q) => <option key={q} value={q}>{q}</option>)}
                           </select>
                         </div>
@@ -2435,7 +2572,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                         </div>}
                         {r.bag_only && <div className="mt-2 grid w-full grid-cols-2 items-end gap-2 sm:flex sm:w-auto sm:items-center">
                           <p className="col-span-2 w-full text-xs font-medium text-amber-600 dark:text-amber-400 sm:col-span-auto sm:w-auto">Bag</p>
-                          <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents"><span className="mb-1 block sm:hidden">Bag Size</span><input type="text" value={r.bag_size || ''} onChange={(e) => updateAlbumRow(ci, ai, { bag_size: e.target.value })} className={`${inputClass} w-full min-w-0 sm:!w-32 shrink-0`} placeholder="Size" /></label>
+                          <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents"><span className="mb-1 block sm:hidden">Bag Size</span><select value={r.bag_size || ''} onChange={(e) => updateAlbumRow(ci, ai, { bag_size: e.target.value })} className={`${selectClass} w-full min-w-0 sm:!w-32 shrink-0 ${r.bag_size ? '' : 'text-slate-400 dark:text-slate-500'}`} aria-label="Bag size"><option value="" disabled hidden>Bag Size</option>{r.bag_size && !LAB_ALBUM_SIZES.includes(r.bag_size as (typeof LAB_ALBUM_SIZES)[number]) && <option value={r.bag_size}>{r.bag_size}</option>}{LAB_ALBUM_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
                           <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents"><span className="mb-1 block sm:hidden">Bag Rate (₹)</span><input type="number" value={r.bag_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { bag_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-[110px] sm:!min-w-[110px] shrink-0`} placeholder="Rate" /></label>
                           <span className="col-span-2 flex items-center justify-between text-xs font-medium text-slate-700 dark:text-slate-300 sm:col-span-1 sm:block"><span className="sm:hidden">Amount</span><span>{formatINR(toNum(r.bag_total))}</span></span>
                           <button onClick={() => removeAlbumRow(ci, ai)} className="flex h-10 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-rose-500"><Trash2 className="h-4 w-4" /></button>
@@ -2451,7 +2588,8 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                               <span className="mb-1 block sm:hidden">Mini Album Rate (₹)</span>
                               <input type="number" value={r.mini_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { mini_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-[110px] sm:!min-w-[110px] shrink-0`} placeholder="Rate" />
                             </label>
-                            <span className="col-span-2 flex items-center justify-between text-xs font-medium text-slate-700 dark:text-slate-300 sm:col-span-1 sm:block"> <span className="sm:hidden">Amount</span><span>{formatINR(toNum(r.mini_total))}</span></span>
+                            <span className="col-span-1 flex items-center justify-between text-xs font-medium text-slate-700 dark:text-slate-300 sm:col-span-1 sm:block"> <span className="sm:hidden">Amount</span><span>{formatINR(toNum(r.mini_total))}</span></span>
+                            <button type="button" onClick={() => removeAlbumRow(ci, ai)} className="flex h-9 w-9 items-center justify-center justify-self-end rounded-lg border border-rose-500/20 text-rose-500 transition hover:bg-rose-500/10 sm:shrink-0" title="Remove mini album" aria-label="Remove mini album"><Trash2 className="h-4 w-4" /></button>
                           </div>
                         )}
                         {/* Paper sub-rows */}
@@ -2462,7 +2600,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                               {r.papers.map((p, pi) => (
                                 <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-500/5 p-2 sm:grid sm:grid-cols-[minmax(150px,2fr)_minmax(80px,.8fr)_minmax(90px,.9fr)_minmax(110px,1.1fr)_minmax(70px,.8fr)_36px] sm:rounded-none sm:bg-transparent sm:p-0">
                                   <select value={p.paper_type} onChange={(e) => { updatePaperRow(ci, ai, pi, { paper_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} w-full min-w-0 sm:w-auto ${p.paper_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                                    <option value="">Paper</option>
+                                    <option value="" disabled hidden>Paper</option>
                                     {LAB_ALBUM_PAPERS.map((pp) => <option key={pp} value={pp}>{pp}</option>)}
                                   </select>
                                   <div className="grid w-full grid-cols-2 items-end gap-2 sm:contents">
@@ -2476,7 +2614,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                                     </label>
                                     <label className="block min-w-0 text-[11px] font-medium text-slate-500 sm:contents">
                                       <span className="mb-1 block sm:hidden">Rate per Sheet (₹)</span>
-                                      <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-full sm:!min-w-[110px]`} placeholder="Rate/Sheet" />
+                                      <input type="number" value={p.rate || ''} onChange={(e) => updatePaperRow(ci, ai, pi, { rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} w-full min-w-0 sm:!w-full sm:!min-w-[110px]`} placeholder="Rate" />
                                     </label>
                                     <div className="col-span-2 flex items-center justify-between gap-2 sm:contents">
                                       <span className="flex min-w-[70px] flex-col items-end justify-center whitespace-nowrap text-sm font-medium text-slate-700 dark:text-slate-300 sm:min-w-0">
