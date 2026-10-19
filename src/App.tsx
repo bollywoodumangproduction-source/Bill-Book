@@ -171,6 +171,7 @@ function AppLaunchRoute() {
 function AdminApp() {
   const [page, setPage] = useState<PageKey>('dashboard');
   const [openLabOrderId, setOpenLabOrderId] = useState<string | null>(null);
+  const [openBookingId, setOpenBookingId] = useState<string | null>(null);
   const pageHistory = useRef<PageKey[]>([]);
   const currentPage = useRef<PageKey>('dashboard');
 
@@ -184,6 +185,11 @@ function AdminApp() {
   const openLabOrder = (orderId: string) => {
     setOpenLabOrderId(orderId);
     navigatePage('lab');
+  };
+
+  const openBooking = (bookingId: string) => {
+    setOpenBookingId(bookingId);
+    navigatePage('bookings');
   };
 
   const goBack = () => {
@@ -200,25 +206,31 @@ function AdminApp() {
         <DesktopPage
           page={page}
           onNavigate={navigatePage}
+          onOpenBooking={openBooking}
           openLabOrderId={openLabOrderId}
           onLabOrderOpened={() => setOpenLabOrderId(null)}
           onOpenLabOrder={openLabOrder}
+          openBookingId={openBookingId}
+          onBookingOpened={() => setOpenBookingId(null)}
         />
       </ErrorBoundary>
     </Layout>
   );
 }
 
-function DesktopPage({ page, onNavigate, openLabOrderId, onLabOrderOpened, onOpenLabOrder }: {
+function DesktopPage({ page, onNavigate, onOpenBooking, openLabOrderId, onLabOrderOpened, onOpenLabOrder, openBookingId, onBookingOpened }: {
   page: PageKey;
   onNavigate: (page: PageKey) => void;
+  onOpenBooking: (bookingId: string) => void;
   openLabOrderId: string | null;
   onLabOrderOpened: () => void;
   onOpenLabOrder: (orderId: string) => void;
+  openBookingId: string | null;
+  onBookingOpened: () => void;
 }) {
   if (page === 'lab') return <LabOrders openOrderId={openLabOrderId} onOrderOpened={onLabOrderOpened} />;
   if (page === 'rentals') return <EquipmentRentals />;
-  if (page === 'bookings') return <Bookings />;
+  if (page === 'bookings') return <Bookings openBookingId={openBookingId} onBookingOpened={onBookingOpened} />;
   if (page === 'dairy') return <DairyBook />;
   if (page === 'promo') return <PromoManagement />;
   if (page === 'music') return <MusicSelection />;
@@ -233,7 +245,7 @@ function DesktopPage({ page, onNavigate, openLabOrderId, onLabOrderOpened, onOpe
   return (
     <div className="mx-auto my-6 flex min-h-[85vh] w-full max-w-6xl flex-col overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/30 p-4 sm:p-6 lg:p-8">
       {page === 'settings' && <SettingsPage />}
-      {page === 'dashboard' && <Dashboard onNavigate={onNavigate} />}
+      {page === 'dashboard' && <Dashboard onNavigate={onNavigate} onOpenBooking={onOpenBooking} onOpenLabOrder={onOpenLabOrder} />}
     </div>
   );
 }

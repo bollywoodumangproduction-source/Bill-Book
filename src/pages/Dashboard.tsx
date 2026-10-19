@@ -22,18 +22,22 @@ import { bookingBillingSnapshot, labOrderBillingSnapshot } from '@/lib/billing';
 
 interface OutstandingDueItem {
   id: string;
+  targetId: string;
   name: string;
   reference: string;
   date: string;
   type: 'Booking' | 'Lab order';
+  lifecycle: 'Active' | 'Delivered' | 'Archived' | 'Recycle Bin';
   amount: number;
 }
 
 interface DashboardProps {
   onNavigate: (page: PageKey) => void;
+  onOpenBooking?: (bookingId: string) => void;
+  onOpenLabOrder?: (orderId: string) => void;
 }
 
-export function Dashboard({ onNavigate }: DashboardProps) {
+export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: DashboardProps) {
   const { refreshToken } = useRefresh();
   const [loading, setLoading] = useState(true);
   const [todaysBookings, setTodaysBookings] = useState<Booking[]>([]);
@@ -43,6 +47,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [bookingsError, setBookingsError] = useState('');
   const [totalDue, setTotalDue] = useState(0);
   const [outstandingDueItems, setOutstandingDueItems] = useState<OutstandingDueItem[]>([]);
+  const [showAllDues, setShowAllDues] = useState(false);
   const [showClientPortal, setShowClientPortal] = useState(false);
   const [showPartnerPortal, setShowPartnerPortal] = useState(false);
 
@@ -74,27 +79,32 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           !String(order.id ?? '').startsWith('demo-')
         ));
 
-        const bookingDues: OutstandingDueItem[] = activeBookings.flatMap((booking) => {
+        const bookingDues: OutstandingDueItem[] = allBookings.flatMap((booking) => {
+          if ((booking.booking_status ?? '').toUpperCase() === 'CANCELLED' || booking.isDemo || booking.is_demo || String(booking.booking_no ?? '').startsWith('DEMO-')) return [];
           const amount = Math.max(0, Number(booking.net_due ?? bookingBillingSnapshot(booking).balanceDue));
           return amount > 0 ? [{
             id: `booking-${booking.id}`,
+            targetId: booking.id,
             name: booking.client_name || 'Booking',
             reference: booking.booking_no || '',
             date: booking.shoot_date || '',
             type: 'Booking',
+            lifecycle: booking.deleted_at ? 'Recycle Bin' : booking.archived_at ? 'Archived' : booking.work_status === 'delivered' ? 'Delivered' : 'Active',
             amount,
           }] : [];
         });
         const labDues: OutstandingDueItem[] = allLabOrders.flatMap((order) => {
           const status = String(order.order_status ?? '').toLowerCase();
-          if (order.archived_at || order.deleted_at || order.isDemo || order.is_demo || status === 'cancelled' || status === 'canceled' || String(order.order_no ?? '').startsWith('DEMO-') || String(order.id ?? '').startsWith('demo-')) return [];
+          if (order.isDemo || order.is_demo || status === 'cancelled' || status === 'canceled' || String(order.order_no ?? '').startsWith('DEMO-') || String(order.id ?? '').startsWith('demo-')) return [];
           const amount = labOrderBillingSnapshot(order, order.advance_paid).balanceDue;
           return amount > 0 ? [{
             id: `lab-${order.id}`,
+            targetId: order.id,
             name: order.project_name || order.studio_name || 'Lab order',
             reference: order.order_no || '',
             date: order.created_at || '',
             type: 'Lab order',
+            lifecycle: order.deleted_at ? 'Recycle Bin' : order.archived_at ? 'Archived' : order.order_status === 'Delivered' ? 'Delivered' : 'Active',
             amount,
           }] : [];
         });
@@ -233,22 +243,22 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         </Card>
 
         {/* Total due summary */}
-        <Card title="Outstanding Dues" onMore={() => onNavigate('bookings')}>
+        <Card title="Outstanding Dues" onMore={() => setShowAllDues((current) => !current)} moreLabel={showAllDues ? 'Show less' : 'View all'}>
           <div className="space-y-2">
             {(bookingsError || labOrdersError) && <p role="status" className="rounded-lg border border-rose-500/20 bg-rose-500/5 p-2 text-xs text-rose-500 dark:text-rose-300">Some due records could not load: {[bookingsError, labOrdersError].filter(Boolean).join(' · ')}</p>}
             {outstandingDueItems.length === 0 ? (
               <p className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">No outstanding dues</p>
             ) : (
-              outstandingDueItems.slice(0, 5).map((item) => (
-                <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-white/5 dark:bg-white/5">
+              outstandingDueItems.slice(0, showAllDues ? undefined : 5).map((item) => (
+                <button type="button" key={item.id} onClick={() => item.type === 'Booking' ? (onOpenBooking ? onOpenBooking(item.targetId) : onNavigate('bookings')) : (onOpenLabOrder ? onOpenLabOrder(item.targetId) : onNavigate('lab'))} className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-left transition hover:border-amber-400/50 hover:bg-amber-50/50 dark:border-white/5 dark:bg-white/5 dark:hover:bg-white/[.08]">
                   <div>
                     <p className="text-sm font-medium text-slate-900 dark:text-white">{item.name}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{item.type} · {item.reference}{item.date ? ` · ${formatDate(item.date)}` : ''}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{item.type} · {item.reference}{item.date ? ` · ${formatDate(item.date)}` : ''} · {item.lifecycle}</p>
                   </div>
                   <span className="shrink-0 text-sm font-bold text-rose-500 dark:text-rose-400">
                     {formatINR(item.amount)}
                   </span>
-                </div>
+                </button>
               ))
             )}
           </div>
@@ -287,13 +297,13 @@ function SummaryCard({
   );
 }
 
-function Card({ title, children, onMore }: { title: string; children: React.ReactNode; onMore: () => void }) {
+function Card({ title, children, onMore, moreLabel = 'View all' }: { title: string; children: React.ReactNode; onMore: () => void; moreLabel?: string }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900/50">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-900 dark:text-white">{title}</h2>
         <button onClick={onMore} className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-500 dark:text-amber-400 dark:hover:text-amber-300">
-          View all <ArrowRight className="h-3 w-3" />
+          {moreLabel} {moreLabel === 'View all' && <ArrowRight className="h-3 w-3" />}
         </button>
       </div>
       {children}

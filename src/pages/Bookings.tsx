@@ -44,6 +44,7 @@ import type {
   StudioSettings,
   WorkStatus,
 } from '@/lib/types';
+import type { PageKey } from '@/lib/types';
 import { WORK_STATUSES, WORK_STATUS_LABELS } from '@/lib/types';
 import { formatINR, formatDate, formatDateTime, todayISO, formatPhone, defaultPinFromPhone } from '@/lib/format';
 import { calculateBookingBilling, bookingBillingSnapshot, bookingBaseSubtotal } from '@/lib/billing';
@@ -172,7 +173,7 @@ function computeVideoTotal(r: BookingVideoRow): number {
   return toNum(r.qty) * toNum(r.rate);
 }
 
-export function Bookings() {
+export function Bookings({ openBookingId, onBookingOpened, onNavigate }: { openBookingId?: string | null; onBookingOpened?: () => void; onNavigate?: (page: PageKey) => void } = {}) {
   const { toast } = useToast();
   const { settings } = useSettings();
   const { refreshToken } = useRefresh();
@@ -195,6 +196,19 @@ export function Bookings() {
   }, []);
 
   useEffect(() => { load(); }, [load, refreshToken]);
+
+  useEffect(() => {
+    if (!openBookingId || loading) return;
+    const booking = bookings.find((item) => item.id === openBookingId);
+    if (!booking) {
+      toast('Booking could not be found.', 'error');
+      onBookingOpened?.();
+      return;
+    }
+    setView(booking.deleted_at ? 'recycle' : booking.archived_at ? 'archived' : booking.work_status === 'delivered' ? 'delivered' : 'active');
+    setDetailBooking(booking);
+    onBookingOpened?.();
+  }, [openBookingId, loading, bookings, onBookingOpened, toast]);
 
   const filtered = bookings.filter((b) => {
     const q = search.toLowerCase();
@@ -708,6 +722,26 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
     if (isSubmitting || !paymentVerified) return;
     if (!clientName || !clientMobile) { toast('Name and mobile are required', 'error'); return; }
     setIsSubmitting(true);
+    const nextDeliverables: BookingDeliverables = {
+      ...deliverables,
+      album_rows: albumRows,
+      video_rows: videoRows,
+      custom_items: customItems,
+      payment_details: {
+        payment_mode: paymentMode,
+        payment_date: paymentDate,
+        custom_note: customPaymentNote,
+        paid_amount: paidAmount,
+        payment_history: paymentHistory,
+      } satisfies BookingPaymentDetails,
+    };
+    const deliveryItemsChanged = editing
+      ? JSON.stringify(formatDeliverablesList(editing.deliverables_data ?? DEFAULT_DELIVERABLES)) !== JSON.stringify(formatDeliverablesList(nextDeliverables))
+      : false;
+    if (deliveryItemsChanged) {
+      nextDeliverables.delivery_receipts = [];
+      delete nextDeliverables.final_delivered_at;
+    }
     const payload = sanitizePayload({
       id: editing?.id ?? uid(),
       booking_no: editing?.booking_no ?? nextBookingNo(existing),
@@ -730,24 +764,14 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       tax_amount: bookingBilling.taxAmount,
       discount: bookingBilling.discountAmount,
       advance_paid: paymentHistory.reduce((sum, payment) => sum + toNum(payment.paid_amount), 0),
-      deliverables_data: {
-        ...deliverables,
-        album_rows: albumRows,
-        video_rows: videoRows,
-        custom_items: customItems,
-        payment_details: {
-          payment_mode: paymentMode,
-          payment_date: paymentDate,
-          custom_note: customPaymentNote,
-          paid_amount: paidAmount,
-          payment_history: paymentHistory,
-        } satisfies BookingPaymentDetails,
-      },
+      deliverables_data: nextDeliverables,
       base_amount: toNum(baseAmount),
       is_login_allowed: editing?.is_login_allowed ?? false,
       access_pin: editing?.access_pin ?? '',
       pin_changed: editing?.pin_changed ?? false,
-      work_status: editing?.work_status ?? 'pending',
+      work_status: deliveryItemsChanged && (editing?.work_status === 'album_design_ready' || editing?.work_status === 'delivered')
+        ? 'editing_in_progress'
+        : editing?.work_status ?? 'pending',
     });
     const newAdvance = paymentHistory.reduce((sum, payment) => sum + toNum(payment.paid_amount), 0);
     const oldAdvance = editing ? toNum(editing.advance_paid) : 0;
@@ -1559,6 +1583,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
   const [isBillPreviewOpen, setIsBillPreviewOpen] = useState(false);
   const [isDualPrintOpen, setIsDualPrintOpen] = useState(false);
   const [showInvoiceStamp, setShowInvoiceStamp] = useState(true);
+  const [savingDeliveryItem, setSavingDeliveryItem] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -1676,30 +1701,35 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
   };
 
   const markDeliveryItemReceived = async (item: string, index: number) => {
+    if (savingDeliveryItem) return;
     const deliveryState = bookingDeliveryState(booking);
     const itemKey = deliveryItemKey(deliveryState.items, index);
+    if (!deliveryState.items[index] || deliveryState.items[index] !== item) return;
     if (deliveryState.receipts.some((receipt) => receipt.item_key === itemKey)) return;
-    const receivedAt = new Date().toISOString();
-    const receipts = [...deliveryState.receipts, { item_key: itemKey, item, received_at: receivedAt }];
-    const receivedKeys = new Set(receipts.map((receipt) => receipt.item_key));
-    const isFinalDelivery = deliveryState.items.length > 0 && deliveryState.items.every((_deliveryItem, i) => receivedKeys.has(deliveryItemKey(deliveryState.items, i)));
-    const nextDeliverables: BookingDeliverables = {
-      ...safeDeliverables,
-      delivery_receipts: receipts,
-      ...(isFinalDelivery ? { final_delivered_at: receivedAt } : {}),
-    };
+    setSavingDeliveryItem(true);
     try {
-      const changes = isFinalDelivery
-        ? { deliverables_data: nextDeliverables, work_status: 'delivered' as WorkStatus }
-        : { deliverables_data: nextDeliverables };
-      const { data, error } = await supabase.from('bookings').update(changes).eq('id', booking.id).select('*').single();
+      const { data, error } = await supabase.rpc('mark_booking_delivery_received', {
+        p_booking_id: booking.id,
+        p_item_key: itemKey,
+        p_item: item,
+        p_all_item_keys: deliveryState.items.map((_, itemIndex) => deliveryItemKey(deliveryState.items, itemIndex)),
+        p_expected_deliverables: safeDeliverables,
+      });
       if (error) throw error;
-      onUpdated(data as Booking);
-      await logDeliveryNotification(booking.id, item, isFinalDelivery);
+      const result = data as { booking?: Booking; duplicate?: boolean; is_final_delivery?: boolean } | null;
+      if (!result?.booking) throw new Error('The delivery receipt was not returned. Refresh the booking and check its delivery status before retrying.');
+      onUpdated(result.booking);
+      if (result.duplicate) {
+        toast('This item was already marked received; the latest delivery status was refreshed.', 'success');
+        return;
+      }
+      await logDeliveryNotification(booking.id, item, Boolean(result.is_final_delivery));
       triggerRefresh();
-      toast(isFinalDelivery ? 'All deliverables marked as delivered' : 'Delivery item marked as received', 'success');
+      toast(result.is_final_delivery ? 'All deliverables marked as received' : 'Delivery item marked as received', 'success');
     } catch (error) {
-      toast(error instanceof Error ? error.message : 'Could not update delivery status', 'error');
+      toast(error instanceof Error ? error.message : 'Could not update delivery status. Refresh the booking and check before retrying.', 'error');
+    } finally {
+      setSavingDeliveryItem(false);
     }
   };
 
@@ -1847,8 +1877,8 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
                   {receipt ? (
                     <Badge color="emerald">Received · {formatDate(receipt.received_at)}</Badge>
                   ) : (
-                    <button onClick={() => markDeliveryItemReceived(item, index)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-emerald-500 hover:text-emerald-600 dark:border-white/10 dark:text-slate-300 dark:hover:text-emerald-400">
-                      Mark Received
+                    <button disabled={savingDeliveryItem} onClick={() => markDeliveryItemReceived(item, index)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-emerald-500 hover:text-emerald-600 disabled:cursor-wait disabled:opacity-60 dark:border-white/10 dark:text-slate-300 dark:hover:text-emerald-400">
+                      {savingDeliveryItem ? 'Saving…' : 'Mark Received'}
                     </button>
                   )}
                 </div>
@@ -1896,7 +1926,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
                 key={ws}
                 onClick={async () => {
                   const deliveryState = bookingDeliveryState(booking);
-                  if (ws === 'delivered' && deliveryState.items.length > 0 && !deliveryState.isComplete) {
+                  if (ws === 'delivered' && (deliveryState.items.length === 0 || !deliveryState.isComplete)) {
                     toast('Mark every deliverable as received before setting the booking to Delivered', 'error');
                     return;
                   }
