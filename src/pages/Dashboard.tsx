@@ -188,8 +188,8 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <SummaryCard icon={CalendarCheck} label="Today's Shoots" value={String(todaysBookings.length)} color="amber" />
         <SummaryCard icon={CalendarClock} label="Upcoming" value={String(upcomingBookings.length)} color="sky" />
-        <SummaryCard icon={CalendarDays} label="Active Bookings" value={String(activeWorkBookings.length)} color="emerald" />
-        <SummaryCard icon={Clapperboard} label="Active Lab Orders" value={String(activeLabOrders.length)} color="violet" />
+        <SummaryCard icon={CalendarDays} label="Active Booking Work" value={String(activeWorkBookings.length)} color="emerald" />
+        <SummaryCard icon={Clapperboard} label="Active Lab Work" value={String(activeLabOrders.length)} color="violet" />
         <SummaryCard icon={TrendingDown} label="Total Due" value={formatINR(totalDue)} color="rose" />
       </div>
 
@@ -233,7 +233,7 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
         </Card>
 
         {/* Active bookings */}
-        <Card title="Active Bookings" onMore={() => onNavigate('bookings')}>
+        <Card title="Active Booking Work" onMore={() => onNavigate('bookings')}>
           {bookingsError ? (
             <p className="py-8 text-center text-sm text-rose-400">Could not load bookings: {bookingsError}</p>
           ) : activeWorkBookings.length === 0 ? (
@@ -254,7 +254,7 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
         </Card>
 
         {/* Active lab orders */}
-        <Card title="Active Lab Orders" onMore={() => onNavigate('lab')}>
+        <Card title="Active Lab Work" onMore={() => onNavigate('lab')}>
           {labOrdersError ? (
             <p className="py-8 text-center text-sm text-rose-400">Could not load lab orders: {labOrdersError}</p>
           ) : activeLabOrders.length === 0 ? (
