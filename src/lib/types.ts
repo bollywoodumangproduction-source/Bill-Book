@@ -191,17 +191,23 @@ export interface Booking {
   deleted_at?: string | null;
 }
 
-export type WorkStatus = 'pending' | 'shoot_completed' | 'editing_in_progress' | 'album_design_ready' | 'delivered';
+export type WorkStatus = 'pending' | 'shoot_completed' | 'editing_in_progress' | 'album_design_ready' | 'ready_for_delivery' | 'delivered';
 
-export const WORK_STATUSES: WorkStatus[] = ['pending', 'shoot_completed', 'editing_in_progress', 'album_design_ready', 'delivered'];
+export const WORK_STATUSES: WorkStatus[] = ['pending', 'shoot_completed', 'editing_in_progress', 'album_design_ready', 'ready_for_delivery', 'delivered'];
 
 export const WORK_STATUS_LABELS: Record<WorkStatus, string> = {
   pending: 'Pending',
   shoot_completed: 'Shoot Completed',
   editing_in_progress: 'Editing in Progress',
   album_design_ready: 'Album Design Ready for Review',
+  ready_for_delivery: 'Ready for Delivery',
   delivered: 'Delivered',
 };
+
+export function getWorkStatusLabel(status: string | null | undefined): string {
+  if (!status) return WORK_STATUS_LABELS.pending;
+  return WORK_STATUS_LABELS[status as WorkStatus] ?? status.replace(/_/g, ' ').replace(/\b\w/g, (letter: string) => letter.toUpperCase());
+}
 
 export type NotificationType = 'payment' | 'work_status' | 'delivery' | 'reminder';
 

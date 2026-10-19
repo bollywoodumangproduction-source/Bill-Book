@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { Booking, StudioLabOrder, TeaserProject, InvitationProject, MusicProject, ClientSelectionSession, BookingPaymentInstallment } from '@/lib/types';
-import { photoSessionFromDatabase } from '@/lib/types';
+import { getWorkStatusLabel, photoSessionFromDatabase } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { formatINR, formatDate, formatDateTime, formatPhone } from '@/lib/format';
@@ -291,7 +291,7 @@ export function ClientDashboard() {
                   {booking.booking_status}
                 </Badge>
                 <Badge color={booking.work_status === 'delivered' ? 'emerald' : booking.work_status === 'pending' ? 'slate' : 'amber'}>
-                  Work: {booking.work_status || 'pending'}
+                  Work: {getWorkStatusLabel(booking.work_status)}
                 </Badge>
               </div>
             </div>

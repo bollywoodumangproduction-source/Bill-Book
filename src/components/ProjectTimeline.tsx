@@ -21,12 +21,13 @@ const TYPE_CONFIG: Record<NotificationType, { icon: typeof Wallet; color: string
   reminder: { icon: Clock, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-500/10', ring: 'ring-rose-500/20' },
 };
 
-const WORK_STATUS_ORDER: WorkStatus[] = ['pending', 'shoot_completed', 'editing_in_progress', 'album_design_ready', 'delivered'];
+const WORK_STATUS_ORDER: WorkStatus[] = ['pending', 'shoot_completed', 'editing_in_progress', 'album_design_ready', 'ready_for_delivery', 'delivered'];
 const WORK_STATUS_ICONS: Record<WorkStatus, typeof Camera> = {
   pending: Clock,
   shoot_completed: Camera,
   editing_in_progress: Sparkles,
   album_design_ready: CheckCircle2,
+  ready_for_delivery: Package,
   delivered: CheckCircle2,
 };
 

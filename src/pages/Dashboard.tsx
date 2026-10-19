@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   CalendarCheck,
   CalendarClock,
+  CalendarDays,
   Clapperboard,
   Wallet,
   TrendingDown,
@@ -12,6 +13,7 @@ import {
   Camera,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { getWorkStatusLabel } from '@/lib/types';
 import type { Booking, StudioLabOrder } from '@/lib/types';
 import { formatINR, formatDate, todayISO, isToday, isUpcoming } from '@/lib/format';
 import { Badge } from '@/components/ui/Badge';
@@ -42,6 +44,7 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
   const [loading, setLoading] = useState(true);
   const [todaysBookings, setTodaysBookings] = useState<Booking[]>([]);
   const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([]);
+  const [activeWorkBookings, setActiveWorkBookings] = useState<Booking[]>([]);
   const [activeLabOrders, setActiveLabOrders] = useState<StudioLabOrder[]>([]);
   const [labOrdersError, setLabOrdersError] = useState('');
   const [bookingsError, setBookingsError] = useState('');
@@ -68,6 +71,12 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
         const activeBookings = allBookings.filter((b) => !b.archived_at && !b.deleted_at && (b.booking_status ?? '').toUpperCase() !== 'CANCELLED');
         setTodaysBookings(activeBookings.filter((b) => isToday(b.shoot_date)));
         setUpcomingBookings(activeBookings.filter((b) => isUpcoming(b.shoot_date)).slice(0, 5));
+        setActiveWorkBookings(activeBookings.filter((b) =>
+          b.work_status !== 'delivered' &&
+          !b.isDemo && !b.is_demo &&
+          !String(b.booking_no ?? '').startsWith('DEMO-') &&
+          !String(b.id ?? '').startsWith('demo-')
+        ));
         const allLabOrders = Array.isArray(lab) ? lab as StudioLabOrder[] : [];
         setActiveLabOrders(allLabOrders.filter((order) =>
           order.order_status !== 'Delivered' &&
@@ -116,6 +125,7 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
         if (mounted) {
           setTodaysBookings([]);
           setUpcomingBookings([]);
+          setActiveWorkBookings([]);
           setActiveLabOrders([]);
           setLabOrdersError(error instanceof Error ? error.message : 'Could not load lab orders.');
           setBookingsError(error instanceof Error ? error.message : 'Could not load bookings.');
@@ -175,9 +185,10 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <SummaryCard icon={CalendarCheck} label="Today's Shoots" value={String(todaysBookings.length)} color="amber" />
         <SummaryCard icon={CalendarClock} label="Upcoming" value={String(upcomingBookings.length)} color="sky" />
+        <SummaryCard icon={CalendarDays} label="Active Bookings" value={String(activeWorkBookings.length)} color="emerald" />
         <SummaryCard icon={Clapperboard} label="Active Lab Orders" value={String(activeLabOrders.length)} color="violet" />
         <SummaryCard icon={TrendingDown} label="Total Due" value={formatINR(totalDue)} color="rose" />
       </div>
@@ -216,6 +227,27 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
                   </div>
                   <Badge color="sky">{formatINR(Number(b.net_due ?? 0))}</Badge>
                 </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {/* Active bookings */}
+        <Card title="Active Bookings" onMore={() => onNavigate('bookings')}>
+          {bookingsError ? (
+            <p className="py-8 text-center text-sm text-rose-400">Could not load bookings: {bookingsError}</p>
+          ) : activeWorkBookings.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">No active bookings</p>
+          ) : (
+            <div className="space-y-2">
+              {activeWorkBookings.slice(0, 5).map((booking) => (
+                <button type="button" key={booking.id} onClick={() => onOpenBooking ? onOpenBooking(booking.id) : onNavigate('bookings')} className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-left transition hover:border-amber-400/50 hover:bg-amber-50/50 dark:border-white/5 dark:bg-white/5 dark:hover:bg-white/[.08]">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-slate-900 dark:text-white">{booking.client_name || 'Booking'}</p>
+                    <p className="truncate text-xs text-slate-500 dark:text-slate-400">{booking.booking_no} · {booking.event_function || 'Wedding'} · {formatDate(booking.shoot_date)}</p>
+                  </div>
+                  <Badge color={booking.work_status === 'pending' ? 'slate' : booking.work_status === 'ready_for_delivery' ? 'emerald' : 'amber'}>{getWorkStatusLabel(booking.work_status)}</Badge>
+                </button>
               ))}
             </div>
           )}
@@ -280,11 +312,12 @@ function SummaryCard({
   icon: typeof Home;
   label: string;
   value: string;
-  color: 'amber' | 'sky' | 'violet' | 'rose';
+  color: 'amber' | 'sky' | 'emerald' | 'violet' | 'rose';
 }) {
   const colors = {
     amber: 'from-amber-500/10 to-amber-500/5 text-amber-600 border-amber-500/10 dark:text-amber-400',
     sky: 'from-sky-500/10 to-sky-500/5 text-sky-600 border-sky-500/10 dark:text-sky-400',
+    emerald: 'from-emerald-500/10 to-emerald-500/5 text-emerald-600 border-emerald-500/10 dark:text-emerald-400',
     violet: 'from-violet-500/10 to-violet-500/5 text-violet-600 border-violet-500/10 dark:text-violet-400',
     rose: 'from-rose-500/10 to-rose-500/5 text-rose-600 border-rose-500/10 dark:text-rose-400',
   };

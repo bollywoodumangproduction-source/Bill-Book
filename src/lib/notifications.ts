@@ -49,6 +49,7 @@ export async function logWorkStatusNotification(
     shoot_completed: 'Shoot Completed — your event has been successfully photographed.',
     editing_in_progress: 'Editing in Progress — your photos and videos are being edited.',
     album_design_ready: 'Album Design Ready for Review — please check your album design.',
+    ready_for_delivery: 'Your booked deliverables are ready for handover.',
     delivered: 'Delivered — all deliverables are ready for pickup.',
   };
   const titles: Record<WorkStatus, string> = {
@@ -56,6 +57,7 @@ export async function logWorkStatusNotification(
     shoot_completed: 'Shoot Completed',
     editing_in_progress: 'Editing in Progress',
     album_design_ready: 'Album Design Ready',
+    ready_for_delivery: 'Ready for Delivery',
     delivered: 'Delivered',
   };
   await logNotification(bookingId, 'work_status', titles[newStatus], labels[newStatus]);

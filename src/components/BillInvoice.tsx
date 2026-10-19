@@ -1,4 +1,5 @@
 import { formatINR, formatDate, formatDateTime, formatPhone } from '@/lib/format';
+import { getWorkStatusLabel } from '@/lib/types';
 import type { Booking, StudioSettings, BookingDeliverables } from '@/lib/types';
 import { bookingBillingSnapshot } from '@/lib/billing';
 
@@ -27,6 +28,12 @@ function nextDate(date: string): string {
 function bookingNumber(value: number | string | undefined): number {
   const numberValue = Number(value ?? 0);
   return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function deliveryItemKey(items: string[], index: number): string {
+  const item = items[index];
+  const occurrence = items.slice(0, index + 1).filter((entry) => entry === item).length;
+  return `${item}#${occurrence}`;
 }
 
 export function formatDeliverablesList(d: BookingDeliverables): string[] {
@@ -112,7 +119,7 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
         <div className="text-right">
           {booking.venue && <p><strong>Venue:</strong> {booking.venue}</p>}
           <p><strong>Status:</strong> {booking.booking_status}</p>
-          <p><strong>Work Status:</strong> {booking.work_status || 'pending'}</p>
+          <p><strong>Work Status:</strong> {getWorkStatusLabel(booking.work_status)}</p>
         </div>
       </div>
 
@@ -173,9 +180,10 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
             <div className="flex-1">
               <p className="mb-0.5 text-xs font-bold">Delivery Data:</p>
               <div className="grid grid-cols-2 gap-0.5 text-xs">
-                {delivList.map((d, i) => (
-                  <p key={i}>{d}</p>
-                ))}
+                {delivList.map((d, i) => {
+                  const receipt = booking.deliverables_data?.delivery_receipts?.find((entry) => entry.item_key === deliveryItemKey(delivList, i));
+                  return <p key={deliveryItemKey(delivList, i)}>{d} — {receipt ? `Received · ${formatDate(receipt.received_at)}` : 'Pending'}</p>;
+                })}
               </div>
             </div>
           )}
@@ -204,9 +212,10 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
             <div className="mb-4">
               <p className="mb-1 text-sm font-bold">Delivery Data:</p>
               <div className="grid grid-cols-2 gap-1 text-xs">
-                {delivList.map((d, i) => (
-                  <p key={i}>{d}</p>
-                ))}
+                {delivList.map((d, i) => {
+                  const receipt = booking.deliverables_data?.delivery_receipts?.find((entry) => entry.item_key === deliveryItemKey(delivList, i));
+                  return <p key={deliveryItemKey(delivList, i)}>{d} — {receipt ? `Received · ${formatDate(receipt.received_at)}` : 'Pending'}</p>;
+                })}
               </div>
             </div>
           )}
