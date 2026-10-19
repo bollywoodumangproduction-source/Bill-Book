@@ -2410,17 +2410,17 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                           <div className="flex flex-wrap items-center gap-2 sm:min-w-[620px] sm:flex-nowrap">
                             <div className="grid w-full grid-cols-2 gap-2 sm:contents">
                             <select value={r.album_type} onChange={(e) => { updateAlbumRow(ci, ai, { album_type: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[145px] sm:flex-[1_1_165px] ${r.album_type ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                              <option value="">Select Type</option>
+                              <option value="" disabled hidden>Album Category</option>
                               {LAB_ALBUM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                             </select>
                             <select value={r.size} onChange={(e) => { updateAlbumRow(ci, ai, { size: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[115px] sm:flex-[1_1_125px] ${r.size ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                              <option value="">Size</option>
+                              <option value="" disabled hidden>Album Size</option>
                               {LAB_ALBUM_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
                             </select>
                             </div>
                             <div className="grid w-full grid-cols-[minmax(0,1fr)_88px] gap-2 sm:contents">
                               <select value={r.packaging} onChange={(e) => { updateAlbumRow(ci, ai, { packaging: e.target.value }); e.currentTarget.blur(); }} className={`${selectClass} min-w-0 sm:min-w-[130px] sm:flex-[1_1_140px] ${r.packaging ? '' : 'text-slate-400 dark:text-slate-500'}`}>
-                                <option value="">Packaging</option>
+                                <option value="" disabled hidden>Cover / Packaging</option>
                                 {LAB_ALBUM_COVERS.map((c) => <option key={c} value={c}>{c}</option>)}
                               </select>
                               <input type="number" value={r.packaging_rate || ''} onChange={(e) => updateAlbumRow(ci, ai, { packaging_rate: Number(e.target.value) })} onFocus={(e) => { if (Number(e.target.value) === 0) e.target.value = ''; }} className={`${inputClass} !w-[88px] !min-w-0 shrink-0 sm:!w-[110px] sm:!min-w-[110px]`} placeholder="Rate" />
@@ -2456,7 +2456,7 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
                         )}
                         {/* Paper sub-rows */}
                         {!r.mini_only && !r.bag_only && <>
-                        <div className="mt-2 space-y-2 border-l-2 border-amber-200 pl-3 dark:border-amber-500/20">
+                        <div className="mt-2 space-y-2 border-t border-slate-200 pt-2 dark:border-white/10">
                           <div className="w-full min-w-0 max-w-full pb-1 sm:overflow-x-auto">
                             <div className="space-y-1.5 sm:min-w-[560px]">
                               {r.papers.map((p, pi) => (
@@ -2524,10 +2524,10 @@ function LabOrderForm({ open, onClose, editing, existing, defaultPartnerId, defa
             {extraItems.map((item, index) => <div key={item.id} className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 p-2 dark:border-white/10 sm:grid-cols-6">
               <select value={item.client_id ?? (clients.filter((client) => client.client_name === item.client_name).length === 1 ? clients.find((client) => client.client_name === item.client_name)?.id : '')} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => { if (rowIndex !== index) return row; const selectedClient = clients.find((client) => client.id === event.target.value); return { ...row, client_id: selectedClient?.id, client_name: selectedClient?.client_name ?? '' }; }))} className={`${selectClass} text-xs`}><option value="">All / Order-level</option>{clients.map((client, clientIndex) => <option key={`${client.id}-${clientIndex}`} value={client.id}>{client.client_name || `Client ${clientIndex + 1}`}</option>)}</select>
               <input value={item.description} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => rowIndex === index ? { ...row, description: event.target.value } : row))} className={`${inputClass} text-xs`} placeholder="Charge / service description" />
-              <input type="number" min="0" value={item.quantity} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: Number(event.target.value), line_amount: Number(event.target.value) * row.unit_rate } : row))} className={`${inputClass} text-xs`} placeholder="Qty" />
-              <input type="number" min="0" value={item.unit_rate} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => rowIndex === index ? { ...row, unit_rate: Number(event.target.value), line_amount: row.quantity * Number(event.target.value) } : row))} className={`${inputClass} text-xs`} placeholder="Unit rate ₹" />
+              <input type="number" min="0" value={item.quantity} onFocus={(event) => event.currentTarget.select()} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: Number(event.target.value), line_amount: Number(event.target.value) * row.unit_rate } : row))} className={`${inputClass} text-xs`} placeholder="Qty" />
+              <input type="number" min="0" value={item.unit_rate} onFocus={(event) => event.currentTarget.select()} onChange={(event) => setExtraItems((items) => items.map((row, rowIndex) => rowIndex === index ? { ...row, unit_rate: Number(event.target.value), line_amount: row.quantity * Number(event.target.value) } : row))} className={`${inputClass} text-xs`} placeholder="Unit rate ₹" />
               <div className="flex items-center rounded-lg border border-slate-200 px-2 text-xs font-semibold dark:border-white/10">{formatINR(item.line_amount)}</div>
-              <button type="button" onClick={() => setExtraItems((items) => items.filter((_, rowIndex) => rowIndex !== index))} className="rounded-lg border border-rose-500/20 px-2 text-xs text-rose-500">Remove</button>
+              <button type="button" onClick={() => setExtraItems((items) => items.filter((_, rowIndex) => rowIndex !== index))} className="flex h-8 w-8 items-center justify-center justify-self-end rounded-lg border border-rose-500/20 text-rose-500 transition hover:bg-rose-500/10" title="Remove charge" aria-label="Remove charge"><Trash2 className="h-4 w-4" /></button>
             </div>)}
           </div>}
         </div>
