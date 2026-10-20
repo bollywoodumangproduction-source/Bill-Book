@@ -518,9 +518,8 @@ function CueCard({ cue, locked, onRemove }: { cue: MusicCue; locked: boolean; on
     <div className="flex min-w-0 items-center gap-1 pr-5">
       <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-amber-500/10 text-amber-600 dark:text-amber-400"><Music2 className="h-2.5 w-2.5" /></div>
       <p title={cue.track_title} className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-4 text-slate-900 dark:text-white">{cue.track_title || 'Untitled song'}</p>
-      <Badge color={PRIORITY_COLORS[cue.priority]}>{cue.priority.replace('_', ' ')}</Badge>
     </div>
-    <p className="truncate text-[10px] leading-4 text-slate-500 dark:text-slate-400">{cue.category}{cue.start_time ? ` · ${cue.start_time}` : ''}</p>
+    <p className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-4 text-slate-500 dark:text-slate-400">{cue.category}{cue.start_time ? ` · ${cue.start_time}` : ''}<span className="shrink-0"><Badge color={PRIORITY_COLORS[cue.priority]}>{cue.priority.replace('_', ' ')}</Badge></span></p>
     {cue.usage_notes && <p title={cue.usage_notes} className="truncate text-[10px] leading-4 text-slate-700 dark:text-slate-300">{cue.usage_notes}</p>}
     {cue.track_url && media && <><a href={media.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-full items-center gap-1 truncate text-[10px] leading-4 text-sky-600 hover:text-sky-500 dark:text-sky-400"><ExternalLink className="h-2.5 w-2.5 shrink-0" /> Open link</a><UniversalMediaPreview url={cue.track_url} kind="audio" className="mt-1 w-full max-w-[120px]" mediaClassName={media.render === 'iframe' ? 'aspect-video w-full rounded-md border border-white/10 bg-black' : 'w-full'} /></>}
     {cue.track_url && !media && <p className="truncate text-[10px] leading-4 text-rose-300">Invalid link — edit song</p>}
