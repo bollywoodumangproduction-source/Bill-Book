@@ -696,6 +696,20 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
         </select>
         {booking.work_status === 'ready_for_delivery' && <p className="mt-1 text-[11px] text-emerald-400">Ready for client handover. Mark all items received before setting Delivered.</p>}
       </div>
+      {booking.venue ? (
+        <a
+          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(booking.venue)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-900 transition-colors hover:bg-amber-400"
+        >
+          <MapPin className="h-4 w-4" /> Open Location
+        </a>
+      ) : (
+        <button type="button" disabled title="Add a venue to this booking first" className="mt-3 flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-500">
+          <MapPin className="h-4 w-4" /> Open Location
+        </button>
+      )}
     </div>
   );
 
