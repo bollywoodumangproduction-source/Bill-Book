@@ -47,7 +47,7 @@ import type {
   WorkStatus,
 } from '@/lib/types';
 import type { PageKey } from '@/lib/types';
-import { getWorkStatusLabel, WORK_STATUSES, WORK_STATUS_LABELS } from '@/lib/types';
+import { getBookingDataReadyStatuses, getWorkStatusLabel, WORK_STATUS_LABELS } from '@/lib/types';
 import { formatINR, formatDate, formatDateTime, todayISO, formatPhone, defaultPinFromPhone } from '@/lib/format';
 import { calculateBookingBilling, bookingBillingSnapshot, bookingBaseSubtotal } from '@/lib/billing';
 import { logDeliveryNotification, logPaymentNotification, logWorkStatusNotification } from '@/lib/notifications';
@@ -91,6 +91,8 @@ const DEFAULT_DELIVERABLES: BookingDeliverables = {
   raw_all_photos: false,
   raw_edited_photos: false,
 };
+
+const WORK_STATUS_BUTTONS: WorkStatus[] = ['pending', 'processing', 'shoot_completed', 'editing_in_progress', 'ready_for_delivery', 'delivered'];
 
 const toNum = (v: string | number | undefined) => { const n = Number(v); return isNaN(n) ? 0 : n; };
 
@@ -822,7 +824,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       is_login_allowed: editing?.is_login_allowed ?? false,
       access_pin: editing?.access_pin ?? '',
       pin_changed: editing?.pin_changed ?? false,
-      work_status: deliveryItemsChanged && (editing?.work_status === 'album_design_ready' || editing?.work_status === 'ready_for_delivery' || editing?.work_status === 'delivered')
+      work_status: deliveryItemsChanged && (editing?.work_status === 'album_design_ready' || editing?.work_status === 'video_complete' || editing?.work_status === 'both_data_ready' || editing?.work_status === 'ready_for_delivery' || editing?.work_status === 'delivered')
         ? 'editing_in_progress'
         : editing?.work_status ?? 'pending',
     });
@@ -1617,6 +1619,7 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
   const safeDeliverables = booking.deliverables_data ?? DEFAULT_DELIVERABLES;
   const netDue = bookingDue(booking);
   const delivList = formatDeliverablesList(safeDeliverables);
+  const dataReadyStatuses = getBookingDataReadyStatuses(booking);
   const [loginAllowed, setLoginAllowed] = useState(booking.is_login_allowed ?? false);
   const [editingPin, setEditingPin] = useState(false);
   const [editPinValue, setEditPinValue] = useState('');
@@ -1842,6 +1845,28 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
     toast(ok ? 'Bill summary copied to clipboard' : 'Failed to copy bill summary', ok ? 'success' : 'error');
   };
 
+  const updateWorkStatus = async (nextStatus: WorkStatus) => {
+    const deliveryState = bookingDeliveryState(booking);
+    if (nextStatus === 'delivered' && booking.work_status !== 'ready_for_delivery') {
+      toast('Set the booking to Ready for Delivery first', 'error');
+      return;
+    }
+    if (nextStatus === 'delivered' && (deliveryState.items.length === 0 || !deliveryState.isComplete)) {
+      toast('Mark every deliverable as received before setting the booking to Delivered', 'error');
+      return;
+    }
+    try {
+      const { data, error } = await supabase.from('bookings').update({ work_status: nextStatus }).eq('id', booking.id).select('*').single();
+      if (error) throw error;
+      onUpdated(data as Booking);
+      await logWorkStatusNotification(booking.id, nextStatus);
+      triggerRefresh();
+      toast(`Work status updated to "${WORK_STATUS_LABELS[nextStatus]}"`, 'success');
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Could not update work status', 'error');
+    }
+  };
+
   const modalBody = (
     <div className="space-y-4">
       {/* Client info */}
@@ -2004,31 +2029,32 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Work Status:</span>
-            {WORK_STATUSES.map((ws) => (
+            {WORK_STATUS_BUTTONS.slice(0, 4).map((ws) => (
               <button
                 key={ws}
-                onClick={async () => {
-                  const deliveryState = bookingDeliveryState(booking);
-                  if (ws === 'delivered' && booking.work_status !== 'ready_for_delivery') {
-                    toast('Set the booking to Ready for Delivery first', 'error');
-                    return;
-                  }
-                  if (ws === 'delivered' && (deliveryState.items.length === 0 || !deliveryState.isComplete)) {
-                    toast('Mark every deliverable as received before setting the booking to Delivered', 'error');
-                    return;
-                  }
-                  try {
-                    const { data, error } = await supabase.from('bookings').update({ work_status: ws }).eq('id', booking.id).select('*').single();
-                    if (error) throw error;
-                    const updated = data as Booking;
-                    onUpdated(updated);
-                    await logWorkStatusNotification(booking.id, ws);
-                    triggerRefresh();
-                    toast(`Work status updated to "${WORK_STATUS_LABELS[ws]}"`, 'success');
-                  } catch (error) {
-                    toast(error instanceof Error ? error.message : 'Could not update work status', 'error');
-                  }
-                }}
+                onClick={() => void updateWorkStatus(ws)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  (booking.work_status ?? 'pending') === ws
+                    ? 'bg-amber-500 text-slate-900'
+                    : 'border border-slate-200 text-slate-600 hover:bg-amber-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5'
+                }`}
+              >
+                {WORK_STATUS_LABELS[ws]}
+              </button>
+            ))}
+            {dataReadyStatuses.length > 0 && <select
+              aria-label="Album and video readiness"
+              value={dataReadyStatuses.includes(booking.work_status) ? booking.work_status : ''}
+              onChange={(event) => { if (event.target.value) void updateWorkStatus(event.target.value as WorkStatus); }}
+              className={`${selectClass} h-[34px] w-52 py-1 text-xs`}
+            >
+              <option value="">Album / Video Ready</option>
+              {dataReadyStatuses.map((status) => <option key={status} value={status}>{WORK_STATUS_LABELS[status]}</option>)}
+            </select>}
+            {WORK_STATUS_BUTTONS.slice(4).map((ws) => (
+              <button
+                key={ws}
+                onClick={() => void updateWorkStatus(ws)}
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                   (booking.work_status ?? 'pending') === ws
                     ? 'bg-amber-500 text-slate-900'

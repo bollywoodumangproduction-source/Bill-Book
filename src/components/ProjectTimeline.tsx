@@ -21,12 +21,15 @@ const TYPE_CONFIG: Record<NotificationType, { icon: typeof Wallet; color: string
   reminder: { icon: Clock, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-500/10', ring: 'ring-rose-500/20' },
 };
 
-const WORK_STATUS_ORDER: WorkStatus[] = ['pending', 'shoot_completed', 'editing_in_progress', 'album_design_ready', 'ready_for_delivery', 'delivered'];
+const WORK_STATUS_ORDER: WorkStatus[] = ['pending', 'processing', 'shoot_completed', 'editing_in_progress', 'both_data_ready', 'ready_for_delivery', 'delivered'];
 const WORK_STATUS_ICONS: Record<WorkStatus, typeof Camera> = {
   pending: Clock,
+  processing: Sparkles,
   shoot_completed: Camera,
   editing_in_progress: Sparkles,
   album_design_ready: CheckCircle2,
+  video_complete: CheckCircle2,
+  both_data_ready: CheckCircle2,
   ready_for_delivery: Package,
   delivered: CheckCircle2,
 };
@@ -58,7 +61,10 @@ export function ProjectTimeline({ booking }: { booking: Booking }) {
   }, [booking.id, load]);
 
   const currentWorkStatus = booking.work_status ?? 'pending';
-  const currentStatusIndex = WORK_STATUS_ORDER.indexOf(currentWorkStatus);
+  const timelineWorkStatus = currentWorkStatus === 'album_design_ready' || currentWorkStatus === 'video_complete'
+    ? 'both_data_ready'
+    : currentWorkStatus;
+  const currentStatusIndex = WORK_STATUS_ORDER.indexOf(timelineWorkStatus);
   const showReminder = booking.booking_status === 'CONFIRMED' && shouldShowShootReminder(booking.shoot_date);
 
   return (
@@ -105,7 +111,9 @@ export function ProjectTimeline({ booking }: { booking: Booking }) {
                   {i < WORK_STATUS_ORDER.length - 1 && <div className={`h-0.5 flex-1 ${i < currentStatusIndex ? 'bg-amber-500' : 'bg-slate-200 dark:bg-white/10'}`} />}
                 </div>
                 <span className={`mt-2 text-center text-[10px] font-medium leading-tight ${isCompleted ? 'text-slate-900 dark:text-white' : 'text-slate-400'}`}>
-                  {WORK_STATUS_LABELS[ws]}
+                  {ws === 'both_data_ready' && (currentWorkStatus === 'album_design_ready' || currentWorkStatus === 'video_complete')
+                    ? WORK_STATUS_LABELS[currentWorkStatus]
+                    : WORK_STATUS_LABELS[ws]}
                 </span>
               </div>
             );

@@ -191,18 +191,40 @@ export interface Booking {
   deleted_at?: string | null;
 }
 
-export type WorkStatus = 'pending' | 'shoot_completed' | 'editing_in_progress' | 'album_design_ready' | 'ready_for_delivery' | 'delivered';
+export type WorkStatus = 'pending' | 'processing' | 'shoot_completed' | 'editing_in_progress' | 'album_design_ready' | 'video_complete' | 'both_data_ready' | 'ready_for_delivery' | 'delivered';
 
-export const WORK_STATUSES: WorkStatus[] = ['pending', 'shoot_completed', 'editing_in_progress', 'album_design_ready', 'ready_for_delivery', 'delivered'];
+export const WORK_STATUSES: WorkStatus[] = ['pending', 'processing', 'shoot_completed', 'editing_in_progress', 'album_design_ready', 'video_complete', 'both_data_ready', 'ready_for_delivery', 'delivered'];
 
 export const WORK_STATUS_LABELS: Record<WorkStatus, string> = {
   pending: 'Pending',
+  processing: 'Processing',
   shoot_completed: 'Shoot Completed',
   editing_in_progress: 'Editing in Progress',
-  album_design_ready: 'Album Design Ready for Review',
+  album_design_ready: 'Album Design Ready',
+  video_complete: 'Video Complete',
+  both_data_ready: 'Both Data Ready',
   ready_for_delivery: 'Ready for Delivery',
   delivered: 'Delivered',
 };
+
+/** Show readiness milestones that apply to this booking's ordered album/video work. */
+export function getBookingDataReadyStatuses(booking: Pick<Booking, 'deliverables_data' | 'work_status'>): WorkStatus[] {
+  const deliverables = booking.deliverables_data ?? {};
+  const hasAlbum = (deliverables.album_rows?.length ?? 0) > 0;
+  const hasVideo = (deliverables.video_rows?.length ?? 0) > 0;
+  const available: WorkStatus[] = hasAlbum && hasVideo
+    ? ['album_design_ready', 'video_complete', 'both_data_ready']
+    : hasAlbum
+      ? ['album_design_ready']
+      : hasVideo
+        ? ['video_complete']
+        : [];
+  const current = booking.work_status;
+  if ((current === 'album_design_ready' || current === 'video_complete' || current === 'both_data_ready') && !available.includes(current)) {
+    available.push(current);
+  }
+  return available;
+}
 
 export function getWorkStatusLabel(status: string | null | undefined): string {
   if (!status) return WORK_STATUS_LABELS.pending;
