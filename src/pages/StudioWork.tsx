@@ -562,6 +562,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
       const startedField = workType === 'album' ? 'album_started_at' : 'video_started_at';
       const currentStatus = selectedOrder[statusField] ?? 'Pending';
       if (currentStatus === 'Complete') { toast('Completed work cannot be turned off. Use Re-edit to return it to Live Station.', 'info'); return; }
+      if (currentStatus !== 'Pending' && !window.confirm(`Remove this ${workType === 'album' ? 'album' : 'video'} work from Live Station and set its status back to Pending?`)) return;
       const nextStatus = currentStatus !== 'Pending' ? 'Pending' : 'Processing';
       const patch = { [statusField]: nextStatus, [startedField]: nextStatus === 'Processing' ? (selectedOrder[startedField] || new Date().toISOString()) : selectedOrder[startedField] };
       const isDemo = !selectedOrder.id || String(selectedOrder.id).startsWith('DEMO-') || String(selectedOrder.id).startsWith('demo-');
