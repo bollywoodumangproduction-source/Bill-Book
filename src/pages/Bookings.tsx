@@ -1896,22 +1896,22 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
       )}
 
       {/* Bill summary */}
-      <div className="grid grid-cols-4 gap-3">
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center dark:border-white/10 dark:bg-white/5">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+        <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2 text-center dark:border-white/10 dark:bg-white/5 sm:p-3">
           <p className="text-xs text-slate-500 dark:text-slate-400">Package</p>
-          <p className="mt-0.5 text-base font-bold text-slate-900 dark:text-white">{formatINR(Number(booking.total_amount))}</p>
+          <p className="mt-0.5 whitespace-nowrap text-sm font-bold text-slate-900 dark:text-white sm:text-base">{formatINR(Number(booking.total_amount))}</p>
         </div>
-        <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-center dark:border-sky-500/20 dark:bg-sky-500/5">
+        <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50 p-2 text-center dark:border-sky-500/20 dark:bg-sky-500/5 sm:p-3">
           <p className="text-xs text-slate-500 dark:text-slate-400">Discount</p>
-          <p className="mt-0.5 text-base font-bold text-sky-600 dark:text-sky-400">{formatINR(Number(booking.discount))}</p>
+          <p className="mt-0.5 whitespace-nowrap text-sm font-bold text-sky-600 dark:text-sky-400 sm:text-base">{formatINR(Number(booking.discount))}</p>
         </div>
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center dark:border-emerald-500/20 dark:bg-emerald-500/5">
+        <div className="min-w-0 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-center dark:border-emerald-500/20 dark:bg-emerald-500/5 sm:p-3">
           <p className="text-xs text-slate-500 dark:text-slate-400">Advance</p>
-          <p className="mt-0.5 text-base font-bold text-emerald-600 dark:text-emerald-400">{formatINR(Number(booking.advance_paid))}</p>
+          <p className="mt-0.5 whitespace-nowrap text-sm font-bold text-emerald-600 dark:text-emerald-400 sm:text-base">{formatINR(Number(booking.advance_paid))}</p>
         </div>
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-center dark:border-rose-500/20 dark:bg-rose-500/5">
+        <div className="min-w-0 rounded-lg border border-rose-200 bg-rose-50 p-2 text-center dark:border-rose-500/20 dark:bg-rose-500/5 sm:p-3">
           <p className="text-xs text-slate-500 dark:text-slate-400">Due</p>
-          <p className="mt-0.5 text-base font-bold text-rose-600 dark:text-rose-400">{formatINR(netDue)}</p>
+          <p className="mt-0.5 whitespace-nowrap text-sm font-bold text-rose-600 dark:text-rose-400 sm:text-base">{formatINR(netDue)}</p>
         </div>
       </div>
 
