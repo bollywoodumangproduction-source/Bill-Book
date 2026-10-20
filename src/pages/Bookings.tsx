@@ -594,7 +594,8 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       setPaymentMode(payment?.payment_mode === 'UPI / PhonePe / GPay' ? 'QR Code' : (payment?.payment_mode ?? 'Cash'));
       setPaymentDate(payment?.payment_date ?? todayISO());
       setCustomPaymentNote(payment?.custom_note ?? '');
-      setPaidAmount(payment?.paid_amount ?? (editing && Number(editing.advance_paid) ? String(editing.advance_paid) : ''));
+      // Existing payments stay in history; this input is for a new installment only.
+      setPaidAmount('');
       setPaymentHistory(payment?.payment_history ?? (editing && Number(editing.advance_paid) ? [{ id: uid(), payment_date: payment?.payment_date ?? todayISO(), payment_mode: payment?.payment_mode ?? 'Cash', custom_note: payment?.custom_note ?? 'Legacy payment record', paid_amount: String(editing.advance_paid) }] : []));
     } else {
       setDeliverables((current) => ({
@@ -743,19 +744,20 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSave = async () => {
-    if (isSubmitting || !paymentVerified) return;
+    if (isSubmitting || (!paymentVerified && (!editing || toNum(paidAmount) > 0))) return;
     if (!clientName || !clientMobile) { toast('Name and mobile are required', 'error'); return; }
     setIsSubmitting(true);
+    const latestPayment = paymentHistory[paymentHistory.length - 1];
     const nextDeliverables: BookingDeliverables = {
       ...deliverables,
       album_rows: albumRows,
       video_rows: videoRows,
       custom_items: customItems,
       payment_details: {
-        payment_mode: paymentMode,
-        payment_date: paymentDate,
-        custom_note: customPaymentNote,
-        paid_amount: paidAmount,
+        payment_mode: latestPayment?.payment_mode ?? paymentMode,
+        payment_date: latestPayment?.payment_date ?? paymentDate,
+        custom_note: latestPayment?.custom_note ?? customPaymentNote,
+        paid_amount: latestPayment?.paid_amount ?? '',
         payment_history: paymentHistory,
       } satisfies BookingPaymentDetails,
     };
@@ -1536,7 +1538,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
           <button onClick={handleClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
           <button
             onClick={handleSave}
-            disabled={isSubmitting || !paymentVerified}
+            disabled={isSubmitting || (!paymentVerified && (!editing || toNum(paidAmount) > 0))}
             className="flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:from-amber-400 hover:to-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSubmitting ? (
