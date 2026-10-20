@@ -8,6 +8,7 @@ import {
   Headphones,
   CheckCircle2,
   Lock,
+  Maximize2,
   Music2,
   Plus,
   Send,
@@ -513,6 +514,8 @@ function ArchiveMusicProjectModal({ project, busy, onCancel, onConfirm }: { proj
 
 function CueCard({ cue, locked, onRemove }: { cue: MusicCue; locked: boolean; onRemove: () => void }) {
   const media = resolveMediaUrl(cue.track_url, 'audio');
+  const [showMediaPreview, setShowMediaPreview] = useState(false);
+  const previewFullscreenRef = useRef<HTMLDivElement>(null);
   return <article className="relative min-w-0 rounded-xl border border-slate-200 bg-slate-50 p-2 dark:border-white/10 dark:bg-white/5">
     {!locked && <button onClick={onRemove} className="absolute right-1 top-1 rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-500/10" title="Remove song"><X className="h-3 w-3" /></button>}
     <div className="flex min-w-0 items-center gap-1 pr-5">
@@ -521,8 +524,9 @@ function CueCard({ cue, locked, onRemove }: { cue: MusicCue; locked: boolean; on
     </div>
     <p className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-4 text-slate-500 dark:text-slate-400">{cue.category}{cue.start_time ? ` · ${cue.start_time}` : ''}<span className="shrink-0"><Badge color={PRIORITY_COLORS[cue.priority]}>{cue.priority.replace('_', ' ')}</Badge></span></p>
     {cue.usage_notes && <p title={cue.usage_notes} className="truncate text-[10px] leading-4 text-slate-700 dark:text-slate-300">{cue.usage_notes}</p>}
-    {cue.track_url && media && <><a href={media.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-full items-center gap-1 truncate text-[10px] leading-4 text-sky-600 hover:text-sky-500 dark:text-sky-400"><ExternalLink className="h-2.5 w-2.5 shrink-0" /> Open link</a><UniversalMediaPreview url={cue.track_url} kind="audio" className="mt-1 w-full max-w-[120px]" mediaClassName={media.render === 'iframe' ? 'aspect-video w-full rounded-md border border-white/10 bg-black' : 'w-full'} /></>}
+    {cue.track_url && media && <><button type="button" onClick={() => setShowMediaPreview(true)} className="inline-flex max-w-full items-center gap-1 truncate text-[10px] leading-4 text-sky-600 hover:text-sky-500 dark:text-sky-400"><ExternalLink className="h-2.5 w-2.5 shrink-0" /> Open link</button><UniversalMediaPreview url={cue.track_url} kind="audio" className="mt-1 w-full max-w-[120px]" mediaClassName={media.render === 'iframe' ? 'aspect-video w-full rounded-md border border-white/10 bg-black' : 'w-full'} /></>}
     {cue.track_url && !media && <p className="truncate text-[10px] leading-4 text-rose-300">Invalid link — edit song</p>}
+    {showMediaPreview && media && <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-label={`${cue.track_title || 'Song'} preview`} onMouseDown={(event) => { if (event.target === event.currentTarget) setShowMediaPreview(false); }}><div className="w-full max-w-md rounded-xl border border-white/10 bg-slate-950 p-3 shadow-2xl"><div className="mb-3 flex items-center justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{cue.track_title || 'Song preview'}</p><p className="truncate text-xs text-slate-400">{cue.category}</p></div><div className="flex shrink-0 items-center gap-1"><button type="button" onClick={() => { const player = previewFullscreenRef.current; if (player?.requestFullscreen) void player.requestFullscreen().catch(() => undefined); }} aria-label="Play song full screen" title="Full screen" className="rounded-lg p-2 text-slate-300 hover:bg-white/10"><Maximize2 className="h-4 w-4" /></button><button type="button" onClick={() => setShowMediaPreview(false)} aria-label="Close song preview" className="rounded-lg p-2 text-slate-300 hover:bg-white/10"><X className="h-4 w-4" /></button></div></div><div ref={previewFullscreenRef} className="overflow-hidden rounded-lg bg-black"><UniversalMediaPreview url={cue.track_url} kind="audio" title={`${cue.track_title || 'Song'} preview`} autoPlay className="overflow-hidden rounded-lg bg-black" mediaClassName="aspect-video w-full rounded-lg border border-white/10 bg-black" /></div></div></div>}
   </article>;
 }
 
