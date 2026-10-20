@@ -513,7 +513,20 @@ function ArchiveMusicProjectModal({ project, busy, onCancel, onConfirm }: { proj
 
 function CueCard({ cue, locked, onRemove }: { cue: MusicCue; locked: boolean; onRemove: () => void }) {
   const media = resolveMediaUrl(cue.track_url, 'audio');
-  return <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 dark:border-white/10 dark:bg-white/5"><div className="flex items-start gap-2"><div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400"><Music2 className="h-3.5 w-3.5" /></div><div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-1.5"><p className="min-w-0 flex-1 truncate text-sm font-semibold leading-5 text-slate-900 dark:text-white">{cue.track_title || 'Untitled song'}</p><Badge color={PRIORITY_COLORS[cue.priority]}>{cue.priority.replace('_', ' ')}</Badge></div><p className="text-xs leading-4 text-slate-500 dark:text-slate-400">{cue.category}{cue.start_time ? ` · starts at ${cue.start_time}` : ''}</p>{cue.usage_notes && <p className="mt-0.5 line-clamp-1 text-xs leading-4 text-slate-700 dark:text-slate-300">{cue.usage_notes}</p>}{cue.track_url && media && <><a href={media.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex max-w-full items-center gap-1 truncate text-xs leading-4 text-sky-600 hover:text-sky-500 dark:text-sky-400"><ExternalLink className="h-3 w-3 shrink-0" /> Open reference link</a><UniversalMediaPreview url={cue.track_url} kind="audio" className={media.render === 'iframe' ? 'mt-1.5 w-[200px] max-w-full' : 'mt-1.5 max-w-md'} mediaClassName={media.render === 'iframe' ? 'aspect-video w-full rounded-md border border-white/10 bg-black' : undefined} /></>}{cue.track_url && !media && <p className="mt-1 text-xs text-rose-300">This link is invalid. Edit the song choice and enter an http(s) link.</p>}</div>{!locked && <button onClick={onRemove} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-500/10" title="Remove song"><X className="h-3.5 w-3.5" /></button>}</div></div>;
+  return <article className="relative rounded-xl border border-slate-200 bg-slate-50 p-2 dark:border-white/10 dark:bg-white/5">
+    {!locked && <button onClick={onRemove} className="absolute right-1.5 top-1.5 rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-500/10" title="Remove song"><X className="h-3.5 w-3.5" /></button>}
+    <div className="flex min-w-0 items-center gap-2">
+      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400"><Music2 className="h-3 w-3" /></div>
+      <div className={`min-w-0 flex-1 ${!locked ? 'pr-6' : ''}`}>
+        <div className="flex min-w-0 items-center gap-1"><p title={cue.track_title} className="min-w-0 flex-1 truncate text-xs font-semibold leading-4 text-slate-900 dark:text-white">{cue.track_title || 'Untitled song'}</p><Badge color={PRIORITY_COLORS[cue.priority]}>{cue.priority.replace('_', ' ')}</Badge></div>
+        <p className="truncate text-[11px] leading-4 text-slate-500 dark:text-slate-400">{cue.category}{cue.start_time ? ` · starts at ${cue.start_time}` : ''}</p>
+        {cue.usage_notes && <p title={cue.usage_notes} className="mt-0.5 truncate text-[11px] leading-4 text-slate-700 dark:text-slate-300">{cue.usage_notes}</p>}
+        {cue.track_url && media && <a href={media.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-0.5 inline-flex max-w-full items-center gap-1 truncate text-[11px] leading-4 text-sky-600 hover:text-sky-500 dark:text-sky-400"><ExternalLink className="h-3 w-3 shrink-0" /> Open reference link</a>}
+        {cue.track_url && !media && <p className="mt-0.5 truncate text-[11px] leading-4 text-rose-300">Invalid link — edit song choice</p>}
+      </div>
+      {media && <div className="w-[96px] shrink-0 sm:w-[128px]"><UniversalMediaPreview url={cue.track_url} kind="audio" className="w-full" mediaClassName={media.render === 'iframe' ? 'aspect-video w-full rounded-md border border-white/10 bg-black' : 'w-full'} /></div>}
+    </div>
+  </article>;
 }
 
 function MasterCueCard({ cue, onEdit }: { cue: MusicMasterCue; onEdit: () => void }) {
