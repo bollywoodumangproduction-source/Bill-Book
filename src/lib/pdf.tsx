@@ -40,9 +40,9 @@ export async function downloadA4Pdf(element: HTMLElement, filename: string): Pro
   }
 }
 
-type PrintableCopyType = 'original' | 'client';
+type PrintableCopyType = 'original' | 'client' | 'partner';
 
-export function PrintableDualCopies({ children, className = '' }: { children: ReactNode | ((copyType: PrintableCopyType) => ReactNode); className?: string }) {
+export function PrintableDualCopies({ children, className = '', duplicateCopyLabel = 'CLIENT COPY' }: { children: ReactNode | ((copyType: PrintableCopyType) => ReactNode); className?: string; duplicateCopyLabel?: 'CLIENT COPY' | 'PARTNER COPY' }) {
   const renderCopy = (copyType: PrintableCopyType) => typeof children === 'function' ? children(copyType) : children;
   return (
     <div className={`dual-bill-page ${className}`}>
@@ -52,8 +52,8 @@ export function PrintableDualCopies({ children, className = '' }: { children: Re
       </section>
       <div className="dual-bill-divider" aria-label="Cut here">✂</div>
       <section className="dual-bill-copy">
-        <p className="dual-bill-label">CLIENT / DUPLICATE COPY</p>
-        {renderCopy('client')}
+        <p className="dual-bill-label">{duplicateCopyLabel}</p>
+        {renderCopy(duplicateCopyLabel === 'PARTNER COPY' ? 'partner' : 'client')}
       </section>
     </div>
   );

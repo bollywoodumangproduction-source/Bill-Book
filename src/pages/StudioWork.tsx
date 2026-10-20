@@ -1172,7 +1172,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
         }}
       />}
       <LabWorkSlipModal order={viewSlipOrder} onClose={() => setViewSlipOrder(null)} settings={settings} onDualPrint={(includeStamp) => { if (viewSlipOrder) { setDualPrintShowStamp(includeStamp); setDualPrintOrder(viewSlipOrder); setTimeout(() => { window.print(); setDualPrintOrder(null); }, 100); } }} />
-      {dualPrintOrder && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies><LabOrderPrintTemplate order={dualPrintOrder} settings={settings} compact showStamp={dualPrintShowStamp} /></PrintableDualCopies></div>, document.body)}
+      {dualPrintOrder && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies duplicateCopyLabel="PARTNER COPY">{(copyType) => <LabOrderPrintTemplate order={dualPrintOrder} settings={settings} compact showStamp={dualPrintShowStamp} copyTypeOverride={copyType} />}</PrintableDualCopies></div>, document.body)}
       {quickPayOrder && <LabQuickPayModal order={quickPayOrder} onClose={() => setQuickPayOrder(null)} onSaved={(updated) => { setQuickPayOrder(null); setOrders((prev) => prev.map((order) => (getOrderKey(order) === getOrderKey(updated) ? updated : order))); setSelectedOrder((current) => current && getOrderKey(current) === getOrderKey(updated) ? updated : current); load(); }} />}
       {settleOrder && <LabSettlementModal order={settleOrder} onClose={() => setSettleOrder(null)} onSaved={(updated) => { setSettleOrder(null); setOrders((prev) => prev.map((order) => (getOrderKey(order) === getOrderKey(updated) ? updated : order))); setSelectedOrder((current) => current && getOrderKey(current) === getOrderKey(updated) ? updated : current); load(); }} />}
       {successOrder && (
@@ -2927,25 +2927,28 @@ function LabOrderSuccessModal({ order, onClose, onView }: { order: StudioLabOrde
 
 function PrintTrigger({ order, onDone }: { order: StudioLabOrder; onDone: () => void }) {
   useEffect(() => {
-    const t = setTimeout(() => {
-      window.print();
-      onDone();
-    }, 300);
-    return () => clearTimeout(t);
+    const handleAfterPrint = () => onDone();
+    window.addEventListener('afterprint', handleAfterPrint, { once: true });
+    const t = window.setTimeout(() => window.requestAnimationFrame(() => window.print()), 300);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener('afterprint', handleAfterPrint);
+    };
   }, [order, onDone]);
   return null;
 }
 
-export function LabOrderPrintTemplate({ order, settings, compact = false, termsText, showStamp = true }: { order: StudioLabOrder; settings: StudioSettings | null; compact?: boolean; termsText?: string; showStamp?: boolean }) {
+export function LabOrderPrintTemplate({ order, settings, compact = false, termsText, showStamp = true, copyTypeOverride = 'original' }: { order: StudioLabOrder; settings: StudioSettings | null; compact?: boolean; termsText?: string; showStamp?: boolean; copyTypeOverride?: 'original' | 'client' | 'partner' }) {
   const s = settings;
   const clients = order.clients ?? [];
   const orderPayments = labOrderPayments(order);
   const billing = labOrderBillingSnapshot(order, order.advance_paid);
   const cn = compact ? 'compact-bill' : '';
+  const copyLabel = copyTypeOverride === 'original' ? 'ORIGINAL / STUDIO COPY' : copyTypeOverride === 'partner' ? 'PARTNER COPY' : 'CLIENT COPY';
   const resolvedTerms = termsText || settings?.production_terms || DEFAULT_PRODUCTION_TERMS;
   const isFullyPaid = billing.balanceDue <= 0;
   return (
-    <div className={`bill-page bg-white text-black ${cn}`} style={{ userSelect: 'text', padding: compact ? '3mm 4mm' : undefined }}>
+    <div className={`bill-page relative bg-white text-black ${cn}`} data-copy-mark={copyTypeOverride} data-watermark={copyTypeOverride === 'partner' ? 'DUPLICATE · PARTNER COPY' : copyTypeOverride === 'client' ? 'DUPLICATE · CLIENT COPY' : ''} style={{ userSelect: 'text', padding: compact ? '3mm 4mm' : undefined }}>
       {/* Header */}
       <div className={compact ? "mb-2 flex items-center justify-between border-b-2 border-black pb-2" : "mb-6 flex items-center justify-between border-b-2 border-black pb-4"}>
         <div className="flex items-center gap-2">
@@ -2960,6 +2963,7 @@ export function LabOrderPrintTemplate({ order, settings, compact = false, termsT
           </div>
         </div>
         <div className="text-right">
+          <p className="invoice-copy-label mb-1 text-[9px] font-bold tracking-wide">{copyLabel}</p>
           <p className={compact ? "text-xs font-bold" : "text-sm font-bold"}>Bill No: {order.order_no}</p>
           <p className="text-xs">Date: {formatDate(order.created_at)}</p>
         </div>
@@ -3145,20 +3149,24 @@ export function LabOrderPrintTemplate({ order, settings, compact = false, termsT
       )}
 
       {/* Footer: UPI QR + Stamp + Signature */}
-      <div className={compact ? "mt-2 flex items-end justify-between border-t border-black pt-1" : "mt-6 flex items-end justify-between border-t border-black pt-4"}>
-        <div className="flex flex-col items-center gap-0.5">
+      <div className={compact ? "mt-2 flex flex-wrap items-end justify-between gap-2 border-t border-black pt-1" : "mt-6 flex flex-wrap items-end justify-between gap-3 border-t border-black pt-4"}>
+        <div className="flex min-w-0 flex-1 items-end gap-2">
+          <div className="min-w-0 flex-1 text-[9px]">
+            <p className="font-semibold">Partner Signature</p>
+            <div className="h-5 border-b border-black" />
+          </div>
           {s?.upi_id ? (
-            <>
+            <div className="flex shrink-0 flex-col items-center gap-0.5">
               <img
                 src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=upi://pay?pa=${encodeURIComponent(s.upi_id)}`}
                 alt="UPI QR"
-                className={compact ? "h-16 w-16" : "h-28 w-28"}
+                className={compact ? "h-10 w-10" : "h-16 w-16"}
               />
-              <p className="text-[10px] font-semibold">Scan to Pay via UPI</p>
-              <p className="text-[10px]">{s.upi_id}</p>
-            </>
+              <p className="text-center text-[7px] font-semibold">Scan to Pay via UPI</p>
+              <p className="max-w-16 break-all text-center text-[7px]">{s.upi_id}</p>
+            </div>
           ) : (
-            <p className="text-[10px] text-gray-500">UPI ID not configured</p>
+            <p className="max-w-16 text-center text-[7px] text-gray-500">UPI ID not configured</p>
           )}
         </div>
         <div className="ml-auto flex min-w-32 flex-col items-center gap-1 text-center">

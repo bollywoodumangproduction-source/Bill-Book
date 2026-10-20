@@ -271,11 +271,19 @@ export function PartnerDashboardContent({
 
   const printPartnerOrder = (order: StudioLabOrder) => {
     setPrintOrder(order);
-    window.setTimeout(() => {
-      window.print();
-      setPrintOrder(null);
-    }, 150);
   };
+
+  useEffect(() => {
+    if (!printOrder) return;
+    const handleAfterPrint = () => setPrintOrder(null);
+    window.addEventListener('afterprint', handleAfterPrint, { once: true });
+    // Wait until React has mounted the portal and the browser has laid it out.
+    const timer = window.setTimeout(() => window.requestAnimationFrame(() => window.print()), 250);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('afterprint', handleAfterPrint);
+    };
+  }, [printOrder]);
 
   useEffect(() => {
     let cancelled = false;
@@ -765,7 +773,7 @@ export function PartnerDashboardContent({
       )}
       {printOrder && createPortal(
         <div id="printable-bill-sheet" aria-hidden>
-          <LabOrderPrintTemplate order={printOrder} settings={settings} />
+          <LabOrderPrintTemplate order={printOrder} settings={settings} copyTypeOverride="partner" />
         </div>,
         document.body,
       )}

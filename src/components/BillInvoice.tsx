@@ -12,10 +12,11 @@ const DEFAULT_DELIVERABLES: BookingDeliverables = {
   raw_edited_photos: false,
 };
 
-export function getInvoiceCopyType(): 'original' | 'client' {
+export function getInvoiceCopyType(): 'original' | 'client' | 'partner' {
   if (typeof window === 'undefined') return 'original';
   const path = window.location.pathname;
-  return /^\/(?:view|portal|client|partner)(?:\/|$)/i.test(path) ? 'client' : 'original';
+  if (/^\/partner(?:\/|$)/i.test(path)) return 'partner';
+  return /^\/(?:view|portal|client)(?:\/|$)/i.test(path) ? 'client' : 'original';
 }
 
 function nextDate(date: string): string {
@@ -100,7 +101,7 @@ export function getDeliverableReceipt(d: BookingDeliverables, items: string[], i
   return { item_key: currentKey, item: items[index], received_at: receivedAt };
 }
 
-export function BillInvoice({ booking, settings, compact = false, showStamp = true, copyTypeOverride }: { booking: Booking; settings: StudioSettings | null; compact?: boolean; showStamp?: boolean; copyTypeOverride?: 'original' | 'client' }) {
+export function BillInvoice({ booking, settings, compact = false, showStamp = true, copyTypeOverride }: { booking: Booking; settings: StudioSettings | null; compact?: boolean; showStamp?: boolean; copyTypeOverride?: 'original' | 'client' | 'partner' }) {
   const s = settings;
   const safeEvents = booking.events ?? [];
   const hasEventDates = safeEvents.some((e) => e.date);
@@ -116,9 +117,9 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
   const extraItems = booking.deliverables_data?.custom_items ?? [];
   const cn = compact ? 'compact-bill' : '';
   const copyType = copyTypeOverride ?? getInvoiceCopyType();
-  const copyLabel = copyType === 'client' ? '2ND COPY' : 'ORIGINAL COPY';
+  const copyLabel = copyType === 'original' ? 'ORIGINAL / STUDIO COPY' : copyType === 'partner' ? 'PARTNER COPY' : 'CLIENT COPY';
   return (
-    <div className={`bill-page relative mx-auto box-border w-full max-w-[794px] bg-white p-3 text-[13px] leading-relaxed text-black sm:p-6 sm:text-sm ${cn}`} data-copy-mark={copyType} data-watermark={copyType === 'client' ? 'CLIENT COPY - 2ND COPY' : ''} style={{ userSelect: 'text', padding: compact ? '3mm 4mm' : undefined }}>
+    <div className={`bill-page relative mx-auto box-border w-full max-w-[794px] bg-white p-3 text-[13px] leading-relaxed text-black sm:p-6 sm:text-sm ${cn}`} data-copy-mark={copyType} data-watermark={copyType === 'client' ? 'DUPLICATE · CLIENT COPY' : copyType === 'partner' ? 'DUPLICATE · PARTNER COPY' : ''} style={{ userSelect: 'text', padding: compact ? '3mm 4mm' : undefined }}>
       {/* Header */}
       <div className={compact ? "invoice-header mb-2 flex items-center justify-between gap-3 border-b-2 border-black pb-2" : "invoice-header mb-6 flex items-center justify-between gap-4 border-b-2 border-black pb-4"}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -275,19 +276,23 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
       )}
 
       {/* Footer: UPI QR + Stamp + Signature */}
-      <div className={compact ? "mt-2 flex items-end justify-between border-t border-black pt-1" : "mt-6 flex items-end justify-between border-t border-black pt-4"}>
-        <div className="flex flex-col items-center gap-0.5">
-          {s?.upi_id && netDue > 0 ? (
-            <>
+      <div className={compact ? "mt-2 flex flex-wrap items-end justify-between gap-2 border-t border-black pt-1" : "mt-6 flex flex-wrap items-end justify-between gap-3 border-t border-black pt-4"}>
+        <div className="flex min-w-0 flex-1 items-end gap-2">
+          <div className="min-w-0 flex-1 space-y-1.5 text-[9px]">
+            <div><p className="font-semibold">1. Client Signature</p><div className="h-3 border-b border-black" /></div>
+            <div><p className="font-semibold">2. Client Signature</p><div className="h-3 border-b border-black" /></div>
+          </div>
+          {s?.upi_id && netDue > 0 && (
+            <div className="flex shrink-0 flex-col items-center gap-0.5">
               <img
                 src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=upi://pay?pa=${encodeURIComponent(s.upi_id)}`}
                 alt="UPI QR"
-                className={compact ? "h-16 w-16" : "h-28 w-28"}
+                className={compact ? "h-10 w-10" : "h-16 w-16"}
               />
-              <p className="text-[10px] font-semibold">Scan to Pay via UPI</p>
-              <p className="text-[10px]">{s.upi_id}</p>
-            </>
-          ) : null}
+              <p className="text-center text-[7px] font-semibold">Scan to Pay via UPI</p>
+              <p className="max-w-16 break-all text-center text-[7px]">{s.upi_id}</p>
+            </div>
+          )}
         </div>
         <div className="ml-auto flex min-w-32 flex-col items-center gap-1 text-center text-[10px]">
           {showStamp && s?.stamp_image_url && (

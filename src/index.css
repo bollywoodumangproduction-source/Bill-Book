@@ -233,7 +233,8 @@ body::after {
   }
 }
 
-.bill-page[data-copy-mark='client']::after {
+.bill-page[data-copy-mark='client']::after,
+.bill-page[data-copy-mark='partner']::after {
   content: attr(data-watermark);
   position: absolute;
   z-index: 0;
@@ -253,7 +254,8 @@ body::after {
   user-select: none;
 }
 
-.bill-page[data-copy-mark='client'] > * {
+.bill-page[data-copy-mark='client'] > *,
+.bill-page[data-copy-mark='partner'] > * {
   position: relative;
   z-index: 1;
 }
