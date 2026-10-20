@@ -256,30 +256,30 @@ export function SettingsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-slate-900/50">
+      <div className="grid grid-cols-1 gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-slate-900/50 sm:grid-cols-2">
         <button
           onClick={() => setTab('films')}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+          className={`flex min-w-0 flex-wrap items-center justify-center gap-2 rounded-lg px-2 py-2.5 text-sm font-medium transition-colors sm:px-4 ${
             tab === 'films'
               ? 'bg-amber-500 text-slate-900'
               : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'
           }`}
         >
           <Camera className="h-4 w-4" />
-          <span>Bollywood Umang Films</span>
-          <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] ${tab === 'films' ? 'bg-slate-900/10 text-slate-700' : 'bg-slate-100 text-slate-400 dark:bg-white/5'}`}>B2C</span>
+          <span className="min-w-0 whitespace-normal break-words text-center leading-tight">Bollywood Umang Films</span>
+          <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] ${tab === 'films' ? 'bg-slate-900/10 text-slate-700' : 'bg-slate-100 text-slate-400 dark:bg-white/5'}`}>B2C</span>
         </button>
         <button
           onClick={() => setTab('production')}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+          className={`flex min-w-0 flex-wrap items-center justify-center gap-2 rounded-lg px-2 py-2.5 text-sm font-medium transition-colors sm:px-4 ${
             tab === 'production'
               ? 'bg-amber-500 text-slate-900'
               : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'
           }`}
         >
           <Clapperboard className="h-4 w-4" />
-          <span>Bollywood Umang Production</span>
-          <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] ${tab === 'production' ? 'bg-slate-900/10 text-slate-700' : 'bg-slate-100 text-slate-400 dark:bg-white/5'}`}>B2B</span>
+          <span className="min-w-0 whitespace-normal break-words text-center leading-tight">Bollywood Umang Production</span>
+          <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] ${tab === 'production' ? 'bg-slate-900/10 text-slate-700' : 'bg-slate-100 text-slate-400 dark:bg-white/5'}`}>B2B</span>
         </button>
       </div>
 

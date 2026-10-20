@@ -151,14 +151,14 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 max-w-full space-y-6 overflow-x-clip">
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">{formatDate(todayISO())}</p>
       </div>
 
       {/* Portal Buttons */}
-      <div className="grid grid-cols-2 gap-2 sm:gap-3">
+      <div className="grid min-w-0 grid-cols-2 gap-2 sm:gap-3">
         <button
           onClick={() => setShowClientPortal(true)}
           className="flex min-w-0 items-center gap-2 rounded-lg border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-2 text-left transition-all hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/10 sm:gap-3 sm:rounded-xl sm:p-4 dark:border-amber-500/20 dark:from-amber-500/10 dark:to-orange-500/5 dark:hover:border-amber-500/40"
@@ -186,7 +186,7 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid min-w-0 grid-cols-2 gap-3 lg:grid-cols-5">
         <SummaryCard icon={CalendarCheck} label="Today's Shoots" value={String(todaysBookings.length)} color="amber" />
         <SummaryCard icon={CalendarClock} label="Upcoming" value={String(upcomingBookings.length)} color="sky" />
         <SummaryCard icon={CalendarDays} label="Active Booking Work" value={String(activeWorkBookings.length)} color="emerald" />
@@ -194,7 +194,7 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
         <SummaryCard icon={TrendingDown} label="Total Due" value={formatINR(totalDue)} color="rose" />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
         {/* Today's bookings */}
         <Card title="Today's Shoots" onMore={() => onNavigate('bookings')}>
           {todaysBookings.length === 0 ? (
@@ -202,12 +202,12 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
           ) : (
             <div className="space-y-2">
               {todaysBookings.map((b) => (
-                <div key={b.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-white/5 dark:bg-white/5">
-                  <div>
-                    <p className="text-sm font-medium text-slate-900 dark:text-white">{b.client_name ?? ''}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{b.event_function ?? ''} · {b.venue || 'No venue'}</p>
+                <div key={b.id} className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-white/5 dark:bg-white/5">
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words text-sm font-medium text-slate-900 dark:text-white">{b.client_name ?? ''}</p>
+                    <p className="break-words text-xs text-slate-500 dark:text-slate-400">{b.event_function ?? ''} · {b.venue || 'No venue'}</p>
                   </div>
-                  <Badge color="amber">{b.booking_status ?? ''}</Badge>
+                  <Badge color="amber"><span className="break-words">{b.booking_status ?? ''}</span></Badge>
                 </div>
               ))}
             </div>
@@ -221,12 +221,12 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
           ) : (
             <div className="space-y-2">
               {upcomingBookings.map((b) => (
-                <div key={b.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-white/5 dark:bg-white/5">
-                  <div>
-                    <p className="text-sm font-medium text-slate-900 dark:text-white">{b.client_name ?? ''}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{formatDate(b.shoot_date)} · {b.event_function ?? ''}</p>
+                <div key={b.id} className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-white/5 dark:bg-white/5">
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words text-sm font-medium text-slate-900 dark:text-white">{b.client_name ?? ''}</p>
+                    <p className="break-words text-xs text-slate-500 dark:text-slate-400">{formatDate(b.shoot_date)} · {b.event_function ?? ''}</p>
                   </div>
-                  <Badge color="sky">{formatINR(Number(b.net_due ?? 0))}</Badge>
+                  <Badge color="sky"><span className="whitespace-nowrap">{formatINR(Number(b.net_due ?? 0))}</span></Badge>
                 </div>
               ))}
             </div>
@@ -263,12 +263,12 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
           ) : (
             <div className="space-y-2">
               {activeLabOrders.slice(0, 5).map((o) => (
-                <div key={o.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-white/5 dark:bg-white/5">
-                  <div>
-                    <p className="text-sm font-medium text-slate-900 dark:text-white">{o.project_name ?? ''}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{o.studio_name ?? ''} · {o.work_type ?? ''}</p>
+                <div key={o.id} className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-white/5 dark:bg-white/5">
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words text-sm font-medium text-slate-900 dark:text-white">{o.project_name ?? ''}</p>
+                    <p className="break-words text-xs text-slate-500 dark:text-slate-400">{o.studio_name ?? ''} · {o.work_type ?? ''}</p>
                   </div>
-                  <Badge color="violet">{o.order_status ?? ''}</Badge>
+                  <Badge color="violet"><span className="break-words">{o.order_status ?? ''}</span></Badge>
                 </div>
               ))}
             </div>
@@ -283,10 +283,10 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
               <p className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">No outstanding dues</p>
             ) : (
               outstandingDueItems.slice(0, showAllDues ? undefined : 5).map((item) => (
-                <button type="button" key={item.id} onClick={() => item.type === 'Booking' ? (onOpenBooking ? onOpenBooking(item.targetId) : onNavigate('bookings')) : (onOpenLabOrder ? onOpenLabOrder(item.targetId) : onNavigate('lab'))} className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-left transition hover:border-amber-400/50 hover:bg-amber-50/50 dark:border-white/5 dark:bg-white/5 dark:hover:bg-white/[.08]">
-                  <div>
-                    <p className="text-sm font-medium text-slate-900 dark:text-white">{item.name}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{item.type} · {item.reference}{item.date ? ` · ${formatDate(item.date)}` : ''} · {item.lifecycle}</p>
+                <button type="button" key={item.id} onClick={() => item.type === 'Booking' ? (onOpenBooking ? onOpenBooking(item.targetId) : onNavigate('bookings')) : (onOpenLabOrder ? onOpenLabOrder(item.targetId) : onNavigate('lab'))} className="flex w-full min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-left transition hover:border-amber-400/50 hover:bg-amber-50/50 dark:border-white/5 dark:bg-white/5 dark:hover:bg-white/[.08]">
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words text-sm font-medium text-slate-900 dark:text-white">{item.name}</p>
+                    <p className="break-words text-xs text-slate-500 dark:text-slate-400">{item.type} · {item.reference}{item.date ? ` · ${formatDate(item.date)}` : ''} · {item.lifecycle}</p>
                   </div>
                   <span className="shrink-0 text-sm font-bold text-rose-500 dark:text-rose-400">
                     {formatINR(item.amount)}
@@ -323,7 +323,7 @@ function SummaryCard({
     rose: 'from-rose-500/10 to-rose-500/5 text-rose-600 border-rose-500/10 dark:text-rose-400',
   };
   return (
-    <div className={`rounded-xl border bg-gradient-to-br p-3.5 ${colors[color]}`}>
+    <div className={`min-w-0 rounded-xl border bg-gradient-to-br p-3.5 ${colors[color]}`}>
       <Icon className="mb-2 h-5 w-5" />
       <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
       <p className="mt-0.5 text-lg font-bold text-slate-900 dark:text-white">{value}</p>
@@ -333,10 +333,10 @@ function SummaryCard({
 
 function Card({ title, children, onMore, moreLabel = 'View all' }: { title: string; children: React.ReactNode; onMore: () => void; moreLabel?: string }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900/50">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">{title}</h2>
-        <button onClick={onMore} className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-500 dark:text-amber-400 dark:hover:text-amber-300">
+    <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900/50">
+      <div className="mb-3 flex min-w-0 items-center justify-between gap-2">
+        <h2 className="min-w-0 break-words text-sm font-semibold text-slate-900 dark:text-white">{title}</h2>
+        <button onClick={onMore} className="flex shrink-0 items-center gap-1 text-xs text-amber-600 hover:text-amber-500 dark:text-amber-400 dark:hover:text-amber-300">
           {moreLabel} {moreLabel === 'View all' && <ArrowRight className="h-3 w-3" />}
         </button>
       </div>
