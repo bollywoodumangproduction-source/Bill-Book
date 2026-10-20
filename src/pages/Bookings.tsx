@@ -2027,22 +2027,22 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
       )}
 
       {/* Bill summary */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
-        <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2 text-center dark:border-white/10 dark:bg-white/5 sm:p-3">
-          <p className="text-xs text-slate-500 dark:text-slate-400">Package</p>
-          <p className="mt-0.5 whitespace-nowrap text-sm font-bold text-slate-900 dark:text-white sm:text-base">{formatINR(Number(booking.total_amount))}</p>
+      <div className="grid grid-cols-4 gap-1 sm:gap-3">
+        <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-1.5 text-center dark:border-white/10 dark:bg-white/5 sm:p-3">
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 sm:text-xs">Package</p>
+          <p className="mt-0.5 break-words text-[clamp(9px,2.8vw,11px)] font-bold leading-tight tracking-tight text-slate-900 dark:text-white sm:whitespace-nowrap sm:text-base">{formatINR(Number(booking.total_amount))}</p>
         </div>
-        <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50 p-2 text-center dark:border-sky-500/20 dark:bg-sky-500/5 sm:p-3">
-          <p className="text-xs text-slate-500 dark:text-slate-400">Discount</p>
-          <p className="mt-0.5 whitespace-nowrap text-sm font-bold text-sky-600 dark:text-sky-400 sm:text-base">{formatINR(Number(booking.discount))}</p>
+        <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50 p-1.5 text-center dark:border-sky-500/20 dark:bg-sky-500/5 sm:p-3">
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 sm:text-xs">Discount</p>
+          <p className="mt-0.5 break-words text-[clamp(9px,2.8vw,11px)] font-bold leading-tight tracking-tight text-sky-600 dark:text-sky-400 sm:whitespace-nowrap sm:text-base">{formatINR(Number(booking.discount))}</p>
         </div>
-        <div className="min-w-0 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-center dark:border-emerald-500/20 dark:bg-emerald-500/5 sm:p-3">
-          <p className="text-xs text-slate-500 dark:text-slate-400">Advance</p>
-          <p className="mt-0.5 whitespace-nowrap text-sm font-bold text-emerald-600 dark:text-emerald-400 sm:text-base">{formatINR(Number(booking.advance_paid))}</p>
+        <div className="min-w-0 rounded-lg border border-emerald-200 bg-emerald-50 p-1.5 text-center dark:border-emerald-500/20 dark:bg-emerald-500/5 sm:p-3">
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 sm:text-xs">Advance</p>
+          <p className="mt-0.5 break-words text-[clamp(9px,2.8vw,11px)] font-bold leading-tight tracking-tight text-emerald-600 dark:text-emerald-400 sm:whitespace-nowrap sm:text-base">{formatINR(Number(booking.advance_paid))}</p>
         </div>
-        <div className="min-w-0 rounded-lg border border-rose-200 bg-rose-50 p-2 text-center dark:border-rose-500/20 dark:bg-rose-500/5 sm:p-3">
-          <p className="text-xs text-slate-500 dark:text-slate-400">Due</p>
-          <p className="mt-0.5 whitespace-nowrap text-sm font-bold text-rose-600 dark:text-rose-400 sm:text-base">{formatINR(netDue)}</p>
+        <div className="min-w-0 rounded-lg border border-rose-200 bg-rose-50 p-1.5 text-center dark:border-rose-500/20 dark:bg-rose-500/5 sm:p-3">
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 sm:text-xs">Due</p>
+          <p className="mt-0.5 break-words text-[clamp(9px,2.8vw,11px)] font-bold leading-tight tracking-tight text-rose-600 dark:text-rose-400 sm:whitespace-nowrap sm:text-base">{formatINR(netDue)}</p>
         </div>
       </div>
 
@@ -2095,7 +2095,7 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
               <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${booking.work_status === 'editing_in_progress' ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
-          <div className="flex flex-nowrap items-center gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span className="shrink-0 whitespace-nowrap text-xs font-medium text-slate-600 dark:text-slate-400">Work Status:</span>
             {WORK_STATUS_BUTTONS.slice(0, 4).map((ws) => (
               <button
@@ -2129,9 +2129,9 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
               </button>
             ))}
           </div>
-          <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 pt-3 dark:border-white/10">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-2 border-t border-slate-200 pt-3 dark:border-white/10 sm:flex sm:flex-wrap">
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-500 dark:text-slate-400">Quick Payment</label>
+              <label className="text-[11px] text-slate-500 dark:text-slate-400 sm:text-xs">Quick Payment</label>
               <input
                 type="number"
                 min={0.01}
@@ -2140,12 +2140,12 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
                 value={quickPayAmount}
                 onChange={(event) => setQuickPayAmount(event.target.value)}
                 placeholder="Amount"
-                className={`${inputClass} w-28`}
+                className={`${inputClass} w-full min-w-0 px-2 py-2 text-xs sm:w-28 sm:px-3 sm:py-2.5 sm:text-sm`}
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-500 dark:text-slate-400">Mode</label>
-              <select value={quickPayMode} onChange={(event) => setQuickPayMode(event.target.value)} className={`${selectClass} w-32`}>
+              <label className="text-[11px] text-slate-500 dark:text-slate-400 sm:text-xs">Mode</label>
+              <select value={quickPayMode} onChange={(event) => setQuickPayMode(event.target.value)} className={`${selectClass} w-[4.5rem] px-2 py-2 text-xs sm:w-32 sm:px-3 sm:py-2.5 sm:text-sm`}>
                 <option>Cash</option>
                 <option>UPI</option>
                 <option>Bank</option>
@@ -2188,7 +2188,7 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
                 }
               }}
               disabled={savingQuickPay}
-              className="rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-600"
+              className="whitespace-nowrap rounded-lg bg-emerald-500 px-2.5 py-2 text-[11px] font-medium text-white transition-colors hover:bg-emerald-600 sm:px-4 sm:py-2.5 sm:text-sm"
             >
               {savingQuickPay ? 'Saving…' : 'Record Payment'}
             </button>
@@ -2201,19 +2201,19 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
         <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
           <Lock className="h-4 w-4 text-amber-500" /> Client Portal Access
         </h3>
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
           <button
             onClick={toggleLoginAccess}
             type="button"
             role="switch"
             aria-checked={loginAllowed}
             aria-label={`Client portal login ${loginAllowed ? 'On' : 'Off'}`}
-            className="flex items-center gap-2.5 rounded-lg px-2 py-1 hover:bg-slate-100 dark:hover:bg-white/5"
+            className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 hover:bg-slate-100 dark:hover:bg-white/5 sm:gap-2.5 sm:px-2"
           >
             <span className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${loginAllowed ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}`}>
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${loginAllowed ? 'translate-x-6' : 'translate-x-1'}`} />
             </span>
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+            <span className="text-xs font-medium text-slate-700 dark:text-slate-300 sm:text-sm">
               Portal Login
             </span>
             <span className={`text-xs font-semibold ${loginAllowed ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
@@ -2226,7 +2226,7 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
             )}
           </button>
 
-          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-slate-800">
+          <div className="flex min-w-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 dark:border-white/10 dark:bg-slate-800 sm:gap-2 sm:px-3 sm:py-2">
             <KeyRound className="h-3.5 w-3.5 text-slate-400" />
             {editingPin ? (
               <>
@@ -2240,7 +2240,7 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
               </>
             ) : (
               <>
-                <span className="text-sm text-slate-600 dark:text-slate-300">
+                <span className="text-xs text-slate-600 dark:text-slate-300 sm:text-sm">
                   Access PIN: <span className="font-mono font-medium text-slate-900 dark:text-white">
                     {currentPin ? (showAccessPin ? currentPin : '••••') : 'Reset PIN to make it viewable'}
                   </span>
@@ -2265,7 +2265,7 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
 
           <button
             onClick={resetPin}
-            className="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
+            className="flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20 sm:gap-1.5 sm:px-3 sm:py-2 sm:text-xs"
           >
             <RotateCcw className="h-3.5 w-3.5" /> Reset to Default PIN
           </button>
@@ -2273,43 +2273,43 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
         {!loginAllowed && (
           <p className="mt-2 text-xs text-slate-400">This client cannot log into the portal until login is enabled above.</p>
         )}
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" onClick={() => void copyClientPortalLink()} disabled={!loginAllowed} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
+        <div className="mt-3 flex flex-wrap gap-1.5 sm:gap-2">
+          <button type="button" onClick={() => void copyClientPortalLink()} disabled={!loginAllowed} className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5 sm:gap-1.5 sm:px-3 sm:py-2 sm:text-xs">
             <Copy className="h-3.5 w-3.5" /> Copy Portal Link
           </button>
-          <button type="button" onClick={shareClientPortalAccess} disabled={!loginAllowed || !booking.client_mobile || !currentPin} className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={shareClientPortalAccess} disabled={!loginAllowed || !booking.client_mobile || !currentPin} className="flex items-center gap-1 rounded-lg bg-emerald-500 px-2 py-1.5 text-[11px] font-medium text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50 sm:gap-1.5 sm:px-3 sm:py-2 sm:text-xs">
             <MessageCircle className="h-3.5 w-3.5" /> Share Portal Access via WhatsApp
           </button>
         </div>
       </div>
 
       {/* Actions */}
-      <div className="flex flex-wrap justify-end gap-3 pt-2">
-        {!booking.deleted_at && <button onClick={onArchive} className="flex items-center gap-1.5 rounded-lg border border-amber-200 px-4 py-2.5 text-sm text-amber-700 hover:bg-amber-50 dark:border-amber-500/20 dark:text-amber-400 dark:hover:bg-amber-500/10">
+      <div className="grid grid-cols-2 gap-2 pt-2 sm:flex sm:flex-wrap sm:justify-end sm:gap-3">
+        {!booking.deleted_at && <button onClick={onArchive} className="flex w-full items-center justify-center gap-1 rounded-lg border border-amber-200 px-2 py-2 text-xs text-amber-700 hover:bg-amber-50 dark:border-amber-500/20 dark:text-amber-400 dark:hover:bg-amber-500/10 sm:w-auto sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm">
           <Archive className="h-4 w-4" /> {booking.archived_at ? 'Restore Booking' : 'Archive Booking'}
         </button>}
-        <button onClick={onDelete} className="flex items-center gap-1.5 rounded-lg border border-rose-200 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50 dark:border-rose-500/20 dark:text-rose-400 dark:hover:bg-rose-500/10">
+        <button onClick={onDelete} className="flex w-full items-center justify-center gap-1 rounded-lg border border-rose-200 px-2 py-2 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-500/20 dark:text-rose-400 dark:hover:bg-rose-500/10 sm:w-auto sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm">
           <Trash2 className="h-4 w-4" /> Delete
         </button>
-        <button onClick={onEdit} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
+        <button onClick={onEdit} className="flex w-full items-center justify-center gap-1 rounded-lg border border-slate-200 px-2 py-2 text-xs text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5 sm:w-auto sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm">
           <Edit3 className="h-4 w-4" /> Edit
         </button>
-        <button onClick={sendWhatsApp} className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-600">
+        <button onClick={sendWhatsApp} className="flex w-full items-center justify-center gap-1 rounded-lg bg-emerald-500 px-2 py-2 text-xs font-medium text-white hover:bg-emerald-600 sm:w-auto sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm">
           <MessageCircle className="h-4 w-4" /> Send WhatsApp Bill
         </button>
-        <button onClick={sendDutySlip} className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-4 py-2.5 text-sm font-medium text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10">
+        <button onClick={sendDutySlip} className="flex w-full items-center justify-center gap-1 rounded-lg border border-emerald-500/30 px-2 py-2 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10 sm:w-auto sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm">
           <MessageCircle className="h-4 w-4" /> WhatsApp Duty Slip
         </button>
-        <button onClick={copyBillSummary} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">
+        <button onClick={copyBillSummary} className="flex w-full items-center justify-center gap-1 rounded-lg border border-slate-200 px-2 py-2 text-xs text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5 sm:w-auto sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm">
           <Copy className="h-4 w-4" /> Copy Bill Summary
         </button>
-        <button type="button" onClick={() => setShowInvoiceStamp((value) => !value)} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 dark:border-white/10 dark:text-slate-300">
+        <button type="button" onClick={() => setShowInvoiceStamp((value) => !value)} className="flex w-full items-center justify-center gap-1 rounded-lg border border-slate-200 px-2 py-2 text-xs text-slate-600 dark:border-white/10 dark:text-slate-300 sm:w-auto sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm">
           Stamp: {showInvoiceStamp ? 'On' : 'Off'}
         </button>
-        <button onClick={() => window.print()} className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 hover:bg-amber-400">
+        <button onClick={() => window.print()} className="flex w-full items-center justify-center gap-1 rounded-lg bg-amber-500 px-2 py-2 text-xs font-medium text-slate-900 hover:bg-amber-400 sm:w-auto sm:gap-1.5 sm:px-4 sm:py-2.5 sm:text-sm">
           <Printer className="h-4 w-4" /> Print A4 Bill
         </button>
-        <button onClick={() => setIsBillPreviewOpen(true)} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700">
+        <button onClick={() => setIsBillPreviewOpen(true)} className="flex w-full items-center justify-center gap-1 rounded-lg bg-blue-600 px-2 py-2 text-xs font-medium text-white hover:bg-blue-700 sm:w-auto sm:gap-2 sm:px-4 sm:py-2 sm:text-sm">
           <Eye className="h-4 w-4" /> View Bill
         </button>
       </div>
