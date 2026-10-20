@@ -206,7 +206,7 @@ export function Layout({ current, onNavigate, onBack, children }: LayoutProps) {
           if (isRightEdgeBackSwipe(start, { x: touch.clientX, y: touch.clientY }, window.innerWidth)) onBack();
         }}
       >
-        <div className={['lab', 'rentals', 'bookings', 'partners', 'dairy', 'promo', 'music', 'teaser', 'invitation', 'photo-selection', 'ledger', 'payments', 'proposals'].includes(current) ? 'w-full px-1 md:px-0' : 'w-full p-3 sm:p-6 lg:p-8'}>{children}</div>
+        <div className={['lab', 'live-work', 'rentals', 'bookings', 'partners', 'dairy', 'promo', 'music', 'teaser', 'invitation', 'photo-selection', 'ledger', 'payments', 'proposals'].includes(current) ? 'w-full px-1 md:px-0' : 'w-full p-3 sm:p-6 lg:p-8'}>{children}</div>
       </main>
 
       {/* Mobile bottom nav */}
