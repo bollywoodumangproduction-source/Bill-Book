@@ -16,6 +16,7 @@ import {
   Sparkles,
   Archive,
   RotateCcw,
+  Search,
   Unlock,
   Users,
   X,
@@ -33,6 +34,14 @@ import { UniversalMediaPreview } from '@/components/UniversalMediaPreview';
 
 const CATEGORIES = ['Teaser', 'Haldi', 'Entry', 'Jaymala', 'Vidai', 'Reception', 'Wedding/Barat', 'Custom'];
 const MUSIC_MIGRATION_MESSAGE = 'Music song library is not ready yet. Apply supabase/migrations/20261011150000_add_music_song_library.sql in Supabase SQL Editor, then refresh.';
+
+interface YouTubeSearchResult {
+  videoId: string;
+  title: string;
+  channel: string;
+  thumbnail: string;
+  url: string;
+}
 
 function isMissingMusicSchema(error: { code?: string; message?: string } | null | undefined): boolean {
   return Boolean(error && (['42P01', 'PGRST204', 'PGRST205'].includes(error.code ?? '') || /schema cache|does not exist|could not find the table/i.test(error.message ?? '')));
@@ -346,6 +355,10 @@ function MusicLibraryPanel({ songs, project, cues, disabled, onAdd, onSaveAudioL
   const [editingSong, setEditingSong] = useState<MusicLibrarySong | null>(null);
   const [audioUrl, setAudioUrl] = useState('');
   const [savingLink, setSavingLink] = useState(false);
+  const [youtubeSong, setYoutubeSong] = useState<MusicLibrarySong | null>(null);
+  const [youtubeResults, setYoutubeResults] = useState<YouTubeSearchResult[]>([]);
+  const [youtubeLoading, setYoutubeLoading] = useState(false);
+  const [savingYoutubeId, setSavingYoutubeId] = useState('');
   const categories = useMemo(() => [...new Set(songs.map((song) => song.event_tag))].sort(), [songs]);
   const visibleSongs = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -359,9 +372,9 @@ function MusicLibraryPanel({ songs, project, cues, disabled, onAdd, onSaveAudioL
       await onAdd({ project_id: project.id, category: song.event_tag, track_title: song.song_title, track_url: song.audio_url, start_time: '', usage_notes: song.singer_artist ? `Suggested artist: ${song.singer_artist}` : '', priority: 'preferred' });
     } finally { setAddingKey(''); }
   };
-  const saveAudioLink = async () => {
+  const saveAudioLink = async (link = audioUrl) => {
     if (!editingSong || !onSaveAudioLink || savingLink) return;
-    const normalizedUrl = audioUrl.trim();
+    const normalizedUrl = link.trim();
     if (normalizedUrl && !isSupportedMediaUrl(normalizedUrl)) {
       toast('Enter a valid YouTube, Drive, Dropbox, pCloud, OneDrive, or direct audio link.', 'error');
       return;
@@ -370,6 +383,39 @@ function MusicLibraryPanel({ songs, project, cues, disabled, onAdd, onSaveAudioL
     try {
       if (await onSaveAudioLink(editingSong, normalizedUrl)) setEditingSong(null);
     } finally { setSavingLink(false); }
+  };
+  const pasteAndSaveAudioLink = async () => {
+    try {
+      const clipboardText = await navigator.clipboard.readText();
+      if (!clipboardText.trim()) {
+        toast('Clipboard is empty. Copy the YouTube song link first.', 'error');
+        return;
+      }
+      setAudioUrl(clipboardText.trim());
+      await saveAudioLink(clipboardText);
+    } catch {
+      toast('Clipboard access was blocked. Paste the copied link into the field instead.', 'error');
+    }
+  };
+  const openYouTubeSearch = (song: MusicLibrarySong) => {
+    setYoutubeSong(song);
+    setYoutubeResults([]);
+    setYoutubeLoading(true);
+    const terms = [song.song_title, song.singer_artist].filter(Boolean).join(' ');
+    void supabase.functions.invoke('youtube-song-search', { body: { query: terms } }).then(({ data, error }) => {
+      if (error || data?.error) {
+        toast(data?.error || 'YouTube search nahi ho payi. API key setup check karein.', 'error');
+        return;
+      }
+      setYoutubeResults(Array.isArray(data?.results) ? data.results as YouTubeSearchResult[] : []);
+    }).catch(() => toast('YouTube search nahi ho payi. Connection check karein.', 'error')).finally(() => setYoutubeLoading(false));
+  };
+  const chooseYouTubeSong = async (result: YouTubeSearchResult) => {
+    if (!youtubeSong || !onSaveAudioLink || savingYoutubeId) return;
+    setSavingYoutubeId(result.videoId);
+    try {
+      if (await onSaveAudioLink(youtubeSong, result.url)) setYoutubeSong(null);
+    } finally { setSavingYoutubeId(''); }
   };
   const addedForEvent = (song: MusicLibrarySong) => cues.some((cue) => cue.category === song.event_tag && cue.track_title.trim().toLocaleLowerCase() === song.song_title.trim().toLocaleLowerCase());
   return <section className="rounded-2xl border border-amber-400/20 bg-slate-950/70 p-3 sm:p-4">
@@ -380,13 +426,15 @@ function MusicLibraryPanel({ songs, project, cues, disabled, onAdd, onSaveAudioL
       const media = resolveMediaUrl(song.audio_url, 'audio');
       return <article key={song.id} className="min-w-0 rounded-xl border border-white/10 bg-white/[0.03] p-2.5">
         <div className="flex min-w-0 items-center gap-2"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-white">{song.song_title}</p><p className="truncate text-xs text-slate-400">{song.event_tag}{song.singer_artist ? ` · ${song.singer_artist}` : ''}</p></div>
+          {onSaveAudioLink && <button type="button" onClick={() => openYouTubeSearch(song)} className="flex shrink-0 items-center gap-1 rounded-lg border border-white/10 px-2 py-1.5 text-xs text-slate-300 hover:bg-white/10" title={`Search YouTube for ${song.song_title}`}><Search className="h-3 w-3" /> YouTube</button>}
           {onSaveAudioLink && <button type="button" onClick={() => { setEditingSong(song); setAudioUrl(song.audio_url); }} className="shrink-0 rounded-lg border border-white/10 px-2 py-1.5 text-xs text-slate-300 hover:bg-white/10">{song.audio_url ? 'Edit link' : 'Add link'}</button>}
           <button type="button" disabled={disabled || added || Boolean(addingKey)} onClick={() => void addSong(song)} className="shrink-0 rounded-lg border border-amber-400/20 px-2.5 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50">{added ? 'Added' : addingKey === song.catalog_key ? 'Adding…' : 'Add'}</button>
         </div>
         {media ? <UniversalMediaPreview url={song.audio_url} kind="audio" title={`${song.song_title} preview`} className="mt-2" mediaClassName={media.render === 'audio' ? 'h-8 w-full max-w-[220px]' : 'aspect-video w-40 rounded-md border border-white/10 bg-black'} /> : <p className="mt-1 text-[11px] text-slate-500">Preview link not added</p>}
       </article>;
     })}</div>}
-    {editingSong && <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/70 p-4"><div role="dialog" aria-modal="true" aria-labelledby="library-audio-link-title" className="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-900 p-5 text-white shadow-2xl"><div className="mb-4"><h2 id="library-audio-link-title" className="text-lg font-semibold">Song Preview Link</h2><p className="mt-1 text-sm text-slate-400">{editingSong.song_title} · {editingSong.event_tag}</p><p className="mt-1 text-xs text-emerald-300">Pasted link isi song name ke saath save hoga aur client/partner portal library mein share hoga.</p></div><Field label="External audio or YouTube link"><input autoFocus type="url" value={audioUrl} onChange={(event) => setAudioUrl(event.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="YouTube, Drive, Dropbox, pCloud, OneDrive, or MP3 URL" /></Field><p className="mt-2 text-xs text-slate-500">Only the link is saved. No audio is uploaded to this app.</p><div className="mt-5 flex justify-end gap-2"><button type="button" disabled={savingLink} onClick={() => setEditingSong(null)} className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5">Cancel</button><button type="button" disabled={savingLink} onClick={() => void saveAudioLink()} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50">{savingLink ? 'Saving…' : 'Save Link'}</button></div></div></div>}
+    {editingSong && <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/70 p-4"><div role="dialog" aria-modal="true" aria-labelledby="library-audio-link-title" className="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-900 p-5 text-white shadow-2xl"><div className="mb-4"><h2 id="library-audio-link-title" className="text-lg font-semibold">Song Preview Link</h2><p className="mt-1 text-sm text-slate-400">{editingSong.song_title} · {editingSong.event_tag}</p><p className="mt-1 text-xs text-emerald-300">YouTube results me gaana select karne se link seedha save ho jayega. Ya link manually paste kar sakte hain.</p></div><Field label="External audio or YouTube link"><input autoFocus type="url" value={audioUrl} onChange={(event) => setAudioUrl(event.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="YouTube, Drive, Dropbox, pCloud, OneDrive, or MP3 URL" /></Field><p className="mt-2 text-xs text-slate-500">Only the link is saved. No audio is uploaded to this app.</p><div className="mt-5 flex justify-end gap-2"><button type="button" disabled={savingLink} onClick={() => setEditingSong(null)} className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5">Cancel</button><button type="button" disabled={savingLink} onClick={() => void pasteAndSaveAudioLink()} className="rounded-lg border border-amber-400/30 px-4 py-2.5 text-sm font-semibold text-amber-300 hover:bg-amber-500/10 disabled:opacity-50">{savingLink ? 'Saving…' : 'Paste & Save'}</button><button type="button" disabled={savingLink} onClick={() => void saveAudioLink()} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50">{savingLink ? 'Saving…' : 'Save Link'}</button></div></div></div>}
+    {youtubeSong && <div className="fixed inset-0 z-[190] flex items-center justify-center bg-black/75 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !youtubeLoading && !savingYoutubeId) setYoutubeSong(null); }}><div role="dialog" aria-modal="true" aria-labelledby="youtube-search-title" className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-slate-900 p-4 text-white shadow-2xl sm:p-5"><div className="mb-4 flex items-start justify-between gap-3"><div><h2 id="youtube-search-title" className="text-lg font-semibold">Choose YouTube Song</h2><p className="mt-1 text-sm text-slate-400">{youtubeSong.song_title}{youtubeSong.singer_artist ? ` · ${youtubeSong.singer_artist}` : ''}</p><p className="mt-1 text-xs text-emerald-300">Gaana select karte hi uska link library me save hoga.</p></div><button type="button" onClick={() => setYoutubeSong(null)} aria-label="Close YouTube search" className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button></div>{youtubeLoading ? <p className="py-10 text-center text-sm text-slate-400">YouTube par search ho raha hai…</p> : youtubeResults.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">Koi result nahi mila. Search terms ya API setup check karein.</p> : <div className="space-y-2">{youtubeResults.map((result) => <div key={result.videoId} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-2"><img src={result.thumbnail} alt="" className="h-14 w-24 shrink-0 rounded-md bg-slate-800 object-cover" /><div className="min-w-0 flex-1"><p className="line-clamp-2 text-sm font-medium">{result.title}</p><p className="mt-1 truncate text-xs text-slate-400">{result.channel}</p></div><button type="button" disabled={Boolean(savingYoutubeId)} onClick={() => void chooseYouTubeSong(result)} className="shrink-0 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50">{savingYoutubeId === result.videoId ? 'Saving…' : 'Select'}</button></div>)}</div>}</div></div>}
   </section>;
 }
 

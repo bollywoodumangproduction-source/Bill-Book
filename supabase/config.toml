@@ -6,3 +6,6 @@ verify_jwt = false
 
 [functions.pcloud-video-link]
 verify_jwt = false
+
+[functions.youtube-song-search]
+verify_jwt = true
