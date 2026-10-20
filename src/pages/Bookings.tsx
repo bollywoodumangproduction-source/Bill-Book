@@ -2042,13 +2042,13 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
               <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${(booking.work_status ?? 'pending') !== 'pending' && booking.work_status !== 'ready_for_delivery' && booking.work_status !== 'delivered' ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Work Status:</span>
+          <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
+            <span className="shrink-0 whitespace-nowrap text-xs font-medium text-slate-600 dark:text-slate-400">Work Status:</span>
             {WORK_STATUS_BUTTONS.slice(0, 4).map((ws) => (
               <button
                 key={ws}
                 onClick={() => void updateWorkStatus(ws)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                   (booking.work_status ?? 'pending') === ws
                     ? 'bg-amber-500 text-slate-900'
                     : 'border border-slate-200 text-slate-600 hover:bg-amber-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5'
@@ -2061,7 +2061,7 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
               aria-label="Album and video readiness"
               value={dataReadyStatuses.includes(booking.work_status) ? booking.work_status : ''}
               onChange={(event) => { if (event.target.value) void updateWorkStatus(event.target.value as WorkStatus); }}
-              className={`${selectClass} h-[34px] w-52 py-1 text-xs`}
+              className={`${selectClass} h-[34px] w-52 min-w-[13rem] shrink-0 py-1 text-xs`}
             >
               <option value="">Album / Video Ready</option>
               {dataReadyStatuses.map((status) => <option key={status} value={status}>{WORK_STATUS_LABELS[status]}</option>)}
@@ -2072,7 +2072,7 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
                 disabled={ws === 'delivered' && (booking.work_status !== 'ready_for_delivery' || !bookingDeliveryState(booking).isComplete)}
                 title={ws === 'delivered' && booking.work_status === 'ready_for_delivery' && !bookingDeliveryState(booking).isComplete ? 'Mark every delivery item received first' : undefined}
                 onClick={() => void updateWorkStatus(ws)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                   (booking.work_status ?? 'pending') === ws
                     ? 'bg-amber-500 text-slate-900'
                     : 'border border-slate-200 text-slate-600 hover:bg-amber-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5'

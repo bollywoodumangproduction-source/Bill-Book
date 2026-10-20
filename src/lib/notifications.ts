@@ -50,8 +50,8 @@ export async function logWorkStatusNotification(
     shoot_completed: 'Shoot Completed — your event has been successfully photographed.',
     editing_in_progress: 'Editing in Progress — your photos and videos are being edited.',
     album_design_ready: 'Album Design Ready — your album design is complete.',
-    video_complete: 'Video Complete — your video work is complete.',
-    both_data_ready: 'Both Data Ready — album and video work are complete.',
+    video_complete: 'Video Ready — your video work is complete.',
+    both_data_ready: 'Album / Video Ready — album and video work are complete.',
     ready_for_delivery: 'Your booked deliverables are ready for handover.',
     delivered: 'Delivered — all deliverables are ready for pickup.',
   };
@@ -61,8 +61,8 @@ export async function logWorkStatusNotification(
     shoot_completed: 'Shoot Completed',
     editing_in_progress: 'Editing in Progress',
     album_design_ready: 'Album Design Ready',
-    video_complete: 'Video Complete',
-    both_data_ready: 'Both Data Ready',
+    video_complete: 'Video Ready',
+    both_data_ready: 'Album / Video Ready',
     ready_for_delivery: 'Ready for Delivery',
     delivered: 'Delivered',
   };

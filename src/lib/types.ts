@@ -201,8 +201,8 @@ export const WORK_STATUS_LABELS: Record<WorkStatus, string> = {
   shoot_completed: 'Shoot Completed',
   editing_in_progress: 'Editing in Progress',
   album_design_ready: 'Album Design Ready',
-  video_complete: 'Video Complete',
-  both_data_ready: 'Both Data Ready',
+  video_complete: 'Video Ready',
+  both_data_ready: 'Album / Video Ready',
   ready_for_delivery: 'Ready for Delivery',
   delivered: 'Delivered',
 };

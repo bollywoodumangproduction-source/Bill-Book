@@ -692,18 +692,16 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
           <select
             id={`booking-live-status-${booking.id}`}
             value={booking.work_status ?? 'pending'}
-            onChange={(event) => void updateBookingWorkStatus(booking, event.target.value as WorkStatus)}
+            onChange={(event) => {
+              const nextStatus = event.target.value;
+              if (nextStatus === 'complete') void updateBookingWorkStatus(booking, 'ready_for_delivery');
+              else void updateBookingWorkStatus(booking, nextStatus as WorkStatus);
+            }}
             className={`${selectClass} min-w-0 flex-1`}
           >
             <option value="editing_in_progress">{WORK_STATUS_LABELS.editing_in_progress}</option>
+            <option value="complete">Complete</option>
           </select>
-          <button
-            type="button"
-            onClick={() => void updateBookingWorkStatus(booking, 'ready_for_delivery')}
-            className="flex shrink-0 items-center justify-center gap-1 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-400"
-          >
-            <CheckCircle2 className="h-4 w-4" /> Complete
-          </button>
         </div>
       </div>
       <button
