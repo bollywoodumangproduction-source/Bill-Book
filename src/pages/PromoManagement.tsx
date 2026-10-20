@@ -14,7 +14,7 @@ import {
   Send,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import type { PromoAd, PromoAdAudience } from '@/lib/types';
+import type { Partner, PromoAd, PromoAdAudience, PromoTargetScope } from '@/lib/types';
 import { useToast } from '@/context/ToastContext';
 import { Field, inputClass } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
@@ -76,6 +76,7 @@ export function PromoManagement() {
   const [section, setSection] = useState<Section>('banners');
 
   const [promoAds, setPromoAds] = useState<PromoAd[]>([]);
+  const [partners, setPartners] = useState<Partner[]>([]);
   const [showAdForm, setShowAdForm] = useState(false);
   const [editingAd, setEditingAd] = useState<PromoAd | null>(null);
 
@@ -106,6 +107,11 @@ export function PromoManagement() {
     setPromoAds((data ?? []) as PromoAd[]);
   }, []);
 
+  const loadPromoPartners = useCallback(async () => {
+    const { data } = await supabase.from('partners').select('id,name,status').order('name');
+    setPartners((data ?? []) as Partner[]);
+  }, []);
+
   const loadBanners = useCallback(async () => {
     const { data } = await supabase.from('promo_banners').select('*').order('created_at', { ascending: false });
     setBanners((data ?? []) as Banner[]);
@@ -128,11 +134,12 @@ export function PromoManagement() {
 
   useEffect(() => {
     loadPromoAds();
+    loadPromoPartners();
     loadBanners();
     loadPopups();
     loadCoupons();
     loadBroadcasts();
-  }, [loadPromoAds, loadBanners, loadPopups, loadCoupons, loadBroadcasts]);
+  }, [loadPromoAds, loadPromoPartners, loadBanners, loadPopups, loadCoupons, loadBroadcasts]);
 
   const addBanner = async () => {
     if (!bannerText.trim()) { toast('Banner text is required', 'error'); return; }
@@ -498,7 +505,11 @@ export function PromoManagement() {
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-900 dark:text-white">{ad.title}</p>
                       <p className="mt-0.5 truncate text-xs text-slate-400">{ad.description}</p>
-                      <p className="mt-1 text-[10px] text-slate-400">Audience: {ad.audience}</p>
+                      <p className="mt-1 text-[10px] text-slate-400">
+                        Audience: {ad.audience === 'partners' && ad.target_scope === 'specific_partner'
+                          ? `Partner · ${partners.find((partner) => partner.id === ad.partner_id)?.name ?? 'Selected partner'}`
+                          : ad.audience === 'partners' ? 'All partners' : 'Clients'}
+                      </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                       <button onClick={() => toggleAd(ad)} className={`rounded p-1 ${ad.is_active ? 'text-emerald-500' : 'text-slate-400'}`} title={ad.is_active ? 'Active' : 'Inactive'}>
@@ -525,6 +536,7 @@ export function PromoManagement() {
           onClose={() => { setShowAdForm(false); setEditingAd(null); }}
           onSaved={() => { setShowAdForm(false); setEditingAd(null); loadPromoAds(); }}
           editing={editingAd}
+          partners={partners}
           toast={toast}
         />
       )}
@@ -533,11 +545,12 @@ export function PromoManagement() {
   );
 }
 
-function PromoAdForm({ open, onClose, onSaved, editing, toast }: {
+function PromoAdForm({ open, onClose, onSaved, editing, partners, toast }: {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
   editing: PromoAd | null;
+  partners: Partner[];
   toast: (msg: string, type: 'success' | 'error' | 'info') => void;
 }) {
   const [title, setTitle] = useState('');
@@ -545,6 +558,8 @@ function PromoAdForm({ open, onClose, onSaved, editing, toast }: {
   const [imageUrl, setImageUrl] = useState('');
   const [actionLink, setActionLink] = useState('');
   const [audience, setAudience] = useState<PromoAdAudience>('clients');
+  const [targetScope, setTargetScope] = useState<PromoTargetScope>('all');
+  const [partnerId, setPartnerId] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -556,16 +571,25 @@ function PromoAdForm({ open, onClose, onSaved, editing, toast }: {
       setImageUrl(editing.image_url);
       setActionLink(editing.action_link);
       setAudience(editing.audience);
+      setTargetScope(editing.target_scope ?? 'all');
+      setPartnerId(editing.partner_id ?? '');
       setIsActive(editing.is_active);
     } else {
-      setTitle(''); setDescription(''); setImageUrl(''); setActionLink(''); setAudience('clients'); setIsActive(true);
+      setTitle(''); setDescription(''); setImageUrl(''); setActionLink(''); setAudience('clients'); setTargetScope('all'); setPartnerId(''); setIsActive(true);
     }
   }, [open, editing]);
 
   const handleSave = async () => {
     if (!title.trim()) { toast('Title is required', 'error'); return; }
+    if (audience === 'partners' && targetScope === 'specific_partner' && !partnerId) { toast('Select a partner for this offer', 'error'); return; }
     setSaving(true);
-    const payload = { title: title.trim(), description: description.trim(), image_url: imageUrl.trim(), action_link: actionLink.trim(), audience, is_active: isActive };
+    const payload = {
+      title: title.trim(), description: description.trim(), image_url: imageUrl.trim(), action_link: actionLink.trim(),
+      audience,
+      target_scope: audience === 'partners' ? targetScope : 'all',
+      partner_id: audience === 'partners' && targetScope === 'specific_partner' ? partnerId : null,
+      is_active: isActive,
+    };
     if (editing) {
       const { error } = await supabase.from('promo_ads').update(payload).eq('id', editing.id);
       if (error) { toast('Failed to update promo', 'error'); setSaving(false); return; }
@@ -596,7 +620,7 @@ function PromoAdForm({ open, onClose, onSaved, editing, toast }: {
         </Field>
         <div className="grid grid-cols-2 gap-4">
           <Field label="Target Audience">
-            <select value={audience} onChange={(e) => setAudience(e.target.value as PromoAdAudience)} className={inputClass}>
+            <select value={audience} onChange={(e) => { const next = e.target.value as PromoAdAudience; setAudience(next); if (next !== 'partners') { setTargetScope('all'); setPartnerId(''); } }} className={inputClass}>
               <option value="clients">Clients Only</option>
               <option value="partners">Lab/Partners Only</option>
             </select>
@@ -608,6 +632,26 @@ function PromoAdForm({ open, onClose, onSaved, editing, toast }: {
             </select>
           </Field>
         </div>
+        {audience === 'partners' && (
+          <div className={targetScope === 'specific_partner' ? 'grid grid-cols-2 gap-4' : ''}>
+            <Field label="Offer For">
+              <select value={targetScope} onChange={(e) => { const next = e.target.value as PromoTargetScope; setTargetScope(next); if (next !== 'specific_partner') setPartnerId(''); }} className={inputClass}>
+                <option value="all">All Partners</option>
+                <option value="specific_partner">One Specific Partner</option>
+              </select>
+            </Field>
+            {targetScope === 'specific_partner' && (
+              <Field label="Select Partner">
+                <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)} className={inputClass}>
+                  <option value="">Choose partner</option>
+                  {partners.filter((partner) => partner.status !== 'Trash').map((partner) => (
+                    <option key={partner.id} value={partner.id}>{partner.name}{partner.studio_name ? ` · ${partner.studio_name}` : ''}</option>
+                  ))}
+                </select>
+              </Field>
+            )}
+          </div>
+        )}
         <div className="flex justify-end gap-3 pt-2">
           <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Cancel</button>
           <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400 disabled:opacity-50">
