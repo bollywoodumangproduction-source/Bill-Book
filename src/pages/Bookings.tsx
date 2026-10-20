@@ -434,7 +434,6 @@ export function Bookings({ openBookingId, openBookingEdit = false, onBookingOpen
       {detailBooking && (
         <ErrorBoundary>
           <BookingDetail
-            presentation="page"
             booking={detailBooking}
             onClose={() => { setDetailBooking(null); load(); }}
             onUpdated={(updated) => { setDetailBooking(updated); setBookings((prev) => prev.map((item) => item.id === updated.id ? updated : item)); }}
@@ -1598,7 +1597,7 @@ function DeliverableCheckbox({ label, checked, onChange }: { label: string; chec
   );
 }
 
-export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, onUpdated, presentation = 'modal' }: { booking: Booking; onClose: () => void; onEdit: () => void; onDelete: () => void; onArchive: () => void; onUpdated: (booking: Booking) => void; presentation?: 'modal' | 'page' }) {
+export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, onUpdated }: { booking: Booking; onClose: () => void; onEdit: () => void; onDelete: () => void; onArchive: () => void; onUpdated: (booking: Booking) => void }) {
   const { settings } = useSettings();
   const { toast } = useToast();
   const { triggerRefresh } = useRefresh();
@@ -2217,27 +2216,21 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
 
   return (
     <>
-      {presentation === 'page' ? (
-        <main className="min-h-full w-full overflow-y-auto">
-          <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-800 bg-[#0B1121]/95 px-3 py-3 shadow-md backdrop-blur-md sm:px-6">
-            <button type="button" onClick={onClose} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition-colors hover:border-amber-500/50 hover:text-amber-300">
-              <ArrowLeft className="h-4 w-4" /> <span className="hidden sm:inline">Back to Bookings</span><span className="sm:hidden">Back</span>
-            </button>
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate text-base font-bold text-white sm:text-xl">{booking.booking_no} — {booking.client_name}</h1>
-              <p className="truncate text-xs text-slate-400">{booking.event_function || 'Booking details'} · {formatDate(booking.shoot_date)}</p>
-            </div>
-            <Badge color={booking.work_status === 'delivered' ? 'emerald' : booking.work_status === 'pending' ? 'slate' : 'amber'}>{getWorkStatusLabel(booking.work_status)}</Badge>
-          </header>
-          <div className="mx-auto w-full max-w-6xl p-3 sm:p-5 lg:p-6">
-            {modalBody}
+      <main className="min-h-full w-full overflow-y-auto">
+        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-800 bg-[#0B1121]/95 px-3 py-3 shadow-md backdrop-blur-md sm:px-6">
+          <button type="button" onClick={onClose} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition-colors hover:border-amber-500/50 hover:text-amber-300">
+            <ArrowLeft className="h-4 w-4" /> <span className="hidden sm:inline">Back to Bookings</span><span className="sm:hidden">Back</span>
+          </button>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-base font-bold text-white sm:text-xl">{booking.booking_no} — {booking.client_name}</h1>
+            <p className="truncate text-xs text-slate-400">{booking.event_function || 'Booking details'} · {formatDate(booking.shoot_date)}</p>
           </div>
-        </main>
-      ) : (
-        <Modal open={true} onClose={onClose} onBackSwipe={onClose} title={`${booking.booking_no} — ${booking.client_name}`} size="lg">
+          <Badge color={booking.work_status === 'delivered' ? 'emerald' : booking.work_status === 'pending' ? 'slate' : 'amber'}>{getWorkStatusLabel(booking.work_status)}</Badge>
+        </header>
+        <div className="mx-auto w-full max-w-6xl p-3 sm:p-5 lg:p-6">
           {modalBody}
-        </Modal>
-      )}
+        </div>
+      </main>
       <BillPreviewModal booking={booking} settings={settings} open={isBillPreviewOpen} onClose={() => setIsBillPreviewOpen(false)} showStamp={showInvoiceStamp} onToggleStamp={() => setShowInvoiceStamp((value) => !value)} onDualPrint={() => { setIsDualPrintOpen(true); setTimeout(() => { window.print(); setIsDualPrintOpen(false); }, 100); }} />
       {isDualPrintOpen && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies>{(copyType) => <BillInvoice booking={booking} settings={settings} compact showStamp={showInvoiceStamp} copyTypeOverride={copyType} />}</PrintableDualCopies></div>, document.body)}
       {!isDualPrintOpen && createPortal(
