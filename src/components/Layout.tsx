@@ -42,6 +42,7 @@ const desktopNav: { key: PageKey; label: string; icon: typeof Home }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'bookings', label: 'Bookings', icon: CalendarPlus },
   { key: 'lab', label: 'Lab Orders', icon: Clapperboard },
+  { key: 'live-work', label: 'On Live Station', icon: Sparkles },
   { key: 'rentals', label: 'Equipment Rentals', icon: Camera },
   { key: 'partners', label: 'Partners', icon: Users },
   { key: 'ledger', label: 'Ledger', icon: Camera },
@@ -60,6 +61,7 @@ const mobileNav: { key: PageKey; label: string; icon: typeof Home }[] = [
   { key: 'dashboard', label: 'Home', icon: Home },
   { key: 'bookings', label: 'Bookings', icon: CalendarPlus },
   { key: 'lab', label: 'Lab', icon: Clapperboard },
+  { key: 'live-work', label: 'Live', icon: Sparkles },
   { key: 'payments', label: 'Pay', icon: Wallet },
 ];
 

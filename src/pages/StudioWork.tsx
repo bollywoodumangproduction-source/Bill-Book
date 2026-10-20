@@ -257,8 +257,8 @@ function sortOrdersByPriority(orders: StudioLabOrder[], deadlineAlerts: Array<{ 
   });
 }
 
-export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: () => void; onNavigate?: (page: PageKey) => void } = {}) {
-  const { openOrderId, onOrderOpened } = props;
+export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: () => void; onNavigate?: (page: PageKey) => void; stationOnly?: boolean } = {}) {
+  const { openOrderId, onOrderOpened, stationOnly = false } = props;
   const { toast } = useToast();
   const { settings } = useSettings();
   const { refreshToken, triggerRefresh } = useRefresh();
@@ -266,7 +266,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
   const [stationBookings, setStationBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<'station' | 'partners'>('station');
+  const [activeTab, setActiveTab] = useState<'station' | 'partners'>(stationOnly ? 'station' : 'partners');
   const [selectedPartner, setSelectedPartner] = useState<string | null>(null);
   const [selectedDeliveryYear, setSelectedDeliveryYear] = useState<string | null>(null);
   const [showReadyDeliveries, setShowReadyDeliveries] = useState(false);
@@ -931,34 +931,34 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
       <div className="sticky top-14 z-30 w-full bg-[#0B1121]/95 shadow-md backdrop-blur-md md:top-0">
       <div className="hidden w-full items-center justify-between gap-2 px-2 py-2 sm:px-4 md:flex md:gap-0">
         <div className="min-w-0 flex-1 md:w-auto md:flex-none">
-          <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">{activeTab === 'partners' && selectedOrder ? labOrderTitle(selectedOrder) : activeTab === 'partners' && showReadyDeliveries ? 'Ready for Delivery' : activeTab === 'partners' && selectedDeliveryYear ? `Delivered Orders · ${selectedDeliveryYear}` : activeTab === 'partners' && selectedPartnerGroup ? selectedPartnerGroup.partnerName : 'Lab Order Form'}</h1>
+          <h1 className="truncate text-sm font-bold text-white sm:text-lg md:text-xl">{stationOnly ? 'On Live Station' : activeTab === 'partners' && selectedOrder ? labOrderTitle(selectedOrder) : activeTab === 'partners' && showReadyDeliveries ? 'Ready for Delivery' : activeTab === 'partners' && selectedDeliveryYear ? `Delivered Orders · ${selectedDeliveryYear}` : activeTab === 'partners' && selectedPartnerGroup ? selectedPartnerGroup.partnerName : 'Lab Order Form'}</h1>
           <p className="hidden truncate text-xs text-slate-400 sm:block">{activeTab === 'partners' && selectedOrder ? `${selectedOrder.order_no} · ${selectedOrder.partner_name}` : activeTab === 'partners' && showReadyDeliveries ? `${selectedPartnerGroup?.partnerName ?? 'Partner'} · ${readyDeliveryOrders.length} completed bills awaiting handover` : activeTab === 'partners' && selectedDeliveryYear ? `${selectedPartnerGroup?.partnerName ?? 'Partner'} · ${deliveredYearGroups.find(([year]) => year === selectedDeliveryYear)?.[1].length ?? 0} delivered bills` : activeTab === 'partners' && selectedPartnerGroup ? `${selectedPartnerGroup.studioName} · Partner dashboard` : 'Photolab & Media Production Order Sheet'}</p>
         </div>
         <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2 md:w-auto">
-          <button
+          {!stationOnly && <button
             onClick={() => setActiveTab('station')}
             aria-label="On Live Station"
             title="On Live Station"
             className={`shrink-0 rounded-lg px-2 py-1.5 text-[11px] font-medium sm:px-3 sm:text-xs ${activeTab === 'station' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
           >
             <span aria-hidden="true">🛠️</span><span className="hidden sm:inline"> On Live Station</span>
-          </button>
-          <button
+          </button>}
+          {!stationOnly && <button
             onClick={() => setActiveTab('partners')}
             aria-label="Partner Folders"
             title="Partner Folders"
             className={`shrink-0 rounded-lg px-2 py-1.5 text-[11px] font-medium sm:px-3 sm:text-xs ${activeTab === 'partners' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}
           >
             <span aria-hidden="true">👥</span><span className="hidden sm:inline"> Partner Folders</span>
-          </button>
-          <button
+          </button>}
+          {!stationOnly && <button
             onClick={() => { setEditing(null); setShowForm(true); }}
             aria-label="New Order"
             title="New Order"
             className="flex shrink-0 items-center gap-1 rounded-lg bg-amber-500 px-2 py-1.5 text-[11px] font-medium text-slate-900 transition-colors hover:bg-amber-400 sm:px-3 sm:text-xs"
           >
             <Plus className="h-4 w-4" /><span className="hidden sm:inline">New Order</span>
-          </button>
+          </button>}
         </div>
       </div>
       <div className="flex items-center gap-1.5 px-2 py-1.5 md:hidden">
@@ -975,11 +975,11 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
             {LIVE_STATION_FILTER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </> : <p className="min-w-0 flex-1 truncate text-xs font-bold text-white">{selectedOrder ? labOrderTitle(selectedOrder) : showReadyDeliveries ? 'Ready for Delivery' : selectedDeliveryYear ? `Delivered Orders · ${selectedDeliveryYear}` : selectedPartnerGroup?.partnerName || 'Lab Order Form'}</p>}
-        <div className="flex shrink-0 items-center gap-1">
+        {!stationOnly && <div className="flex shrink-0 items-center gap-1">
           <button onClick={() => setActiveTab('station')} aria-label="On Live Station" title="On Live Station" className={`flex h-8 w-8 items-center justify-center rounded-lg text-[11px] ${activeTab === 'station' ? 'bg-amber-500 text-slate-900' : 'border border-white/10 text-slate-300'}`}>🛠️</button>
           <button onClick={() => setActiveTab('partners')} aria-label="Partner Folders" title="Partner Folders" className={`flex h-8 w-8 items-center justify-center rounded-lg text-[11px] ${activeTab === 'partners' ? 'bg-amber-500 text-slate-900' : 'border border-white/10 text-slate-300'}`}>👥</button>
           <button onClick={() => { setEditing(null); setShowForm(true); }} aria-label="New Order" title="New Order" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-slate-900"><Plus className="h-4 w-4" /></button>
-        </div>
+        </div>}
       </div>
       {activeTab === 'station' && <div className="hidden flex-row gap-3 px-4 pb-2 md:flex">
         <div className="relative min-w-0 flex-1">

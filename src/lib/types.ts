@@ -532,7 +532,7 @@ export interface EquipmentRentalPayment {
   created_at: string;
 };
 
-export type PageKey = 'dashboard' | 'bookings' | 'lab' | 'rentals' | 'partners' | 'ledger' | 'payments' | 'dairy' | 'settings' | 'promo' | 'music' | 'teaser' | 'invitation' | 'photo-selection' | 'proposals';
+export type PageKey = 'dashboard' | 'bookings' | 'lab' | 'live-work' | 'rentals' | 'partners' | 'ledger' | 'payments' | 'dairy' | 'settings' | 'promo' | 'music' | 'teaser' | 'invitation' | 'photo-selection' | 'proposals';
 
 export type TeaserStatus = 'editing' | 'complete' | 'delivered';
 
