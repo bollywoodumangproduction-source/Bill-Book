@@ -135,6 +135,7 @@ export interface BookingDeliverables {
   custom_items?: BookingCustomItem[];
   payment_details?: BookingPaymentDetails;
   delivery_receipts?: BookingDeliveryReceipt[];
+  delivery_history?: BookingDeliveryHistoryEntry[];
   work_progress?: BookingWorkProgress;
   final_delivered_at?: string;
   raw_video?: boolean;
@@ -161,6 +162,13 @@ export interface BookingDeliveryReceipt {
   item_key: string;
   item: string;
   received_at: string;
+}
+
+export interface BookingDeliveryHistoryEntry {
+  reopened_at: string;
+  work_type: BookingWorkType;
+  final_delivered_at?: string | null;
+  receipts: BookingDeliveryReceipt[];
 }
 
 export interface Booking {

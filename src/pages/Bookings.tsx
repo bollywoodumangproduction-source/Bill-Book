@@ -1997,6 +1997,27 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
                 ? 'All items received · click Delivered to file this booking'
                 : `${bookingDeliveryState(booking).receivedCount} of ${delivList.length} items received`}
           </p>
+          {(safeDeliverables.delivery_history?.length ?? 0) > 0 && (
+            <details className="mt-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-white/10">
+              <summary className="cursor-pointer text-xs font-medium text-slate-600 dark:text-slate-300">
+                Previous delivery history ({safeDeliverables.delivery_history?.length})
+              </summary>
+              <div className="mt-2 space-y-2">
+                {safeDeliverables.delivery_history?.map((entry, index) => (
+                  <div key={`${entry.reopened_at}-${entry.work_type}-${index}`} className="rounded-md bg-slate-100 px-2.5 py-2 text-xs dark:bg-white/5">
+                    <p className="font-medium text-slate-700 dark:text-slate-200">
+                      {entry.work_type === 'album' ? 'Album' : 'Video'} reopened · {entry.final_delivered_at ? `Delivered ${formatDate(entry.final_delivered_at)} · ` : ''}Reopened {formatDate(entry.reopened_at)}
+                    </p>
+                    {(entry.receipts ?? []).map((receipt) => (
+                      <p key={`${receipt.item_key}-${receipt.received_at}`} className="mt-1 text-slate-500 dark:text-slate-400">
+                        {receipt.item} received · {formatDate(receipt.received_at)}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       )}
 
@@ -2035,17 +2056,19 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
               type="button"
               role="switch"
               aria-checked={booking.work_status === 'editing_in_progress'}
-              disabled={booking.work_status === 'ready_for_delivery' || booking.work_status === 'delivered' || !!booking.archived_at || !!booking.deleted_at || (booking.booking_status ?? '').toUpperCase() === 'CANCELLED'}
+              disabled={booking.work_status === 'ready_for_delivery' || !!booking.archived_at || !!booking.deleted_at || (booking.booking_status ?? '').toUpperCase() === 'CANCELLED'}
               onClick={async () => {
                 const isOnLiveStation = booking.work_status === 'editing_in_progress';
+                const reopeningDelivered = booking.work_status === 'delivered';
                 const nextStatus: WorkStatus = isOnLiveStation ? 'pending' : 'editing_in_progress';
                 if (isOnLiveStation && !window.confirm('Remove this booking from Live Station and set its work status back to Pending?')) return;
+                if (reopeningDelivered && !window.confirm('Reopen this delivered Booking for editing? Album/Video will return to Live Station, their current received marks will be cleared, and the previous delivery receipts and date will be kept in history.')) return;
                 try {
                   let updated = booking;
                   if (mediaTypes.length > 0) {
                     for (const type of mediaTypes) {
                       const current = bookingWorkItemStatus(updated, type);
-                      if ((isOnLiveStation && current === 'editing_in_progress') || (!isOnLiveStation && current !== 'ready_for_delivery')) {
+                      if (reopeningDelivered || (isOnLiveStation && current === 'editing_in_progress') || (!isOnLiveStation && current !== 'ready_for_delivery')) {
                         updated = await saveBookingMediaStatus(updated, type, isOnLiveStation ? 'pending' : 'editing_in_progress');
                       }
                     }
@@ -2057,7 +2080,7 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
                   onUpdated(updated);
                   await logWorkStatusNotification(booking.id, nextStatus);
                   triggerRefresh();
-                  toast(isOnLiveStation ? 'Editing booking items returned to Pending' : 'Booking sent to Live Station; editing started', 'success');
+                  toast(reopeningDelivered ? 'Delivered Booking reopened in Live Station' : isOnLiveStation ? 'Editing booking items returned to Pending' : 'Booking sent to Live Station; editing started', 'success');
                 } catch (error) {
                   toast(error instanceof Error ? error.message : 'Could not update Live Station status', 'error');
                 }
