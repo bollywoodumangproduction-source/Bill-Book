@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { createPortal } from 'react-dom';
 import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, TriangleAlert as AlertTriangle, Zap, CalendarClock, Images, HardDrive, FolderOpen } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { getBookingDataReadyStatuses, photoSessionFromDatabase } from '@/lib/types';
+import { photoSessionFromDatabase } from '@/lib/types';
 import type { Booking, WorkStatus, StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabExtraCharge, LabClientDeliveryStatus, StorageLocation, PageKey } from '@/lib/types';
 import { WORK_STATUSES, WORK_STATUS_LABELS } from '@/lib/types';
 import { formatINR, formatDate, formatDateTime, todayISO, defaultPinFromPhone } from '@/lib/format';
@@ -141,7 +141,7 @@ const EMPTY_VIDEO_ROW: VideoRow = { video_type: '', quality: '', qty: 0, rate: 0
 const EMPTY_ALBUM_ROW: AlbumRow = { id: uid(), album_type: '', size: '', packaging: '', packaging_rate: 0, packaging_total: 0, mini_album: false, mini_only: false, bag_only: false, bag_size: '', bag_rate: 0, bag_total: 0, mini_qty: 0, mini_rate: 0, mini_total: 0, papers: [{ id: uid(), paper_type: '', sheets: 0, rate: 0, total: 0 }], total: 0 };
 const EMPTY_PAPER_ROW: PaperRow = { id: uid(), paper_type: '', sheets: 0, extra_sheets: 0, rate: 0, total: 0 };
 
-const LIVE_BOOKING_WORK_STATUSES: WorkStatus[] = ['processing', 'shoot_completed', 'editing_in_progress', 'album_design_ready', 'video_complete', 'both_data_ready'];
+const LIVE_BOOKING_WORK_STATUSES: WorkStatus[] = ['editing_in_progress'];
 
 const EMPTY_STORAGE_LOCATION: StorageLocation = { id: '', device: '', drive: '', work: '', client_name: '' };
 
@@ -695,7 +695,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
             onChange={(event) => void updateBookingWorkStatus(booking, event.target.value as WorkStatus)}
             className={`${selectClass} min-w-0 flex-1`}
           >
-            {(['processing', 'shoot_completed', 'editing_in_progress', ...getBookingDataReadyStatuses(booking)] as WorkStatus[]).map((status) => <option key={status} value={status}>{WORK_STATUS_LABELS[status]}</option>)}
+            <option value="editing_in_progress">{WORK_STATUS_LABELS.editing_in_progress}</option>
           </select>
           <button
             type="button"

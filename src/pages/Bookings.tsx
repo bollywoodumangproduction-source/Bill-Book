@@ -1585,10 +1585,10 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
 function BookingDeliveryStatus({ booking, compact = false }: { booking: Booking; compact?: boolean }) {
   const { items, receivedCount, isComplete } = bookingDeliveryState(booking);
   const finalDate = booking.deliverables_data?.final_delivered_at;
-  const label = isComplete
+  const label = booking.work_status === 'delivered'
     ? `Delivered${finalDate ? ` · ${formatDate(finalDate)}` : ''}`
     : items.length > 0
-      ? `${receivedCount}/${items.length} items received`
+      ? isComplete ? 'All items received · ready to deliver' : `${receivedCount}/${items.length} items received`
       : 'No delivery items';
   return (
     <div className={`${compact ? 'mt-1' : ''} inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1 text-[11px] dark:border-white/10`}>
@@ -1780,7 +1780,6 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
         return;
       }
       await logDeliveryNotification(booking.id, item, Boolean(result.is_final_delivery));
-      if (result.is_final_delivery) await logWorkStatusNotification(booking.id, 'delivered');
       triggerRefresh();
       toast(result.is_final_delivery ? 'All deliverables marked as received' : 'Delivery item marked as received', 'success');
     } catch (error) {
@@ -1856,9 +1855,23 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
       return;
     }
     try {
-      const { data, error } = await supabase.from('bookings').update({ work_status: nextStatus }).eq('id', booking.id).select('*').single();
-      if (error) throw error;
-      onUpdated(data as Booking);
+      let updated: Booking;
+      if (nextStatus === 'delivered') {
+        const { data, error } = await supabase.rpc('complete_booking_delivery', {
+          p_booking_id: booking.id,
+          p_all_item_keys: deliveryState.items.map((_, index) => deliveryItemKey(deliveryState.items, index)),
+          p_expected_deliverables: safeDeliverables,
+        });
+        if (error) throw error;
+        const result = data as { booking?: Booking } | null;
+        if (!result?.booking) throw new Error('The delivery confirmation was not returned. Refresh the Booking and check its status before retrying.');
+        updated = result.booking;
+      } else {
+        const { data, error } = await supabase.from('bookings').update({ work_status: nextStatus }).eq('id', booking.id).select('*').single();
+        if (error) throw error;
+        updated = data as Booking;
+      }
+      onUpdated(updated);
       await logWorkStatusNotification(booking.id, nextStatus);
       triggerRefresh();
       toast(`Work status updated to "${WORK_STATUS_LABELS[nextStatus]}"`, 'success');
@@ -1965,9 +1978,11 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
             })}
           </div>
           <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
-            {bookingDeliveryState(booking).isComplete
-              ? `Final Delivered${safeDeliverables.final_delivered_at ? ` · ${formatDate(safeDeliverables.final_delivered_at)}` : ''}`
-              : `${bookingDeliveryState(booking).receivedCount} of ${delivList.length} items received`}
+            {booking.work_status === 'delivered'
+              ? `Delivered${safeDeliverables.final_delivered_at ? ` · ${formatDate(safeDeliverables.final_delivered_at)}` : ''}`
+              : bookingDeliveryState(booking).isComplete
+                ? 'All items received · click Delivered to file this booking'
+                : `${bookingDeliveryState(booking).receivedCount} of ${delivList.length} items received`}
           </p>
         </div>
       )}
@@ -2054,11 +2069,15 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
             {WORK_STATUS_BUTTONS.slice(4).map((ws) => (
               <button
                 key={ws}
+                disabled={ws === 'delivered' && (booking.work_status !== 'ready_for_delivery' || !bookingDeliveryState(booking).isComplete)}
+                title={ws === 'delivered' && booking.work_status === 'ready_for_delivery' && !bookingDeliveryState(booking).isComplete ? 'Mark every delivery item received first' : undefined}
                 onClick={() => void updateWorkStatus(ws)}
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                   (booking.work_status ?? 'pending') === ws
                     ? 'bg-amber-500 text-slate-900'
                     : 'border border-slate-200 text-slate-600 hover:bg-amber-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5'
+                } disabled:cursor-not-allowed disabled:opacity-40 ${
+                  ws === 'delivered' && (booking.work_status !== 'ready_for_delivery' || !bookingDeliveryState(booking).isComplete) ? 'hover:bg-transparent dark:hover:bg-transparent' : ''
                 }`}
               >
                 {WORK_STATUS_LABELS[ws]}
