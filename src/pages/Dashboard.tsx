@@ -72,6 +72,7 @@ export function Dashboard({ onNavigate, onOpenBooking, onOpenLabOrder }: Dashboa
         setTodaysBookings(activeBookings.filter((b) => isToday(b.shoot_date)));
         setUpcomingBookings(activeBookings.filter((b) => isUpcoming(b.shoot_date)).slice(0, 5));
         setActiveWorkBookings(activeBookings.filter((b) =>
+          b.work_status !== 'pending' &&
           b.work_status !== 'delivered' &&
           !b.isDemo && !b.is_demo &&
           !String(b.booking_no ?? '').startsWith('DEMO-') &&

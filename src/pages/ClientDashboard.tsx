@@ -34,7 +34,7 @@ import { getWorkStatusLabel, photoSessionFromDatabase } from '@/lib/types';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { formatINR, formatDate, formatDateTime, formatPhone } from '@/lib/format';
-import { formatDeliverablesList } from '@/components/BillInvoice';
+import { formatDeliverablesList, getDeliverableReceipt } from '@/components/BillInvoice';
 import { bookingBillingSnapshot, labOrderBillingSnapshot } from '@/lib/billing';
 import { getClientSession, clearClientSession, isLabSession, getLabSessionId } from '@/pages/ClientLogin';
 import { Modal } from '@/components/ui/Modal';
@@ -61,7 +61,7 @@ function selectionExtra(session: ClientSelectionSession): { sheets: number; amou
   return { sheets, amount: sheets * Number(session.extraSheetRate ?? 0) };
 }
 import { ProjectTimeline } from '@/components/ProjectTimeline';
-import { hasLabAlbumWork, hasLabVideoWork, labOrderOverviewStatus, visibleLabOrderDates } from '@/lib/labOrderStatus';
+import { clientAlbumWorkStatus, hasLabAlbumWork, hasLabVideoWork, labOrderOverviewStatus, visibleLabOrderDates } from '@/lib/labOrderStatus';
 
 const DEFAULT_DELIVERABLES = {
   raw_video: false,
@@ -228,8 +228,7 @@ export function ClientDashboard() {
   const safeEvents = booking.events ?? [];
   const safeDeliverables = booking.deliverables_data ?? DEFAULT_DELIVERABLES;
   const delivList = formatDeliverablesList(safeDeliverables);
-  const deliveryReceipts = safeDeliverables.delivery_receipts ?? [];
-  const deliveryReceivedCount = delivList.filter((_item, index) => deliveryReceipts.some((receipt) => receipt.item_key === deliveryItemKey(delivList, index))).length;
+  const deliveryReceivedCount = delivList.filter((_item, index) => getDeliverableReceipt(safeDeliverables, delivList, index)).length;
   const allDeliverablesReceived = delivList.length > 0 && deliveryReceivedCount === delivList.length;
   const bookingBilling = bookingBillingSnapshot(booking);
   const netDue = bookingBilling.balanceDue;
@@ -521,7 +520,7 @@ export function ClientDashboard() {
             </div>
             <div className="space-y-2">
               {delivList.map((item, index) => {
-                const receipt = deliveryReceipts.find((entry) => entry.item_key === deliveryItemKey(delivList, index));
+                const receipt = getDeliverableReceipt(safeDeliverables, delivList, index);
                 return (
                   <div key={deliveryItemKey(delivList, index)} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-white/10">
                     <span className="min-w-0 flex-1 text-xs text-slate-700 dark:text-slate-300">{item}</span>
@@ -701,7 +700,7 @@ function LabOrderDashboard({
           </div>
           {order.is_emergency && <p className="mt-3 inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-500"><Zap className="h-3.5 w-3.5" /> Emergency priority</p>}
           <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            {hasLabAlbumWork(order) && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700 dark:bg-white/5 dark:text-slate-300">Album: {order.album_status || 'Pending'}</span>}
+            {hasLabAlbumWork(order) && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700 dark:bg-white/5 dark:text-slate-300">Album: {clientAlbumWorkStatus(order.album_status, order.order_status === 'Delivered')}</span>}
             {hasLabVideoWork(order) && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700 dark:bg-white/5 dark:text-slate-300">Video: {order.video_status || 'Pending'}</span>}
           </div>
           <button

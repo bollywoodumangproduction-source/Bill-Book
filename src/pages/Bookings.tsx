@@ -64,7 +64,7 @@ import {
   BOOKING_VIDEO_FORMATS,
 } from '@/lib/constants';
 import { Badge } from '@/components/ui/Badge';
-import { BillInvoice, formatDeliverablesList } from '@/components/BillInvoice';
+import { BillInvoice, formatDeliverablesList, getDeliverableReceipt } from '@/components/BillInvoice';
 import { copyToClipboard } from '@/lib/clipboard';
 import { Modal } from '@/components/ui/Modal';
 import { Field, inputClass, selectClass } from '@/components/ui/Field';
@@ -123,8 +123,8 @@ function uid(): string {
 function bookingDeliveryState(booking: Booking) {
   const items = formatDeliverablesList(booking.deliverables_data ?? DEFAULT_DELIVERABLES);
   const receipts = booking.deliverables_data?.delivery_receipts ?? [];
-  const receivedKeys = new Set(receipts.map((receipt) => receipt.item_key));
-  const receivedCount = items.reduce((count, item, index) => count + (receivedKeys.has(deliveryItemKey(items, index)) ? 1 : 0), 0);
+  const deliverables = booking.deliverables_data ?? DEFAULT_DELIVERABLES;
+  const receivedCount = items.reduce((count, _item, index) => count + (getDeliverableReceipt(deliverables, items, index) ? 1 : 0), 0);
   const isComplete = items.length > 0 && receivedCount === items.length;
   return { items, receipts, receivedCount, isComplete };
 }
@@ -793,7 +793,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       is_login_allowed: editing?.is_login_allowed ?? false,
       access_pin: editing?.access_pin ?? '',
       pin_changed: editing?.pin_changed ?? false,
-      work_status: deliveryItemsChanged && (editing?.work_status === 'album_design_ready' || editing?.work_status === 'delivered')
+      work_status: deliveryItemsChanged && (editing?.work_status === 'album_design_ready' || editing?.work_status === 'ready_for_delivery' || editing?.work_status === 'delivered')
         ? 'editing_in_progress'
         : editing?.work_status ?? 'pending',
     });
@@ -1748,6 +1748,7 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, onUpdate
         return;
       }
       await logDeliveryNotification(booking.id, item, Boolean(result.is_final_delivery));
+      if (result.is_final_delivery) await logWorkStatusNotification(booking.id, 'delivered');
       triggerRefresh();
       toast(result.is_final_delivery ? 'All deliverables marked as received' : 'Delivery item marked as received', 'success');
     } catch (error) {
@@ -1894,15 +1895,15 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, onUpdate
           <div className="space-y-2">
             {delivList.map((item, index) => {
               const itemKey = deliveryItemKey(delivList, index);
-              const receipt = safeDeliverables.delivery_receipts?.find((entry) => entry.item_key === itemKey);
+              const receipt = getDeliverableReceipt(safeDeliverables, delivList, index);
               return (
                 <div key={itemKey} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-white/10 dark:bg-white/5">
                   <span className="min-w-0 flex-1 text-xs text-slate-700 dark:text-slate-200">{item}</span>
                   {receipt ? (
                     <Badge color="emerald">Received · {formatDate(receipt.received_at)}</Badge>
                   ) : (
-                    <button disabled={savingDeliveryItem} onClick={() => markDeliveryItemReceived(item, index)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-emerald-500 hover:text-emerald-600 disabled:cursor-wait disabled:opacity-60 dark:border-white/10 dark:text-slate-300 dark:hover:text-emerald-400">
-                      {savingDeliveryItem ? 'Saving…' : 'Mark Received'}
+                    <button disabled={savingDeliveryItem || booking.work_status !== 'ready_for_delivery'} onClick={() => markDeliveryItemReceived(item, index)} title={booking.work_status !== 'ready_for_delivery' ? 'Set Ready for Delivery before recording receipt' : undefined} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-emerald-500 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:text-emerald-400">
+                      {savingDeliveryItem ? 'Saving…' : booking.work_status !== 'ready_for_delivery' ? 'Ready first' : 'Mark Received'}
                     </button>
                   )}
                 </div>
@@ -1943,6 +1944,35 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, onUpdate
           <CheckCircle2 className="h-4 w-4 text-amber-500" /> Work Progress & Quick Payment
         </h3>
         <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-white/10">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-slate-700 dark:text-slate-200">On Live Station</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Send this booking to the work queue to start editing.</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={(booking.work_status ?? 'pending') !== 'pending' && booking.work_status !== 'delivered'}
+              disabled={booking.work_status === 'delivered' || !!booking.archived_at || !!booking.deleted_at || (booking.booking_status ?? '').toUpperCase() === 'CANCELLED'}
+              onClick={async () => {
+                const nextStatus: WorkStatus = booking.work_status === 'pending' ? 'editing_in_progress' : 'pending';
+                if (nextStatus === 'pending' && !window.confirm('Remove this booking from Live Station and set its work status back to Pending?')) return;
+                try {
+                  const { data, error } = await supabase.from('bookings').update({ work_status: nextStatus }).eq('id', booking.id).select('*').single();
+                  if (error) throw error;
+                  onUpdated(data as Booking);
+                  await logWorkStatusNotification(booking.id, nextStatus);
+                  triggerRefresh();
+                  toast(nextStatus === 'pending' ? 'Booking removed from Live Station' : 'Booking sent to Live Station; editing started', 'success');
+                } catch (error) {
+                  toast(error instanceof Error ? error.message : 'Could not update Live Station status', 'error');
+                }
+              }}
+              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${(booking.work_status ?? 'pending') !== 'pending' && booking.work_status !== 'delivered' ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+            >
+              <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${(booking.work_status ?? 'pending') !== 'pending' && booking.work_status !== 'delivered' ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Work Status:</span>
             {WORK_STATUSES.map((ws) => (
@@ -1950,6 +1980,10 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, onUpdate
                 key={ws}
                 onClick={async () => {
                   const deliveryState = bookingDeliveryState(booking);
+                  if (ws === 'delivered' && booking.work_status !== 'ready_for_delivery') {
+                    toast('Set the booking to Ready for Delivery first', 'error');
+                    return;
+                  }
                   if (ws === 'delivered' && (deliveryState.items.length === 0 || !deliveryState.isComplete)) {
                     toast('Mark every deliverable as received before setting the booking to Delivered', 'error');
                     return;

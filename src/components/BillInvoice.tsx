@@ -36,36 +36,68 @@ function deliveryItemKey(items: string[], index: number): string {
   return `${item}#${occurrence}`;
 }
 
-export function formatDeliverablesList(d: BookingDeliverables): string[] {
+function buildDeliverableEntries(d: BookingDeliverables): { items: string[]; legacyItems: string[]; legacyGroups: number[][] } {
   const items: string[] = [];
-  if (d.album_rows?.length) {
-    d.album_rows.forEach((r) => {
-      items.push(`Album: ${r.album_type} (${r.size}, ${r.cover})`);
-      if (r.mini_album) {
-        items.push(`  Mini Album x${toNum(r.mini_qty) || 1}`);
-      }
-      r.papers?.forEach((p) => {
-        if (p.paper_type && toNum(p.sheets) > 0) {
-          items.push(`  ${p.paper_type} Paper (${p.sheets} sheets)`);
-        }
-      });
+  const legacyItems: string[] = [];
+  const legacyGroups: number[][] = [];
+  const add = (label: string, legacyParts: string[] = [label]) => {
+    const group: number[] = [];
+    legacyParts.forEach((part) => { group.push(legacyItems.length); legacyItems.push(part); });
+    items.push(label);
+    legacyGroups.push(group);
+  };
+  d.album_rows?.forEach((row) => {
+    const cover = `Album: ${row.album_type} (${row.size}, ${row.cover})`;
+    const legacyParts = [cover];
+    const albumDetails = [cover];
+    if (row.mini_album) {
+      const mini = `  Mini Album x${toNum(row.mini_qty) || 1}`;
+      legacyParts.push(mini);
+      albumDetails.push(mini.trim());
+    }
+    row.papers?.forEach((paper) => {
+      if (!paper.paper_type || toNum(paper.sheets) <= 0) return;
+      const pageDetail = `  ${paper.paper_type} Paper (${paper.sheets} sheets)`;
+      legacyParts.push(pageDetail);
+      albumDetails.push(pageDetail.trim());
     });
-  }
-  if (d.video_rows?.length) {
-    d.video_rows.forEach((r) => {
-      items.push(`Video: ${r.video_service} (${r.quality}) x${toNum(r.qty) || 1}`);
-    });
-  }
-  if (d.custom_items?.length) {
-    d.custom_items.forEach((item) => {
-      if (item.name) items.push(`Additional: ${item.name} x${toNum(item.qty) || 1} (${formatINR(toNum(item.amount) || toNum(item.qty) * toNum(item.rate))})`);
-    });
-  }
-  if (d.raw_video) items.push('Raw Video');
-  if (d.raw_selected_photos) items.push('Selected Photos');
-  if (d.raw_all_photos) items.push('All Photos');
-  if (d.raw_edited_photos) items.push('Finished/Edited Photos');
-  return items;
+    add(albumDetails.join(' · '), legacyParts);
+  });
+  d.video_rows?.forEach((row) => add(`Video: ${row.video_service} (${row.quality}) x${toNum(row.qty) || 1}`));
+  d.custom_items?.forEach((item) => {
+    if (item.name) add(`Additional: ${item.name} x${toNum(item.qty) || 1} (${formatINR(toNum(item.amount) || toNum(item.qty) * toNum(item.rate))})`);
+  });
+  if (d.raw_video) add('Raw Video');
+  if (d.raw_selected_photos) add('Selected Photos');
+  if (d.raw_all_photos) add('All Photos');
+  if (d.raw_edited_photos) add('Finished/Edited Photos');
+  return { items, legacyItems, legacyGroups };
+}
+
+export function formatDeliverablesList(d: BookingDeliverables): string[] {
+  return buildDeliverableEntries(d).items;
+}
+
+export function getDeliverableReceipt(d: BookingDeliverables, items: string[], index: number) {
+  const receipts = d.delivery_receipts ?? [];
+  const currentKey = deliveryItemKey(items, index);
+  const currentReceipt = receipts.find((receipt) => receipt.item_key === currentKey);
+  if (currentReceipt) return currentReceipt;
+
+  // Older bookings stored an album cover, mini album, and each paper as separate receipts.
+  // Treat the album as received only when every legacy component was received.
+  const legacy = buildDeliverableEntries(d);
+  const group = legacy.legacyGroups[index] ?? [];
+  if (!group.length) return undefined;
+  const groupReceipts = group.map((legacyIndex) => {
+    const key = deliveryItemKey(legacy.legacyItems, legacyIndex);
+    return receipts.find((receipt) => receipt.item_key === key);
+  });
+  if (groupReceipts.some((receipt) => !receipt)) return undefined;
+  const receivedAt = groupReceipts
+    .map((receipt) => receipt!.received_at)
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+  return { item_key: currentKey, item: items[index], received_at: receivedAt };
 }
 
 export function BillInvoice({ booking, settings, compact = false, showStamp = true, copyTypeOverride }: { booking: Booking; settings: StudioSettings | null; compact?: boolean; showStamp?: boolean; copyTypeOverride?: 'original' | 'client' }) {
@@ -181,7 +213,7 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
               <p className="mb-0.5 text-xs font-bold">Delivery Data:</p>
               <div className="grid grid-cols-2 gap-0.5 text-xs">
                 {delivList.map((d, i) => {
-                  const receipt = booking.deliverables_data?.delivery_receipts?.find((entry) => entry.item_key === deliveryItemKey(delivList, i));
+                  const receipt = getDeliverableReceipt(booking.deliverables_data ?? DEFAULT_DELIVERABLES, delivList, i);
                   return <p key={deliveryItemKey(delivList, i)}>{d} — {receipt ? `Received · ${formatDate(receipt.received_at)}` : 'Pending'}</p>;
                 })}
               </div>
@@ -213,7 +245,7 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
               <p className="mb-1 text-sm font-bold">Delivery Data:</p>
               <div className="grid grid-cols-2 gap-1 text-xs">
                 {delivList.map((d, i) => {
-                  const receipt = booking.deliverables_data?.delivery_receipts?.find((entry) => entry.item_key === deliveryItemKey(delivList, i));
+                  const receipt = getDeliverableReceipt(booking.deliverables_data ?? DEFAULT_DELIVERABLES, delivList, i);
                   return <p key={deliveryItemKey(delivList, i)}>{d} — {receipt ? `Received · ${formatDate(receipt.received_at)}` : 'Pending'}</p>;
                 })}
               </div>

@@ -19,6 +19,15 @@ export function labWorkStatusSummary(order: Partial<StudioLabOrder>): string[] {
   return statuses;
 }
 
+/** Keep internal Album design/print steps private while showing clients one clear status. */
+export function clientAlbumWorkStatus(status: string | null | undefined, orderDelivered = false): string {
+  if (orderDelivered) return 'Delivered';
+  const value = String(status ?? 'Pending').trim().toLowerCase();
+  if (!value || value === 'pending') return 'Pending';
+  if (value === 'complete' || value === 'ready' || value === 'printed/ready' || value === 'delivered') return value === 'delivered' ? 'Delivered' : 'Ready';
+  return 'In Progress';
+}
+
 export function labOrderOverviewStatus(order: Partial<StudioLabOrder>): string {
   if (order.order_status === 'Delivered') return 'Delivered';
   const statuses = [

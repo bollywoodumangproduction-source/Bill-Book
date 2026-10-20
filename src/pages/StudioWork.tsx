@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, TriangleAlert as AlertTriangle, Zap, CalendarClock, Images, HardDrive, FolderOpen } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { photoSessionFromDatabase } from '@/lib/types';
-import type { StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabExtraCharge, LabClientDeliveryStatus, StorageLocation, PageKey } from '@/lib/types';
+import type { Booking, WorkStatus, StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabExtraCharge, LabClientDeliveryStatus, StorageLocation, PageKey } from '@/lib/types';
+import { WORK_STATUSES, WORK_STATUS_LABELS } from '@/lib/types';
 import { formatINR, formatDate, formatDateTime, todayISO, defaultPinFromPhone } from '@/lib/format';
 import { useToast } from '@/context/ToastContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -36,6 +37,8 @@ import { hasLabAlbumWork, hasLabVideoWork, labOrderOverviewStatus, visibleLabOrd
 import { clientPaidTotal, clientWorkTotal, labOrderPayments } from '@/lib/labBilling';
 import { calculateLabOrderBilling, labOrderBillingSnapshot } from '@/lib/billing';
 import { completePaymentAttempt, getPaymentAttemptId } from '@/lib/paymentAttempt';
+import { logWorkStatusNotification } from '@/lib/notifications';
+import { formatDeliverablesList, getDeliverableReceipt } from '@/components/BillInvoice';
 
 const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Pending: 'slate',
@@ -258,8 +261,9 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
   const { openOrderId, onOrderOpened } = props;
   const { toast } = useToast();
   const { settings } = useSettings();
-  const { refreshToken } = useRefresh();
+  const { refreshToken, triggerRefresh } = useRefresh();
   const [orders, setOrders] = useState<StudioLabOrder[]>([]);
+  const [stationBookings, setStationBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'station' | 'partners'>('station');
@@ -317,8 +321,17 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
 
   const load = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from('studio_lab_orders').select('*').order('created_at');
+      const [{ data, error }, { data: bookingData, error: bookingError }] = await Promise.all([
+        supabase.from('studio_lab_orders').select('*').order('created_at'),
+        supabase.from('bookings').select('*').order('shoot_date'),
+      ]);
       if (error) throw error;
+      if (bookingError) {
+        setStationBookings([]);
+        toast(`Bookings could not be loaded into Live Station: ${getDatabaseErrorMessage(bookingError)}`, 'error');
+      } else {
+        setStationBookings((bookingData ?? []) as Booking[]);
+      }
       const allNormalized = (data ?? []).map((order: Partial<StudioLabOrder>, index: number) => {
         const base = normalizeLabOrder(order);
         const candidateId = String(base.id || base.order_no || (order as any)?.bup_no || '').trim();
@@ -409,6 +422,45 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
     && ((hasAlbumWork(order) && order.album_status !== 'Pending' && order.album_status !== 'Complete')
       || (hasVideoWork(order) && order.video_status !== 'Pending' && order.video_status !== 'Complete')),
   );
+
+  const liveBookingItems = stationBookings.filter((booking) => {
+    const status = booking.work_status ?? 'pending';
+    const lifecycleActive = !booking.archived_at && !booking.deleted_at && booking.booking_status?.toUpperCase() !== 'CANCELLED';
+    const isOnStation = status !== 'pending' && status !== 'delivered';
+    const query = search.trim().toLowerCase();
+    const matchesSearch = !query || [booking.client_name, booking.booking_no, booking.event_function, booking.venue]
+      .some((value) => String(value ?? '').toLowerCase().includes(query));
+    const matchesStatus = statusFilter === 'all' || statusFilter === status || WORK_STATUS_LABELS[status as WorkStatus] === statusFilter;
+    return lifecycleActive && isOnStation && matchesSearch && matchesStatus;
+  });
+
+  const updateBookingWorkStatus = async (booking: Booking, nextStatus: WorkStatus) => {
+    if (booking.work_status === nextStatus) return;
+    if (nextStatus === 'delivered') {
+      if (booking.work_status !== 'ready_for_delivery') {
+        toast('Set the booking to Ready for Delivery first', 'error');
+        return;
+      }
+      const items = formatDeliverablesList(booking.deliverables_data ?? {});
+      const deliverables = booking.deliverables_data ?? {};
+      const allReceived = items.length > 0 && items.every((_item, index) => getDeliverableReceipt(deliverables, items, index));
+      if (!allReceived) {
+        toast('Mark every deliverable as received from the Booking details before delivery', 'error');
+        return;
+      }
+    }
+    try {
+      const { data, error } = await supabase.from('bookings').update({ work_status: nextStatus }).eq('id', booking.id).select('*').single();
+      if (error) throw error;
+      const updated = data as Booking;
+      setStationBookings((current) => current.map((item) => item.id === updated.id ? updated : item));
+      await logWorkStatusNotification(booking.id, nextStatus);
+      triggerRefresh();
+      toast(`Booking status updated to ${WORK_STATUS_LABELS[nextStatus]}`, 'success');
+    } catch (error) {
+      toast(getDatabaseErrorMessage(error), 'error');
+    }
+  };
 
   const handleArchiveOrder = async (orderIdOrNo: string) => {
     const targetKey = String(orderIdOrNo ?? '').trim();
@@ -616,6 +668,35 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
     openPartnerLocation(order);
     onOrderOpened?.();
   }, [openOrderId, loading, orders, onOrderOpened]);
+
+  const renderBookingStationCard = (booking: Booking) => (
+    <div key={`booking-${booking.id}`} className="rounded-xl border border-emerald-500/25 bg-white p-3 dark:bg-slate-900/50">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{booking.client_name || 'Booking'}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{booking.booking_no}</p>
+        </div>
+        <Badge color={booking.work_status === 'ready_for_delivery' ? 'emerald' : 'amber'}>{WORK_STATUS_LABELS[booking.work_status ?? 'pending']}</Badge>
+      </div>
+      <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
+        <p className="truncate">{booking.event_function || 'Wedding booking'} · {booking.venue || 'Venue not set'}</p>
+        <p>{booking.shoot_date ? formatDate(booking.shoot_date) : 'Shoot date not set'}</p>
+        <p className="text-emerald-400">Booking · On Live Station</p>
+      </div>
+      <div className="mt-3 border-t border-slate-200 pt-2 dark:border-white/10">
+        <label className="mb-1 block text-[11px] text-slate-500 dark:text-slate-400" htmlFor={`booking-live-status-${booking.id}`}>Work status</label>
+        <select
+          id={`booking-live-status-${booking.id}`}
+          value={booking.work_status ?? 'pending'}
+          onChange={(event) => void updateBookingWorkStatus(booking, event.target.value as WorkStatus)}
+          className={`${selectClass} w-full`}
+        >
+          {WORK_STATUSES.map((status) => <option key={status} value={status}>{WORK_STATUS_LABELS[status]}</option>)}
+        </select>
+        {booking.work_status === 'ready_for_delivery' && <p className="mt-1 text-[11px] text-emerald-400">Ready for client handover. Mark all items received before setting Delivered.</p>}
+      </div>
+    </div>
+  );
 
   const renderOrderCard = (o: StudioLabOrder, stationView = false) => {
     const clientCount = (o.clients ?? []).length;
@@ -888,6 +969,9 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
           </div>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} !h-8 !w-[104px] shrink-0 !px-1.5 !py-1.5 !text-[10px]`}>
             <option value="all">All Statuses</option>
+            <optgroup label="Booking Work">
+              {WORK_STATUSES.filter((status) => status !== 'pending').map((status) => <option key={status} value={status}>{WORK_STATUS_LABELS[status]}</option>)}
+            </optgroup>
             {LIVE_STATION_FILTER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </> : <p className="min-w-0 flex-1 truncate text-xs font-bold text-white">{selectedOrder ? labOrderTitle(selectedOrder) : showReadyDeliveries ? 'Ready for Delivery' : selectedDeliveryYear ? `Delivered Orders · ${selectedDeliveryYear}` : selectedPartnerGroup?.partnerName || 'Lab Order Form'}</p>}
@@ -909,6 +993,9 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
         </div>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} shrink-0 md:w-44`}>
           <option value="all">All Statuses</option>
+          <optgroup label="Booking Work">
+            {WORK_STATUSES.filter((status) => status !== 'pending').map((status) => <option key={status} value={status}>{WORK_STATUS_LABELS[status]}</option>)}
+          </optgroup>
           {LIVE_STATION_FILTER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>}
@@ -918,10 +1005,11 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
         {activeTab === 'station' ? <>
           {loading ? (
             <div className="flex justify-center py-20"><Sparkles className="h-6 w-6 animate-pulse text-amber-500" /></div>
-          ) : liveStationItems.length === 0 ? (
-            <EmptyState icon={Clapperboard} title="No lab orders found" subtitle="Create a new lab order to get started" />
+          ) : liveStationItems.length === 0 && liveBookingItems.length === 0 ? (
+            <EmptyState icon={Clapperboard} title="No active work on Live Station" subtitle="Turn on On Live Station from an active Booking, or start Album/Video work from a Lab Order." />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-2">
+              {liveBookingItems.map(renderBookingStationCard)}
               {liveStationItems.map((order) => renderOrderCard(order, true))}
             </div>
           )}
