@@ -227,7 +227,15 @@ export function Bookings({ openBookingId, openBookingEdit = false, onBookingOpen
   const bookingsByYear = useMemo(() => {
     const groups = new Map<string, Booking[]>();
     for (const booking of filtered) {
-      const year = booking.created_at ? new Date(booking.created_at).getFullYear().toString() : 'Unknown year';
+      const receiptDate = (booking.deliverables_data?.delivery_receipts ?? [])
+        .map((receipt) => receipt.received_at)
+        .filter(Boolean)
+        .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+      const yearDate = view === 'delivered'
+        ? booking.deliverables_data?.final_delivered_at || receiptDate || booking.created_at
+        : booking.created_at;
+      const parsedYearDate = yearDate ? new Date(yearDate) : null;
+      const year = parsedYearDate && !Number.isNaN(parsedYearDate.getTime()) ? parsedYearDate.getFullYear().toString() : 'Unknown year';
       groups.set(year, [...(groups.get(year) ?? []), booking]);
     }
     return [...groups.entries()].sort(([yearA], [yearB]) => {
@@ -235,7 +243,7 @@ export function Bookings({ openBookingId, openBookingEdit = false, onBookingOpen
       if (yearB === 'Unknown year') return -1;
       return Number(yearB) - Number(yearA);
     });
-  }, [filtered]);
+  }, [filtered, view]);
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -263,7 +271,7 @@ export function Bookings({ openBookingId, openBookingEdit = false, onBookingOpen
     setDetailBooking(updated);
     setView(archived ? 'archived' : updated.work_status === 'delivered' ? 'delivered' : 'active');
     triggerRefresh();
-    toast(archived ? 'Booking archived' : updated.work_status === 'delivered' ? 'Booking restored to Delivered' : 'Booking restored to Active', 'success');
+    toast(archived ? 'Booking archived' : updated.work_status === 'delivered' ? 'Booking restored to Delivered' : updated.work_status === 'ready_for_delivery' ? 'Booking restored to Ready for Delivery' : 'Booking restored to Active', 'success');
   };
 
   const permanentlyDeleteBooking = async () => {
@@ -332,7 +340,7 @@ export function Bookings({ openBookingId, openBookingEdit = false, onBookingOpen
               className={`${inputClass} pl-10`}
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button onClick={() => setView('active')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'active' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Active</button>
             <button onClick={() => setView('archived')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'archived' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Archived</button>
             <button onClick={() => setView('delivered')} className={`rounded-lg px-3 py-2 text-xs font-medium ${view === 'delivered' ? 'bg-amber-500 text-slate-900' : 'border border-slate-200 dark:border-white/10 dark:text-slate-300'}`}>Delivered</button>
@@ -436,7 +444,11 @@ export function Bookings({ openBookingId, openBookingEdit = false, onBookingOpen
           <BookingDetail
             booking={detailBooking}
             onClose={() => { setDetailBooking(null); load(); }}
-            onUpdated={(updated) => { setDetailBooking(updated); setBookings((prev) => prev.map((item) => item.id === updated.id ? updated : item)); }}
+            onUpdated={(updated) => {
+              setDetailBooking(updated);
+              setBookings((prev) => prev.map((item) => item.id === updated.id ? updated : item));
+              setView(updated.deleted_at ? 'recycle' : updated.archived_at ? 'archived' : updated.work_status === 'delivered' ? 'delivered' : 'active');
+            }}
             onEdit={() => { setEditing(detailBooking); setDetailBooking(null); setShowForm(true); }}
             onDelete={() => { setDeleteId(detailBooking.id); setPendingDelete('soft'); setShowPin(true); setDetailBooking(null); }}
             onArchive={() => { void setBookingArchived(detailBooking, !detailBooking.archived_at); }}
@@ -1964,13 +1976,13 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
           <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-white/10">
             <div className="min-w-0">
               <p className="text-xs font-medium text-slate-700 dark:text-slate-200">On Live Station</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Send this booking to the work queue to start editing.</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">{booking.work_status === 'ready_for_delivery' ? 'Work is complete; this booking is in Ready for Delivery.' : booking.work_status === 'delivered' ? 'This booking has been delivered.' : 'Send this booking to the work queue to start editing.'}</p>
             </div>
             <button
               type="button"
               role="switch"
-              aria-checked={(booking.work_status ?? 'pending') !== 'pending' && booking.work_status !== 'delivered'}
-              disabled={booking.work_status === 'delivered' || !!booking.archived_at || !!booking.deleted_at || (booking.booking_status ?? '').toUpperCase() === 'CANCELLED'}
+              aria-checked={(booking.work_status ?? 'pending') !== 'pending' && booking.work_status !== 'ready_for_delivery' && booking.work_status !== 'delivered'}
+              disabled={booking.work_status === 'ready_for_delivery' || booking.work_status === 'delivered' || !!booking.archived_at || !!booking.deleted_at || (booking.booking_status ?? '').toUpperCase() === 'CANCELLED'}
               onClick={async () => {
                 const nextStatus: WorkStatus = booking.work_status === 'pending' ? 'editing_in_progress' : 'pending';
                 if (nextStatus === 'pending' && !window.confirm('Remove this booking from Live Station and set its work status back to Pending?')) return;
@@ -1985,9 +1997,9 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
                   toast(error instanceof Error ? error.message : 'Could not update Live Station status', 'error');
                 }
               }}
-              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${(booking.work_status ?? 'pending') !== 'pending' && booking.work_status !== 'delivered' ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${(booking.work_status ?? 'pending') !== 'pending' && booking.work_status !== 'ready_for_delivery' && booking.work_status !== 'delivered' ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}
             >
-              <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${(booking.work_status ?? 'pending') !== 'pending' && booking.work_status !== 'delivered' ? 'translate-x-6' : 'translate-x-1'}`} />
+              <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${(booking.work_status ?? 'pending') !== 'pending' && booking.work_status !== 'ready_for_delivery' && booking.work_status !== 'delivered' ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-2">

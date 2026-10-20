@@ -141,6 +141,8 @@ const EMPTY_VIDEO_ROW: VideoRow = { video_type: '', quality: '', qty: 0, rate: 0
 const EMPTY_ALBUM_ROW: AlbumRow = { id: uid(), album_type: '', size: '', packaging: '', packaging_rate: 0, packaging_total: 0, mini_album: false, mini_only: false, bag_only: false, bag_size: '', bag_rate: 0, bag_total: 0, mini_qty: 0, mini_rate: 0, mini_total: 0, papers: [{ id: uid(), paper_type: '', sheets: 0, rate: 0, total: 0 }], total: 0 };
 const EMPTY_PAPER_ROW: PaperRow = { id: uid(), paper_type: '', sheets: 0, extra_sheets: 0, rate: 0, total: 0 };
 
+const LIVE_BOOKING_WORK_STATUSES: WorkStatus[] = ['shoot_completed', 'editing_in_progress', 'album_design_ready'];
+
 const EMPTY_STORAGE_LOCATION: StorageLocation = { id: '', device: '', drive: '', work: '', client_name: '' };
 
 function buildStoragePath(loc: StorageLocation, studioOrProject: string): string {
@@ -426,7 +428,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
   const liveBookingItems = stationBookings.filter((booking) => {
     const status = booking.work_status ?? 'pending';
     const lifecycleActive = !booking.archived_at && !booking.deleted_at && booking.booking_status?.toUpperCase() !== 'CANCELLED';
-    const isOnStation = status !== 'pending' && status !== 'delivered';
+    const isOnStation = status !== 'pending' && status !== 'ready_for_delivery' && status !== 'delivered';
     const query = search.trim().toLowerCase();
     const matchesSearch = !query || [booking.client_name, booking.booking_no, booking.event_function, booking.venue]
       .some((value) => String(value ?? '').toLowerCase().includes(query));
@@ -686,15 +688,23 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
       </div>
       <div className="mt-3 border-t border-slate-200 pt-2 dark:border-white/10">
         <label className="mb-1 block text-[11px] text-slate-500 dark:text-slate-400" htmlFor={`booking-live-status-${booking.id}`}>Work status</label>
-        <select
-          id={`booking-live-status-${booking.id}`}
-          value={booking.work_status ?? 'pending'}
-          onChange={(event) => void updateBookingWorkStatus(booking, event.target.value as WorkStatus)}
-          className={`${selectClass} w-full`}
-        >
-          {WORK_STATUSES.map((status) => <option key={status} value={status}>{WORK_STATUS_LABELS[status]}</option>)}
-        </select>
-        {booking.work_status === 'ready_for_delivery' && <p className="mt-1 text-[11px] text-emerald-400">Ready for client handover. Mark all items received before setting Delivered.</p>}
+        <div className="flex min-w-0 gap-2">
+          <select
+            id={`booking-live-status-${booking.id}`}
+            value={booking.work_status ?? 'pending'}
+            onChange={(event) => void updateBookingWorkStatus(booking, event.target.value as WorkStatus)}
+            className={`${selectClass} min-w-0 flex-1`}
+          >
+            {LIVE_BOOKING_WORK_STATUSES.map((status) => <option key={status} value={status}>{WORK_STATUS_LABELS[status]}</option>)}
+          </select>
+          <button
+            type="button"
+            onClick={() => void updateBookingWorkStatus(booking, 'ready_for_delivery')}
+            className="flex shrink-0 items-center justify-center gap-1 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-400"
+          >
+            <CheckCircle2 className="h-4 w-4" /> Complete
+          </button>
+        </div>
       </div>
       <button
         type="button"
@@ -970,7 +980,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} !h-8 !w-[104px] shrink-0 !px-1.5 !py-1.5 !text-[10px]`}>
             <option value="all">All Statuses</option>
             <optgroup label="Booking Work">
-              {WORK_STATUSES.filter((status) => status !== 'pending').map((status) => <option key={status} value={status}>{WORK_STATUS_LABELS[status]}</option>)}
+              {LIVE_BOOKING_WORK_STATUSES.map((status) => <option key={status} value={status}>{WORK_STATUS_LABELS[status]}</option>)}
             </optgroup>
             {LIVE_STATION_FILTER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
@@ -993,7 +1003,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} shrink-0 md:w-44`}>
           <option value="all">All Statuses</option>
           <optgroup label="Booking Work">
-            {WORK_STATUSES.filter((status) => status !== 'pending').map((status) => <option key={status} value={status}>{WORK_STATUS_LABELS[status]}</option>)}
+            {LIVE_BOOKING_WORK_STATUSES.map((status) => <option key={status} value={status}>{WORK_STATUS_LABELS[status]}</option>)}
           </optgroup>
           {LIVE_STATION_FILTER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
