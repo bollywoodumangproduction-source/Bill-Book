@@ -243,10 +243,12 @@ async function handle(request: Request, body: Record<string, unknown>) {
       .eq('is_active', true)
       .order('event_tag')
       .order('song_title');
+    const { data: events } = await db.from('music_event_categories').select('event_tag').order('event_tag');
     return response(request, {
       project: safeMusicProject(project),
       cues: (cues ?? []).map(safeMusicCue),
       songs: songs ?? [],
+      events: (events ?? []).map((event) => event.event_tag),
     });
   }
   if (action === 'music-add-cue') {
