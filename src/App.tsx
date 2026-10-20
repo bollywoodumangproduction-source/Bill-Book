@@ -229,7 +229,7 @@ function DesktopPage({ page, onNavigate, onOpenBooking, openLabOrderId, onLabOrd
   onBookingOpened: () => void;
 }) {
   if (page === 'lab') return <LabOrders key="lab-orders" openOrderId={openLabOrderId} onOrderOpened={onLabOrderOpened} />;
-  if (page === 'live-work') return <LabOrders key="live-station" stationOnly />;
+  if (page === 'live-work') return <LabOrders key="live-station" stationOnly onOpenBooking={onOpenBooking} />;
   if (page === 'rentals') return <EquipmentRentals />;
   if (page === 'bookings') return <Bookings openBookingId={openBookingId} onBookingOpened={onBookingOpened} />;
   if (page === 'dairy') return <DairyBook />;
