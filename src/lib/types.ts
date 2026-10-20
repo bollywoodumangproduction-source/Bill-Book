@@ -135,6 +135,7 @@ export interface BookingDeliverables {
   custom_items?: BookingCustomItem[];
   payment_details?: BookingPaymentDetails;
   delivery_receipts?: BookingDeliveryReceipt[];
+  work_progress?: BookingWorkProgress;
   final_delivered_at?: string;
   raw_video?: boolean;
   raw_selected_photos?: boolean;
@@ -147,6 +148,13 @@ export interface BookingDeliverables {
   cinematic_reel?: boolean;
   cinematic_reel_count?: number;
   cinematic_story?: boolean;
+}
+
+export type BookingWorkType = 'album' | 'video';
+export type BookingWorkItemStatus = 'pending' | 'editing_in_progress' | 'ready_for_delivery';
+export interface BookingWorkProgress {
+  album?: { status: BookingWorkItemStatus; updated_at?: string };
+  video?: { status: BookingWorkItemStatus; updated_at?: string };
 }
 
 export interface BookingDeliveryReceipt {

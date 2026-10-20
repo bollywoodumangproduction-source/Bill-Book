@@ -47,7 +47,8 @@ import type {
   WorkStatus,
 } from '@/lib/types';
 import type { PageKey } from '@/lib/types';
-import { getBookingDataReadyStatuses, getWorkStatusLabel, WORK_STATUS_LABELS } from '@/lib/types';
+import { getWorkStatusLabel, WORK_STATUS_LABELS } from '@/lib/types';
+import { bookingAllMediaReady, bookingDeliveryItemIsReady, bookingWorkItemStatus, bookingWorkTypes, saveBookingMediaStatus } from '@/lib/bookingWork';
 import { formatINR, formatDate, formatDateTime, todayISO, formatPhone, defaultPinFromPhone } from '@/lib/format';
 import { calculateBookingBilling, bookingBillingSnapshot, bookingBaseSubtotal } from '@/lib/billing';
 import { logDeliveryNotification, logPaymentNotification, logWorkStatusNotification } from '@/lib/notifications';
@@ -795,6 +796,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       : false;
     if (deliveryItemsChanged) {
       nextDeliverables.delivery_receipts = [];
+      delete nextDeliverables.work_progress;
       delete nextDeliverables.final_delivered_at;
     }
     const payload = sanitizePayload({
@@ -1619,7 +1621,7 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
   const safeDeliverables = booking.deliverables_data ?? DEFAULT_DELIVERABLES;
   const netDue = bookingDue(booking);
   const delivList = formatDeliverablesList(safeDeliverables);
-  const dataReadyStatuses = getBookingDataReadyStatuses(booking);
+  const mediaTypes = bookingWorkTypes(safeDeliverables);
   const [loginAllowed, setLoginAllowed] = useState(booking.is_login_allowed ?? false);
   const [editingPin, setEditingPin] = useState(false);
   const [editPinValue, setEditPinValue] = useState('');
@@ -1846,6 +1848,10 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
 
   const updateWorkStatus = async (nextStatus: WorkStatus) => {
     const deliveryState = bookingDeliveryState(booking);
+    if (nextStatus === 'ready_for_delivery' && !bookingAllMediaReady(booking)) {
+      toast('Set Album and Video to Ready for Delivery in Live Station first.', 'error');
+      return;
+    }
     if (nextStatus === 'delivered' && booking.work_status !== 'ready_for_delivery') {
       toast('Set the booking to Ready for Delivery first', 'error');
       return;
@@ -1866,6 +1872,13 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
         const result = data as { booking?: Booking } | null;
         if (!result?.booking) throw new Error('The delivery confirmation was not returned. Refresh the Booking and check its status before retrying.');
         updated = result.booking;
+      } else if (nextStatus === 'editing_in_progress' && mediaTypes.length > 0) {
+        updated = booking;
+        for (const type of mediaTypes) {
+          if (bookingWorkItemStatus(updated, type) !== 'ready_for_delivery') {
+            updated = await saveBookingMediaStatus(updated, type, 'editing_in_progress');
+          }
+        }
       } else {
         const { data, error } = await supabase.from('bookings').update({ work_status: nextStatus }).eq('id', booking.id).select('*').single();
         if (error) throw error;
@@ -1969,8 +1982,8 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
                   {receipt ? (
                     <Badge color="emerald">Received · {formatDate(receipt.received_at)}</Badge>
                   ) : (
-                    <button disabled={savingDeliveryItem || booking.work_status !== 'ready_for_delivery'} onClick={() => markDeliveryItemReceived(item, index)} title={booking.work_status !== 'ready_for_delivery' ? 'Set Ready for Delivery before recording receipt' : undefined} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-emerald-500 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:text-emerald-400">
-                      {savingDeliveryItem ? 'Saving…' : booking.work_status !== 'ready_for_delivery' ? 'Ready first' : 'Mark Received'}
+                    <button disabled={savingDeliveryItem || !bookingDeliveryItemIsReady(booking, item)} onClick={() => markDeliveryItemReceived(item, index)} title={!bookingDeliveryItemIsReady(booking, item) ? 'Complete this Album or Video in Live Station first' : undefined} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-emerald-500 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:text-emerald-400">
+                      {savingDeliveryItem ? 'Saving…' : bookingDeliveryItemIsReady(booking, item) ? 'Mark Received' : 'Work first'}
                     </button>
                   )}
                 </div>
@@ -2016,39 +2029,51 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
           <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-white/10">
             <div className="min-w-0">
               <p className="text-xs font-medium text-slate-700 dark:text-slate-200">On Live Station</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">{booking.work_status === 'ready_for_delivery' ? 'Work is complete; this booking is in Ready for Delivery.' : booking.work_status === 'delivered' ? 'This booking has been delivered.' : 'Send this booking to the work queue to start editing.'}</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">{booking.work_status === 'editing_in_progress' ? 'Editing is in progress; this booking is active in Live Station.' : booking.work_status === 'ready_for_delivery' ? 'Work is complete; this booking is in Ready for Delivery.' : booking.work_status === 'delivered' ? 'This booking has been delivered.' : 'Turn on to start editing and add this booking to Live Station.'}</p>
             </div>
             <button
               type="button"
               role="switch"
-              aria-checked={(booking.work_status ?? 'pending') !== 'pending' && booking.work_status !== 'ready_for_delivery' && booking.work_status !== 'delivered'}
+              aria-checked={booking.work_status === 'editing_in_progress'}
               disabled={booking.work_status === 'ready_for_delivery' || booking.work_status === 'delivered' || !!booking.archived_at || !!booking.deleted_at || (booking.booking_status ?? '').toUpperCase() === 'CANCELLED'}
               onClick={async () => {
-                const nextStatus: WorkStatus = booking.work_status === 'pending' ? 'editing_in_progress' : 'pending';
-                if (nextStatus === 'pending' && !window.confirm('Remove this booking from Live Station and set its work status back to Pending?')) return;
+                const isOnLiveStation = booking.work_status === 'editing_in_progress';
+                const nextStatus: WorkStatus = isOnLiveStation ? 'pending' : 'editing_in_progress';
+                if (isOnLiveStation && !window.confirm('Remove this booking from Live Station and set its work status back to Pending?')) return;
                 try {
-                  const { data, error } = await supabase.from('bookings').update({ work_status: nextStatus }).eq('id', booking.id).select('*').single();
-                  if (error) throw error;
-                  onUpdated(data as Booking);
+                  let updated = booking;
+                  if (mediaTypes.length > 0) {
+                    for (const type of mediaTypes) {
+                      const current = bookingWorkItemStatus(updated, type);
+                      if ((isOnLiveStation && current === 'editing_in_progress') || (!isOnLiveStation && current !== 'ready_for_delivery')) {
+                        updated = await saveBookingMediaStatus(updated, type, isOnLiveStation ? 'pending' : 'editing_in_progress');
+                      }
+                    }
+                  } else {
+                    const { data, error } = await supabase.from('bookings').update({ work_status: nextStatus }).eq('id', booking.id).select('*').single();
+                    if (error) throw error;
+                    updated = data as Booking;
+                  }
+                  onUpdated(updated);
                   await logWorkStatusNotification(booking.id, nextStatus);
                   triggerRefresh();
-                  toast(nextStatus === 'pending' ? 'Booking removed from Live Station' : 'Booking sent to Live Station; editing started', 'success');
+                  toast(isOnLiveStation ? 'Editing booking items returned to Pending' : 'Booking sent to Live Station; editing started', 'success');
                 } catch (error) {
                   toast(error instanceof Error ? error.message : 'Could not update Live Station status', 'error');
                 }
               }}
-              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${(booking.work_status ?? 'pending') !== 'pending' && booking.work_status !== 'ready_for_delivery' && booking.work_status !== 'delivered' ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${booking.work_status === 'editing_in_progress' ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}
             >
-              <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${(booking.work_status ?? 'pending') !== 'pending' && booking.work_status !== 'ready_for_delivery' && booking.work_status !== 'delivered' ? 'translate-x-6' : 'translate-x-1'}`} />
+              <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${booking.work_status === 'editing_in_progress' ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
-          <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
+          <div className="flex flex-nowrap items-center gap-1.5">
             <span className="shrink-0 whitespace-nowrap text-xs font-medium text-slate-600 dark:text-slate-400">Work Status:</span>
             {WORK_STATUS_BUTTONS.slice(0, 4).map((ws) => (
               <button
                 key={ws}
                 onClick={() => void updateWorkStatus(ws)}
-                className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                className={`shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
                   (booking.work_status ?? 'pending') === ws
                     ? 'bg-amber-500 text-slate-900'
                     : 'border border-slate-200 text-slate-600 hover:bg-amber-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5'
@@ -2057,22 +2082,14 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
                 {WORK_STATUS_LABELS[ws]}
               </button>
             ))}
-            {dataReadyStatuses.length > 0 && <select
-              aria-label="Album and video readiness"
-              value={dataReadyStatuses.includes(booking.work_status) ? booking.work_status : ''}
-              onChange={(event) => { if (event.target.value) void updateWorkStatus(event.target.value as WorkStatus); }}
-              className={`${selectClass} h-[34px] w-52 min-w-[13rem] shrink-0 py-1 text-xs`}
-            >
-              <option value="">Album / Video Ready</option>
-              {dataReadyStatuses.map((status) => <option key={status} value={status}>{WORK_STATUS_LABELS[status]}</option>)}
-            </select>}
+            {mediaTypes.map((type) => <span key={type} className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] text-slate-600 dark:border-white/10 dark:text-slate-300">{type === 'album' ? 'Album' : 'Video'}: {bookingWorkItemStatus(booking, type) === 'ready_for_delivery' ? 'Ready' : bookingWorkItemStatus(booking, type) === 'editing_in_progress' ? 'Editing' : 'Pending'}</span>)}
             {WORK_STATUS_BUTTONS.slice(4).map((ws) => (
               <button
                 key={ws}
                 disabled={ws === 'delivered' && (booking.work_status !== 'ready_for_delivery' || !bookingDeliveryState(booking).isComplete)}
                 title={ws === 'delivered' && booking.work_status === 'ready_for_delivery' && !bookingDeliveryState(booking).isComplete ? 'Mark every delivery item received first' : undefined}
                 onClick={() => void updateWorkStatus(ws)}
-                className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                className={`shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
                   (booking.work_status ?? 'pending') === ws
                     ? 'bg-amber-500 text-slate-900'
                     : 'border border-slate-200 text-slate-600 hover:bg-amber-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5'

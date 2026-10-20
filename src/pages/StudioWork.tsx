@@ -39,6 +39,7 @@ import { calculateLabOrderBilling, labOrderBillingSnapshot } from '@/lib/billing
 import { completePaymentAttempt, getPaymentAttemptId } from '@/lib/paymentAttempt';
 import { logWorkStatusNotification } from '@/lib/notifications';
 import { formatDeliverablesList, getDeliverableReceipt } from '@/components/BillInvoice';
+import { bookingHasLiveWork, bookingWorkItemStatus, bookingWorkTypes, saveBookingMediaStatus } from '@/lib/bookingWork';
 
 const STATUS_COLORS: Record<string, 'amber' | 'emerald' | 'sky' | 'slate'> = {
   Pending: 'slate',
@@ -428,7 +429,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
   const liveBookingItems = stationBookings.filter((booking) => {
     const status = booking.work_status ?? 'pending';
     const lifecycleActive = !booking.archived_at && !booking.deleted_at && booking.booking_status?.toUpperCase() !== 'CANCELLED';
-    const isOnStation = status !== 'pending' && status !== 'ready_for_delivery' && status !== 'delivered';
+    const isOnStation = bookingHasLiveWork(booking);
     const query = search.trim().toLowerCase();
     const matchesSearch = !query || [booking.client_name, booking.booking_no, booking.event_function, booking.venue]
       .some((value) => String(value ?? '').toLowerCase().includes(query));
@@ -686,23 +687,30 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
         <p>{booking.shoot_date ? formatDate(booking.shoot_date) : 'Shoot date not set'}</p>
         <p className="text-emerald-400">Booking · On Live Station</p>
       </div>
-      <div className="mt-3 border-t border-slate-200 pt-2 dark:border-white/10">
-        <label className="mb-1 block text-[11px] text-slate-500 dark:text-slate-400" htmlFor={`booking-live-status-${booking.id}`}>Work status</label>
-        <div className="flex min-w-0 gap-2">
-          <select
-            id={`booking-live-status-${booking.id}`}
-            value={booking.work_status ?? 'pending'}
-            onChange={(event) => {
-              const nextStatus = event.target.value;
-              if (nextStatus === 'complete') void updateBookingWorkStatus(booking, 'ready_for_delivery');
-              else void updateBookingWorkStatus(booking, nextStatus as WorkStatus);
-            }}
-            className={`${selectClass} min-w-0 flex-1`}
-          >
-            <option value="editing_in_progress">{WORK_STATUS_LABELS.editing_in_progress}</option>
-            <option value="complete">Complete</option>
-          </select>
-        </div>
+      <div className="mt-3 space-y-2 border-t border-slate-200 pt-2 dark:border-white/10">
+        {bookingWorkTypes(booking.deliverables_data).map((type) => {
+          const itemStatus = bookingWorkItemStatus(booking, type);
+          return <div key={type} className="flex items-center gap-2">
+            <label className="w-12 shrink-0 text-[11px] text-slate-500 dark:text-slate-400">{type === 'album' ? 'Album' : 'Video'}</label>
+            <select
+              aria-label={`${type === 'album' ? 'Album' : 'Video'} work status`}
+              value={itemStatus === 'ready_for_delivery' ? 'complete' : 'editing_in_progress'}
+              onChange={async (event) => {
+                try {
+                  const updated = await saveBookingMediaStatus(booking, type, event.target.value === 'complete' ? 'ready_for_delivery' : 'editing_in_progress');
+                  setStationBookings((current) => current.map((item) => item.id === updated.id ? updated : item));
+                  await logWorkStatusNotification(booking.id, updated.work_status ?? 'editing_in_progress');
+                  triggerRefresh();
+                  toast(`${type === 'album' ? 'Album' : 'Video'} ${event.target.value === 'complete' ? 'marked ready for delivery' : 'editing started'}`, 'success');
+                } catch (error) { toast(getDatabaseErrorMessage(error), 'error'); }
+              }}
+              className={`${selectClass} min-w-0 flex-1`}
+            >
+              <option value="editing_in_progress">Editing in Progress</option>
+              <option value="complete">Complete</option>
+            </select>
+          </div>;
+        })}
       </div>
       <button
         type="button"

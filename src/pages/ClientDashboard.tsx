@@ -35,6 +35,7 @@ import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/context/ToastContext';
 import { formatINR, formatDate, formatDateTime, formatPhone } from '@/lib/format';
 import { formatDeliverablesList, getDeliverableReceipt } from '@/components/BillInvoice';
+import { bookingDeliveryItemIsReady, bookingWorkItemStatus, deliveryItemWorkType } from '@/lib/bookingWork';
 import { bookingBillingSnapshot, labOrderBillingSnapshot } from '@/lib/billing';
 import { getClientSession, clearClientSession, isLabSession, getLabSessionId } from '@/pages/ClientLogin';
 import { Modal } from '@/components/ui/Modal';
@@ -524,8 +525,8 @@ export function ClientDashboard() {
                 return (
                   <div key={deliveryItemKey(delivList, index)} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-white/10">
                     <span className="min-w-0 flex-1 text-xs text-slate-700 dark:text-slate-300">{item}</span>
-                    <span className={`text-xs font-medium ${receipt ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
-                      {receipt ? `Received · ${formatDate(receipt.received_at)}` : 'Pending'}
+                    <span className={`text-xs font-medium ${receipt ? 'text-emerald-600 dark:text-emerald-400' : bookingDeliveryItemIsReady(booking, item) ? 'text-sky-600 dark:text-sky-400' : 'text-slate-400'}`}>
+                      {receipt ? `Received · ${formatDate(receipt.received_at)}` : deliveryItemWorkType(item) ? bookingWorkItemStatus(booking, deliveryItemWorkType(item)!) === 'editing_in_progress' ? 'Editing in Progress' : bookingDeliveryItemIsReady(booking, item) ? 'Ready for Delivery' : 'Pending' : 'Pending'}
                     </span>
                   </div>
                 );
