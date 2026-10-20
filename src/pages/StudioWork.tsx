@@ -3161,19 +3161,21 @@ export function LabOrderPrintTemplate({ order, settings, compact = false, termsT
             <p className="text-[10px] text-gray-500">UPI ID not configured</p>
           )}
         </div>
-        {showStamp && s?.stamp_image_url && (
-          <img src={s.stamp_image_url} alt="stamp" className={compact ? "h-12 w-12 rounded-full object-cover opacity-80" : "h-20 w-20 rounded-full object-cover opacity-80"} />
-        )}
-        <div className="flex flex-col items-center justify-center">
-          <div className={`relative flex h-24 w-24 items-center justify-center rounded-full border-[3px] text-center shadow-inner ${isFullyPaid ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-sky-600 bg-amber-50 text-sky-700'}`}>
+        <div className="ml-auto flex min-w-32 flex-col items-center gap-1 text-center">
+          {showStamp && s?.stamp_image_url && (
+            <img src={s.stamp_image_url} alt="Digital stamp" className={compact ? "h-8 w-20 object-contain opacity-90" : "h-12 w-28 object-contain opacity-90"} />
+          )}
+          <div className="flex flex-col items-center justify-center">
+            <div className={`relative flex h-24 w-24 items-center justify-center rounded-full border-[3px] text-center shadow-inner ${isFullyPaid ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'border-sky-600 bg-amber-50 text-sky-700'}`}>
             <div className="absolute inset-2 rounded-full border border-current/70" />
             <div className="absolute inset-x-1 top-3 text-[7px] font-bold uppercase leading-tight tracking-[0.12em]">BOLLYWOOD UMANG PRODUCTION</div>
             <div className="absolute inset-x-0 bottom-7 text-center text-[15px] font-black tracking-widest">{isFullyPaid ? 'PAID' : 'CONFIRMED'}</div>
             <div className="absolute inset-x-0 bottom-2 text-center text-[7px] font-semibold uppercase tracking-[0.12em]">{new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+            </div>
           </div>
-        </div>
-        <div className="ml-auto min-w-32 text-right text-[10px]">
-          <div className="border-t border-black pt-1">Digital Signature / Authorized Signatory</div>
+          <div className="invoice-signature w-full text-[10px]">
+            <div className="border-t border-black pt-1">Digital Signature / Authorized Signatory</div>
+          </div>
         </div>
       </div>
 

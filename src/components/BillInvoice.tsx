@@ -209,7 +209,7 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
       {compact ? (
         <div className="mb-2 flex justify-between gap-4">
           {delivList.length > 0 && (
-            <div className="flex-1">
+            <div className="min-w-0 flex-1 rounded border border-black p-1">
               <p className="mb-0.5 text-xs font-bold">Delivery Data:</p>
               <div className="grid grid-cols-2 gap-0.5 text-xs">
                 {delivList.map((d, i) => {
@@ -289,11 +289,13 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
             </>
           ) : null}
         </div>
-        {showStamp && s?.stamp_image_url && (
-          <img src={s.stamp_image_url} alt="stamp" className={compact ? "h-12 w-12 rounded-full object-cover opacity-80" : "h-20 w-20 rounded-full object-cover opacity-80"} />
-        )}
-        <div className="invoice-signature ml-auto min-w-32 text-right text-[10px]">
-          <div className="border-t border-black pt-1">Digital Signature</div>
+        <div className="ml-auto flex min-w-32 flex-col items-center gap-1 text-center text-[10px]">
+          {showStamp && s?.stamp_image_url && (
+            <img src={s.stamp_image_url} alt="Digital stamp" className={compact ? "h-8 w-20 object-contain opacity-90" : "h-12 w-28 object-contain opacity-90"} />
+          )}
+          <div className="invoice-signature w-full">
+            <div className="border-t border-black pt-1">Digital Signature</div>
+          </div>
         </div>
       </div>
 

@@ -44,6 +44,11 @@ body::after {
     margin: 10mm;
   }
 
+  @page dual-bill {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
   body {
     background: white !important;
     color: black !important;
@@ -137,13 +142,14 @@ body::after {
   }
 
   #printable-bill-sheet .dual-bill-page {
-    width: 190mm !important;
-    height: 277mm !important;
-    max-width: 190mm !important;
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: space-between !important;
-    overflow: hidden !important;
+    page: dual-bill;
+    width: 281mm !important;
+    height: 194mm !important;
+    max-width: 281mm !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 6mm minmax(0, 1fr) !important;
+    align-items: stretch !important;
+    overflow: visible !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
     break-after: avoid-page !important;
@@ -151,9 +157,10 @@ body::after {
   }
 
   #printable-bill-sheet .dual-bill-copy {
-    height: 132mm !important;
-    max-height: 132mm !important;
-    overflow: hidden !important;
+    width: 100% !important;
+    height: 194mm !important;
+    max-height: none !important;
+    overflow: visible !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
@@ -161,11 +168,13 @@ body::after {
   #printable-bill-sheet .dual-bill-copy .bill-page {
     width: 100% !important;
     max-width: 100% !important;
-    height: auto !important;
+    height: 100% !important;
+    box-sizing: border-box !important;
     margin: 0 !important;
-    padding: 2mm 3mm !important;
+    overflow: visible !important;
+    padding: 3mm 4mm !important;
     font-size: 8px !important;
-    line-height: 1.1 !important;
+    line-height: 1.2 !important;
   }
 
   #printable-bill-sheet .dual-bill-copy .bill-page h1 {
@@ -178,21 +187,42 @@ body::after {
   #printable-bill-sheet .dual-bill-copy .bill-page td,
   #printable-bill-sheet .dual-bill-copy .bill-page th {
     font-size: 8px !important;
-    line-height: 1.1 !important;
+    line-height: 1.2 !important;
   }
 
   #printable-bill-sheet .dual-bill-copy .bill-page table {
-    font-size: 7px !important;
+    font-size: 7.5px !important;
   }
 
   #printable-bill-sheet .dual-bill-divider {
-    flex: 0 0 8mm !important;
+    width: 6mm !important;
+    height: 194mm !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    overflow: hidden !important;
+    border-left: 1px dashed #111 !important;
+    overflow: visible !important;
     font-size: 7px !important;
     line-height: 1 !important;
+    writing-mode: vertical-rl !important;
+  }
+
+  #printable-bill-sheet .dual-bill-copy .bill-page [class*="max-h-"] {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  #printable-bill-sheet .dual-bill-copy .bill-page .invoice-header {
+    gap: 2mm !important;
+  }
+
+  #printable-bill-sheet .dual-bill-copy .bill-page .invoice-header img {
+    max-width: 12mm !important;
+    max-height: 12mm !important;
+  }
+
+  #printable-bill-sheet .dual-bill-copy .bill-page .invoice-signature {
+    min-width: 28mm !important;
   }
 
   * {

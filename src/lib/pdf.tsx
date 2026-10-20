@@ -30,7 +30,9 @@ export async function downloadA4Pdf(element: HTMLElement, filename: string): Pro
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['avoid-all'] },
+      // `avoid-all` can push the entire bill onto a second, mostly blank page.
+      // Respect explicit CSS page breaks while letting one-page bills stay on one A4 sheet.
+      pagebreak: { mode: ['css'], avoid: ['tr', '.invoice-header', '.invoice-signature'] },
     }).from(element).save();
   } finally {
     if (originalStyle === null) element.removeAttribute('style');
@@ -48,7 +50,7 @@ export function PrintableDualCopies({ children, className = '' }: { children: Re
         <p className="dual-bill-label">ORIGINAL / STUDIO COPY</p>
         {renderCopy('original')}
       </section>
-      <div className="dual-bill-divider">✂ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - ✂</div>
+      <div className="dual-bill-divider" aria-label="Cut here">✂</div>
       <section className="dual-bill-copy">
         <p className="dual-bill-label">CLIENT / DUPLICATE COPY</p>
         {renderCopy('client')}
