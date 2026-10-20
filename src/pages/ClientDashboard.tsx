@@ -237,7 +237,6 @@ export function ClientDashboard() {
   const whatsappNumber = (settings?.studio_whatsapp || settings?.whatsapp_number || '').replace(/\D/g, '');
   const callNumber = (settings?.studio_call_number || settings?.phone || '').replace(/\D/g, '');
   const instaUrl = settings?.studio_instagram_url || (settings?.films_insta ? `https://instagram.com/${settings.films_insta.replace('@', '')}` : '');
-  const hasCreativePortals = teaserProject || invitationProject || musicProject || photoSession;
   const heroImage = settings?.films_logo_url || settings?.production_logo_url || settings?.stamp_image_url || '';
 
   return (
@@ -373,22 +372,22 @@ export function ClientDashboard() {
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
             <Wallet className="h-4 w-4 text-amber-500" /> Payment &amp; Balance
           </h2>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center dark:border-white/10 dark:bg-white/5">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+            <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2 text-center dark:border-white/10 dark:bg-white/5 sm:p-3">
               <p className="text-xs text-slate-500 dark:text-slate-400">Grand Total</p>
-              <p className="mt-0.5 text-base font-bold text-slate-900 dark:text-white">{formatINR(bookingBilling.grandTotal)}</p>
+              <p className="mt-0.5 whitespace-nowrap text-sm font-bold text-slate-900 dark:text-white sm:text-base">{formatINR(bookingBilling.grandTotal)}</p>
             </div>
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center dark:border-emerald-500/20 dark:bg-emerald-500/5">
+            <div className="min-w-0 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-center dark:border-emerald-500/20 dark:bg-emerald-500/5 sm:p-3">
               <p className="text-xs text-slate-500 dark:text-slate-400">Advance Paid</p>
-              <p className="mt-0.5 text-base font-bold text-emerald-600 dark:text-emerald-400">{formatINR(Number(booking.advance_paid))}</p>
+              <p className="mt-0.5 whitespace-nowrap text-sm font-bold text-emerald-600 dark:text-emerald-400 sm:text-base">{formatINR(Number(booking.advance_paid))}</p>
             </div>
-            <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-center dark:border-sky-500/20 dark:bg-sky-500/5">
+            <div className="min-w-0 rounded-lg border border-sky-200 bg-sky-50 p-2 text-center dark:border-sky-500/20 dark:bg-sky-500/5 sm:p-3">
               <p className="text-xs text-slate-500 dark:text-slate-400">Discount</p>
-              <p className="mt-0.5 text-base font-bold text-sky-600 dark:text-sky-400">{formatINR(bookingBilling.discountAmount)}</p>
+              <p className="mt-0.5 whitespace-nowrap text-sm font-bold text-sky-600 dark:text-sky-400 sm:text-base">{formatINR(bookingBilling.discountAmount)}</p>
             </div>
-            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-center dark:border-rose-500/20 dark:bg-rose-500/5">
+            <div className="min-w-0 rounded-lg border border-rose-200 bg-rose-50 p-2 text-center dark:border-rose-500/20 dark:bg-rose-500/5 sm:p-3">
               <p className="text-xs text-slate-500 dark:text-slate-400">Balance Due</p>
-              <p className="mt-0.5 text-base font-bold text-rose-600 dark:text-rose-400">{formatINR(netDue)}</p>
+              <p className="mt-0.5 whitespace-nowrap text-sm font-bold text-rose-600 dark:text-rose-400 sm:text-base">{formatINR(netDue)}</p>
             </div>
           </div>
         </div>
@@ -451,8 +450,7 @@ export function ClientDashboard() {
         )}
 
         {/* Creative Portals — Music, Teaser, Invitation, Photo Selection */}
-        {hasCreativePortals && (
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
               <Sparkles className="h-4 w-4 text-amber-500" /> Your Creative Portals
             </h2>
@@ -506,8 +504,7 @@ export function ClientDashboard() {
                 </div>
               );
             })()}
-          </div>
-        )}
+        </div>
 
         {/* Project Status Timeline — only for confirmed/completed bookings */}
         {booking.booking_status !== 'TENTATIVE' && (
@@ -743,13 +740,13 @@ function LabOrderDashboard({
             <Wallet className="h-4 w-4 text-amber-500" /> Bill Summary
           </h2>
           <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-            <div><span className="text-slate-500 dark:text-slate-400">Subtotal</span><p className="font-semibold text-slate-900 dark:text-white">{formatINR(billing.subtotal)}</p></div>
-            <div><span className="text-slate-500 dark:text-slate-400">Previous balance</span><p className="font-semibold text-slate-900 dark:text-white">{formatINR(billing.previousBalance)}</p></div>
-            {billing.taxAmount > 0 && <div><span className="text-slate-500 dark:text-slate-400">Tax</span><p className="font-semibold text-slate-900 dark:text-white">{formatINR(billing.taxAmount)}</p></div>}
-            {billing.discountAmount > 0 && <div><span className="text-slate-500 dark:text-slate-400">Discount</span><p className="font-semibold text-slate-900 dark:text-white">- {formatINR(billing.discountAmount)}</p></div>}
-            <div><span className="text-slate-500 dark:text-slate-400">Grand Total</span><p className="font-semibold text-slate-900 dark:text-white">{formatINR(masterTotal)}</p></div>
-            <div><span className="text-slate-500 dark:text-slate-400">Paid</span><p className="font-semibold text-emerald-600 dark:text-emerald-400">{formatINR(totalPaid)}</p></div>
-            <div><span className="text-slate-500 dark:text-slate-400">Balance due</span><p className="font-bold text-rose-600 dark:text-rose-400">{formatINR(netDue)}</p></div>
+            <div className="min-w-0"><span className="text-slate-500 dark:text-slate-400">Subtotal</span><p className="break-words font-semibold text-slate-900 dark:text-white">{formatINR(billing.subtotal)}</p></div>
+            <div className="min-w-0"><span className="text-slate-500 dark:text-slate-400">Previous balance</span><p className="break-words font-semibold text-slate-900 dark:text-white">{formatINR(billing.previousBalance)}</p></div>
+            {billing.taxAmount > 0 && <div className="min-w-0"><span className="text-slate-500 dark:text-slate-400">Tax</span><p className="break-words font-semibold text-slate-900 dark:text-white">{formatINR(billing.taxAmount)}</p></div>}
+            {billing.discountAmount > 0 && <div className="min-w-0"><span className="text-slate-500 dark:text-slate-400">Discount</span><p className="break-words font-semibold text-slate-900 dark:text-white">- {formatINR(billing.discountAmount)}</p></div>}
+            <div className="min-w-0"><span className="text-slate-500 dark:text-slate-400">Grand Total</span><p className="break-words font-semibold text-slate-900 dark:text-white">{formatINR(masterTotal)}</p></div>
+            <div className="min-w-0"><span className="text-slate-500 dark:text-slate-400">Paid</span><p className="break-words font-semibold text-emerald-600 dark:text-emerald-400">{formatINR(totalPaid)}</p></div>
+            <div className="min-w-0"><span className="text-slate-500 dark:text-slate-400">Balance due</span><p className="break-words font-bold text-rose-600 dark:text-rose-400">{formatINR(netDue)}</p></div>
           </div>
           {(order.extra_items ?? []).length > 0 && <div className="mt-3 border-t border-slate-200 pt-3 dark:border-white/10"><p className="mb-1 text-xs font-semibold text-slate-700 dark:text-slate-200">Itemized Extra Charges</p><div className="space-y-1">{(order.extra_items ?? []).map((item) => <div key={item.id} className="flex justify-between gap-3 text-xs"><span className="text-slate-500 dark:text-slate-400">{item.client_name ? `${item.client_name} · ` : ''}{item.description} · {item.quantity} × {formatINR(Number(item.unit_rate))}</span><span className="font-medium text-slate-900 dark:text-white">{formatINR(Number(item.line_amount))}</span></div>)}</div></div>}
         </div>

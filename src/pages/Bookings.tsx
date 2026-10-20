@@ -6,6 +6,7 @@ import {
   Sparkles,
   CalendarPlus,
   ChevronRight,
+  Archive,
   Edit3,
   Trash2,
   Printer,
@@ -111,11 +112,6 @@ function bookingPaymentErrorMessage(error: unknown): string {
 
 const bookingDue = (booking: Booking) => bookingBillingSnapshot(booking).balanceDue;
 
-function recycleDaysRemaining(deletedAt: string | null | undefined): number {
-  if (!deletedAt) return 90;
-  return Math.max(0, 90 - Math.floor((Date.now() - new Date(deletedAt).getTime()) / 86400000));
-}
-
 function uid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
@@ -176,7 +172,7 @@ function computeVideoTotal(r: BookingVideoRow): number {
 export function Bookings({ openBookingId, onBookingOpened, onNavigate }: { openBookingId?: string | null; onBookingOpened?: () => void; onNavigate?: (page: PageKey) => void } = {}) {
   const { toast } = useToast();
   const { settings } = useSettings();
-  const { refreshToken } = useRefresh();
+  const { refreshToken, triggerRefresh } = useRefresh();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -212,14 +208,13 @@ export function Bookings({ openBookingId, onBookingOpened, onNavigate }: { openB
 
   const filtered = bookings.filter((b) => {
     const q = search.toLowerCase();
-    const isCancelled = (b.booking_status ?? '').toUpperCase() === 'CANCELLED';
     const lifecycleMatch = view === 'recycle'
       ? !!b.deleted_at
       : view === 'archived'
         ? !!b.archived_at && !b.deleted_at
         : view === 'delivered'
           ? !b.archived_at && !b.deleted_at && b.work_status === 'delivered'
-          : !b.archived_at && !b.deleted_at && !isCancelled && b.work_status !== 'delivered';
+          : !b.archived_at && !b.deleted_at && b.work_status !== 'delivered';
     return lifecycleMatch && ((b.client_name ?? '').toLowerCase().includes(q) || (b.event_function ?? '').toLowerCase().includes(q) || (b.booking_no ?? '').toLowerCase().includes(q));
   });
 
@@ -238,13 +233,39 @@ export function Bookings({ openBookingId, onBookingOpened, onNavigate }: { openB
 
   const handleDelete = async () => {
     if (!deleteId) return;
-    await supabase.from('bookings').update({ deleted_at: new Date().toISOString() }).eq('id', deleteId);
+    const { error } = await supabase.from('bookings').update({ deleted_at: new Date().toISOString() }).eq('id', deleteId);
+    if (error) { toast(`Could not move booking to Recycle Bin: ${error.message}`, 'error'); return; }
     toast('Booking moved to Recycle Bin', 'success');
     setDeleteId(null); setShowPin(false); load();
   };
 
-  const restoreBooking = async (id: string) => { await supabase.from('bookings').update({ archived_at: null, deleted_at: null }).eq('id', id); toast('Booking restored to Active', 'success'); load(); };
-  const permanentlyDeleteBooking = async () => { if (!deleteId) return; await supabase.from('bookings').delete().eq('id', deleteId); toast('Booking permanently deleted', 'success'); setDeleteId(null); setShowPin(false); load(); };
+  const restoreBooking = async (id: string) => {
+    const { data, error } = await supabase.from('bookings').update({ archived_at: null, deleted_at: null }).eq('id', id).select('*').single();
+    if (error) { toast(`Could not restore booking: ${error.message}`, 'error'); return; }
+    const restored = data as Booking;
+    setBookings((current) => current.map((booking) => booking.id === id ? restored : booking));
+    setView(restored.work_status === 'delivered' ? 'delivered' : 'active');
+    toast(restored.work_status === 'delivered' ? 'Booking restored to Delivered' : 'Booking restored to Active', 'success');
+    triggerRefresh();
+  };
+
+  const setBookingArchived = async (booking: Booking, archived: boolean) => {
+    const { data, error } = await supabase.from('bookings').update({ archived_at: archived ? new Date().toISOString() : null }).eq('id', booking.id).is('deleted_at', null).select('*').single();
+    if (error) { toast(`Could not ${archived ? 'archive' : 'restore'} booking: ${error.message}`, 'error'); return; }
+    const updated = data as Booking;
+    setBookings((current) => current.map((item) => item.id === updated.id ? updated : item));
+    setDetailBooking(updated);
+    setView(archived ? 'archived' : updated.work_status === 'delivered' ? 'delivered' : 'active');
+    triggerRefresh();
+    toast(archived ? 'Booking archived' : updated.work_status === 'delivered' ? 'Booking restored to Delivered' : 'Booking restored to Active', 'success');
+  };
+
+  const permanentlyDeleteBooking = async () => {
+    if (!deleteId) return;
+    const { error } = await supabase.from('bookings').delete().eq('id', deleteId);
+    if (error) { toast(`Could not permanently delete booking: ${error.message}`, 'error'); return; }
+    toast('Booking permanently deleted', 'success'); setDeleteId(null); setShowPin(false); load();
+  };
 
   const copyBookingSummary = async (b: Booking) => {
     const text = buildBookingSummaryText(b, settings);
@@ -348,7 +369,7 @@ export function Bookings({ openBookingId, onBookingOpened, onNavigate }: { openB
               <div className="text-right">
                 <p className="text-sm font-semibold text-slate-900 dark:text-white">{formatINR(Number(b.total_amount))}</p>
                 <p className="text-xs text-rose-500 dark:text-rose-400">{formatINR(bookingDue(b))} due</p>
-                {view === 'recycle' && <p className="text-[11px] text-amber-600 dark:text-amber-400">Expires in {recycleDaysRemaining(b.deleted_at)} days</p>}
+                {view === 'recycle' && <p className="text-[11px] text-amber-600 dark:text-amber-400">Deleted {formatDate(b.deleted_at ?? null)}</p>}
               </div>
               <button
                 onClick={(e) => { e.stopPropagation(); copyBookingSummary(b); }}
@@ -403,6 +424,7 @@ export function Bookings({ openBookingId, onBookingOpened, onNavigate }: { openB
             onUpdated={(updated) => { setDetailBooking(updated); setBookings((prev) => prev.map((item) => item.id === updated.id ? updated : item)); }}
             onEdit={() => { setEditing(detailBooking); setDetailBooking(null); setShowForm(true); }}
             onDelete={() => { setDeleteId(detailBooking.id); setPendingDelete('soft'); setShowPin(true); setDetailBooking(null); }}
+            onArchive={() => { void setBookingArchived(detailBooking, !detailBooking.archived_at); }}
           />
         </ErrorBoundary>
       )}
@@ -759,7 +781,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       shoot_time: primaryTime,
       venue: events.find((event) => event.venue)?.venue ?? venue,
       booking_status: bookingStatus,
-      archived_at: bookingStatus === 'COMPLETED' || bookingStatus === 'CANCELLED' ? (editing?.archived_at ?? new Date().toISOString()) : null,
+      archived_at: editing?.archived_at ?? null,
       total_amount: totalAmountNum,
       billing_version: 2,
       tax_rate: bookingBilling.taxRate,
@@ -1558,7 +1580,7 @@ function DeliverableCheckbox({ label, checked, onChange }: { label: string; chec
   );
 }
 
-function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { booking: Booking; onClose: () => void; onEdit: () => void; onDelete: () => void; onUpdated: (booking: Booking) => void }) {
+function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, onUpdated }: { booking: Booking; onClose: () => void; onEdit: () => void; onDelete: () => void; onArchive: () => void; onUpdated: (booking: Booking) => void }) {
   const { settings } = useSettings();
   const { toast } = useToast();
   const { triggerRefresh } = useRefresh();
@@ -2110,6 +2132,9 @@ function BookingDetail({ booking, onClose, onEdit, onDelete, onUpdated }: { book
 
       {/* Actions */}
       <div className="flex flex-wrap justify-end gap-3 pt-2">
+        {!booking.deleted_at && <button onClick={onArchive} className="flex items-center gap-1.5 rounded-lg border border-amber-200 px-4 py-2.5 text-sm text-amber-700 hover:bg-amber-50 dark:border-amber-500/20 dark:text-amber-400 dark:hover:bg-amber-500/10">
+          <Archive className="h-4 w-4" /> {booking.archived_at ? 'Restore Booking' : 'Archive Booking'}
+        </button>}
         <button onClick={onDelete} className="flex items-center gap-1.5 rounded-lg border border-rose-200 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50 dark:border-rose-500/20 dark:text-rose-400 dark:hover:bg-rose-500/10">
           <Trash2 className="h-4 w-4" /> Delete
         </button>
