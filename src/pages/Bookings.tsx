@@ -705,7 +705,9 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
   }, [albumRows, videoRows]);
 
   const baseSubtotal = totalAmount !== '' ? toNum(totalAmount) : lineItemsTotal;
-  const bookingBilling = calculateBookingBilling({ baseSubtotal, extraItems: customItems, taxRate: toNum(taxRate), discountAmount: toNum(discount), totalPayments: paymentHistory.reduce((sum, payment) => sum + toNum(payment.paid_amount), 0) });
+  // Use the advance field for the live due preview; Pay Now later records it
+  // into paymentHistory before the booking can be saved.
+  const bookingBilling = calculateBookingBilling({ baseSubtotal, extraItems: customItems, taxRate: toNum(taxRate), discountAmount: toNum(discount), totalPayments: toNum(advancePaid) });
   const computedTotal = bookingBilling.subtotal;
   const totalAmountNum = bookingBilling.subtotal;
   const netDue = bookingBilling.balanceDue;
