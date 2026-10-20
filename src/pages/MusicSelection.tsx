@@ -244,14 +244,14 @@ export function MusicSelection() {
     return true;
   };
 
-  const saveLibraryAudioLink = async (song: MusicLibrarySong, songTitle: string, audioUrl: string) => {
-    const { data, error } = await supabase.from('music_song_library').update({ song_title: songTitle.trim(), audio_url: audioUrl }).eq('id', song.id).select('*').maybeSingle();
+  const saveLibraryAudioLink = async (song: MusicLibrarySong, songTitle: string, singerArtist: string, audioUrl: string) => {
+    const { data, error } = await supabase.from('music_song_library').update({ song_title: songTitle.trim(), singer_artist: singerArtist.trim(), audio_url: audioUrl }).eq('id', song.id).select('*').maybeSingle();
     if (error || !data) {
       toast('Could not save the library preview link. Check admin access and try again.', 'error');
       return false;
     }
     setLibrarySongs((current) => current.map((item) => item.id === song.id ? data as MusicLibrarySong : item));
-    toast(audioUrl ? 'Song title and preview link saved' : 'Song title saved and preview link cleared', 'success');
+    toast(audioUrl ? 'Song details and preview link saved' : 'Song details saved and preview link cleared', 'success');
     return true;
   };
 
@@ -306,7 +306,7 @@ function StatusBadge({ status }: { status: MusicProject['status'] }) {
   return <Badge color={status === 'locked' ? 'emerald' : status === 'submitted' ? 'sky' : 'slate'}>{status === 'locked' ? 'Locked' : status === 'submitted' ? 'Submitted' : 'Draft'}</Badge>;
 }
 
-function AdminProject({ project, cues, masterCues, librarySongs, onSaveMasterCue, onSaveLibraryAudioLink, onAddCue, onRemoveCue, onToggleLock, onCopyShare, onRequestArchive }: { project: MusicProject; cues: MusicCue[]; masterCues: MusicMasterCue[]; librarySongs: MusicLibrarySong[]; onSaveMasterCue: (cue: Omit<MusicMasterCue, 'id' | 'created_at' | 'updated_at'>, existing?: MusicMasterCue) => Promise<boolean>; onSaveLibraryAudioLink: (song: MusicLibrarySong, songTitle: string, audioUrl: string) => Promise<boolean>; onAddCue: (cue: Omit<MusicCue, 'id' | 'created_at' | 'updated_at'>) => Promise<boolean>; onRemoveCue: (id: string) => Promise<void>; onToggleLock: () => Promise<void>; onCopyShare: () => Promise<void>; onRequestArchive: () => void }) {
+function AdminProject({ project, cues, masterCues, librarySongs, onSaveMasterCue, onSaveLibraryAudioLink, onAddCue, onRemoveCue, onToggleLock, onCopyShare, onRequestArchive }: { project: MusicProject; cues: MusicCue[]; masterCues: MusicMasterCue[]; librarySongs: MusicLibrarySong[]; onSaveMasterCue: (cue: Omit<MusicMasterCue, 'id' | 'created_at' | 'updated_at'>, existing?: MusicMasterCue) => Promise<boolean>; onSaveLibraryAudioLink: (song: MusicLibrarySong, songTitle: string, singerArtist: string, audioUrl: string) => Promise<boolean>; onAddCue: (cue: Omit<MusicCue, 'id' | 'created_at' | 'updated_at'>) => Promise<boolean>; onRemoveCue: (id: string) => Promise<void>; onToggleLock: () => Promise<void>; onCopyShare: () => Promise<void>; onRequestArchive: () => void }) {
   const { toast } = useToast();
   const [showAdd, setShowAdd] = useState(false);
   const [showMasterForm, setShowMasterForm] = useState(false);
@@ -362,13 +362,14 @@ function AdminProject({ project, cues, masterCues, librarySongs, onSaveMasterCue
   );
 }
 
-function MusicLibraryPanel({ songs, project, cues, disabled, onAdd, onSaveAudioLink }: { songs: MusicLibrarySong[]; project: MusicProject; cues: MusicCue[]; disabled: boolean; onAdd: (cue: Omit<MusicCue, 'id' | 'created_at' | 'updated_at'>) => Promise<boolean>; onSaveAudioLink?: (song: MusicLibrarySong, songTitle: string, audioUrl: string) => Promise<boolean> }) {
+function MusicLibraryPanel({ songs, project, cues, disabled, onAdd, onSaveAudioLink }: { songs: MusicLibrarySong[]; project: MusicProject; cues: MusicCue[]; disabled: boolean; onAdd: (cue: Omit<MusicCue, 'id' | 'created_at' | 'updated_at'>) => Promise<boolean>; onSaveAudioLink?: (song: MusicLibrarySong, songTitle: string, singerArtist: string, audioUrl: string) => Promise<boolean> }) {
   const { toast } = useToast();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('All events');
   const [addingKey, setAddingKey] = useState('');
   const [editingSong, setEditingSong] = useState<MusicLibrarySong | null>(null);
   const [audioTitle, setAudioTitle] = useState('');
+  const [audioArtist, setAudioArtist] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
   const [youtubeTitleLoading, setYoutubeTitleLoading] = useState(false);
   const [savingLink, setSavingLink] = useState(false);
@@ -437,7 +438,7 @@ function MusicLibraryPanel({ songs, project, cues, disabled, onAdd, onSaveAudioL
     }
     setSavingLink(true);
     try {
-      if (await onSaveAudioLink(editingSong, normalizedTitle, normalizedUrl)) setEditingSong(null);
+      if (await onSaveAudioLink(editingSong, normalizedTitle, audioArtist, normalizedUrl)) setEditingSong(null);
     } finally { setSavingLink(false); }
   };
   const pasteAndSaveAudioLink = async () => {
@@ -457,6 +458,7 @@ function MusicLibraryPanel({ songs, project, cues, disabled, onAdd, onSaveAudioL
     setYoutubeSong(song);
     titleManuallyEdited.current = false;
     setAudioTitle(song.song_title);
+    setAudioArtist(song.singer_artist || '');
     setYoutubeResults([]);
     setYoutubeLoading(true);
     const terms = [song.song_title, song.singer_artist].filter(Boolean).join(' ');
@@ -478,7 +480,7 @@ function MusicLibraryPanel({ songs, project, cues, disabled, onAdd, onSaveAudioL
     if (!titleManuallyEdited.current) setAudioTitle(normalizedTitle);
     setSavingYoutubeId(result.videoId);
     try {
-      if (await onSaveAudioLink(youtubeSong, normalizedTitle, result.url)) setYoutubeSong(null);
+      if (await onSaveAudioLink(youtubeSong, normalizedTitle, audioArtist, result.url)) setYoutubeSong(null);
     } finally { setSavingYoutubeId(''); }
   };
   const addedForEvent = (song: MusicLibrarySong) => cues.some((cue) => cue.category === song.event_tag && cue.track_title.trim().toLocaleLowerCase() === song.song_title.trim().toLocaleLowerCase());
@@ -491,13 +493,13 @@ function MusicLibraryPanel({ songs, project, cues, disabled, onAdd, onSaveAudioL
       return <article key={song.id} className="min-w-0 rounded-xl border border-white/10 bg-white/[0.03] p-2.5">
         <div className="flex min-w-0 items-center gap-2"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-white">{song.song_title}</p><p className="truncate text-xs text-slate-400">{song.event_tag}{song.singer_artist ? ` · ${song.singer_artist}` : ''}</p></div>
           {onSaveAudioLink && <button type="button" onClick={() => openYouTubeSearch(song)} className="flex shrink-0 items-center gap-1 rounded-lg border border-white/10 px-2 py-1.5 text-xs text-slate-300 hover:bg-white/10" title={`Search YouTube for ${song.song_title}`}><Search className="h-3 w-3" /> YouTube</button>}
-          {onSaveAudioLink && <button type="button" onClick={() => { titleManuallyEdited.current = false; setEditingSong(song); setAudioTitle(song.song_title); setAudioUrl(song.audio_url); }} className="shrink-0 rounded-lg border border-white/10 px-2 py-1.5 text-xs text-slate-300 hover:bg-white/10">{song.audio_url ? 'Edit title/link' : 'Add title/link'}</button>}
+          {onSaveAudioLink && <button type="button" onClick={() => { titleManuallyEdited.current = false; setEditingSong(song); setAudioTitle(song.song_title); setAudioArtist(song.singer_artist || ''); setAudioUrl(song.audio_url); }} className="shrink-0 rounded-lg border border-white/10 px-2 py-1.5 text-xs text-slate-300 hover:bg-white/10">{song.audio_url ? 'Edit details/link' : 'Add details/link'}</button>}
           <button type="button" disabled={disabled || added || Boolean(addingKey)} onClick={() => void addSong(song)} className="shrink-0 rounded-lg border border-amber-400/20 px-2.5 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50">{added ? 'Added' : addingKey === song.catalog_key ? 'Adding…' : 'Add'}</button>
         </div>
         {media ? <UniversalMediaPreview url={song.audio_url} kind="audio" title={`${song.song_title} preview`} className="mt-2" mediaClassName={media.render === 'audio' ? 'h-8 w-full max-w-[220px]' : 'aspect-video w-40 rounded-md border border-white/10 bg-black'} /> : <p className="mt-1 text-[11px] text-slate-500">Preview link not added</p>}
       </article>;
     })}</div>}
-    {editingSong && <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/70 p-4"><div role="dialog" aria-modal="true" aria-labelledby="library-audio-link-title" className="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-900 p-5 text-white shadow-2xl"><div className="mb-4"><h2 id="library-audio-link-title" className="text-lg font-semibold">Song Title & Preview Link</h2><p className="mt-1 text-sm text-slate-400">{editingSong.event_tag}</p><p className="mt-1 text-xs text-emerald-300">Title auto-fill hoga; chahein to save se pehle edit kar dein.</p></div><Field label="Song title"><input autoFocus type="text" value={audioTitle} onChange={(event) => { titleManuallyEdited.current = true; setAudioTitle(event.target.value); }} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="Paste or enter song title" /></Field><div className="mt-3"><Field label="External audio or YouTube link"><input type="url" value={audioUrl} onChange={(event) => { titleManuallyEdited.current = false; setAudioUrl(event.target.value); }} onBlur={(event) => { void lookupYoutubeTitle(event.target.value); }} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="Paste YouTube, Drive, Dropbox, pCloud, OneDrive, or MP3 URL" /></Field></div><p className="mt-2 text-xs text-slate-500">{youtubeTitleLoading ? 'YouTube title fetch ho raha hai…' : 'YouTube link se title automatic aayega; link aur title dono yahin edit kar sakte hain.'}</p><div className="mt-5 flex justify-end gap-2"><button type="button" disabled={savingLink} onClick={() => setEditingSong(null)} className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5">Cancel</button><button type="button" disabled={savingLink} onClick={() => void pasteAndSaveAudioLink()} className="rounded-lg border border-amber-400/30 px-4 py-2.5 text-sm font-semibold text-amber-300 hover:bg-amber-500/10 disabled:opacity-50">{savingLink ? 'Saving…' : 'Paste & Save Link'}</button><button type="button" disabled={savingLink || youtubeTitleLoading} onClick={() => void saveAudioLink()} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50">{savingLink ? 'Saving…' : 'Save Title & Link'}</button></div></div></div>}
+    {editingSong && <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/70 p-4"><div role="dialog" aria-modal="true" aria-labelledby="library-audio-link-title" className="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-900 p-5 text-white shadow-2xl"><div className="mb-4"><h2 id="library-audio-link-title" className="text-lg font-semibold">Song Details & Preview Link</h2><p className="mt-1 text-sm text-slate-400">{editingSong.event_tag}</p><p className="mt-1 text-xs text-emerald-300">YouTube title auto-fill hoga; song title aur artist/film naam manually bhi badal sakte hain.</p></div><Field label="Song title"><input autoFocus type="text" value={audioTitle} onChange={(event) => { titleManuallyEdited.current = true; setAudioTitle(event.target.value); }} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="Paste or enter song title" /></Field><div className="mt-3"><Field label="Artist / Film (shown under song)"><input type="text" value={audioArtist} onChange={(event) => setAudioArtist(event.target.value)} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="e.g. Gangubai Kathiawadi" /></Field></div><div className="mt-3"><Field label="External audio or YouTube link"><input type="url" value={audioUrl} onChange={(event) => { titleManuallyEdited.current = false; setAudioUrl(event.target.value); }} onBlur={(event) => { void lookupYoutubeTitle(event.target.value); }} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="Paste YouTube, Drive, Dropbox, pCloud, OneDrive, or MP3 URL" /></Field></div><p className="mt-2 text-xs text-slate-500">YouTube link se title automatic aayega; song title, artist/film aur link yahin edit kar sakte hain.</p><div className="mt-5 flex justify-end gap-2"><button type="button" disabled={savingLink} onClick={() => setEditingSong(null)} className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5">Cancel</button><button type="button" disabled={savingLink} onClick={() => void pasteAndSaveAudioLink()} className="rounded-lg border border-amber-400/30 px-4 py-2.5 text-sm font-semibold text-amber-300 hover:bg-amber-500/10 disabled:opacity-50">{savingLink ? 'Saving…' : 'Paste & Save Link'}</button><button type="button" disabled={savingLink || youtubeTitleLoading} onClick={() => void saveAudioLink()} className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50">{savingLink ? 'Saving…' : 'Save Song Details'}</button></div></div></div>}
     {youtubeSong && <div className="fixed inset-0 z-[190] flex items-center justify-center bg-black/75 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !youtubeLoading && !savingYoutubeId) setYoutubeSong(null); }}><div role="dialog" aria-modal="true" aria-labelledby="youtube-search-title" className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-slate-900 p-4 text-white shadow-2xl sm:p-5"><div className="mb-4 flex items-start justify-between gap-3"><div><h2 id="youtube-search-title" className="text-lg font-semibold">Choose YouTube Song</h2><p className="mt-1 text-sm text-slate-400">{youtubeSong.song_title}{youtubeSong.singer_artist ? ` · ${youtubeSong.singer_artist}` : ''}</p><p className="mt-1 text-xs text-emerald-300">Gaana select karte hi uska link library me save hoga.</p><div className="mt-3"><Field label="Song title"><input autoFocus type="text" value={audioTitle} onChange={(event) => { titleManuallyEdited.current = true; setAudioTitle(event.target.value); }} className={`${inputClass} border-white/10 bg-slate-800 text-white`} placeholder="Paste or enter song title" /></Field></div></div><button type="button" onClick={() => setYoutubeSong(null)} aria-label="Close YouTube search" className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button></div>{youtubeLoading ? <p className="py-10 text-center text-sm text-slate-400">YouTube par search ho raha hai…</p> : youtubeResults.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">Koi result nahi mila. Search terms ya API setup check karein.</p> : <div className="space-y-2">{youtubeResults.map((result) => <div key={result.videoId} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-2"><img src={result.thumbnail} alt="" className="h-14 w-24 shrink-0 rounded-md bg-slate-800 object-cover" /><div className="min-w-0 flex-1"><p className="line-clamp-2 text-sm font-medium">{result.title}</p><p className="mt-1 truncate text-xs text-slate-400">{result.channel}</p></div><button type="button" disabled={Boolean(savingYoutubeId)} onClick={() => void chooseYouTubeSong(result)} className="shrink-0 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50">{savingYoutubeId === result.videoId ? 'Saving…' : 'Select'}</button></div>)}</div>}</div></div>}
   </section>;
 }
