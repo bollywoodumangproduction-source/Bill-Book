@@ -21,6 +21,22 @@ function respond(request: Request, body: unknown, status = 200) {
   });
 }
 
+function getYouTubeVideoId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    let videoId = '';
+    if (host === 'youtu.be') videoId = url.pathname.split('/').filter(Boolean)[0] || '';
+    else if (['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtube-nocookie.com'].includes(host)) {
+      videoId = url.searchParams.get('v') || url.pathname.match(/^\/(?:shorts|embed|live)\/([^/?]+)/)?.[1] || '';
+    }
+    return /^[A-Za-z0-9_-]{11}$/.test(videoId) ? videoId : null;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return respond(request, { ok: true });
   if (request.method !== 'POST') return respond(request, { error: 'Method not allowed.' }, 405);
@@ -34,13 +50,39 @@ Deno.serve(async (request) => {
   const { data: { user }, error: authError } = await authClient.auth.getUser(token);
   if (authError || user?.app_metadata?.role !== 'admin') return respond(request, { error: 'Administrator access is required.' }, 403);
 
-  let query = '';
+  let body: Record<string, unknown>;
   try {
-    const body = await request.json();
-    query = typeof body?.query === 'string' ? body.query.trim().slice(0, 200) : '';
+    body = await request.json();
   } catch {
     return respond(request, { error: 'Invalid search request.' }, 400);
   }
+
+  if (typeof body.url === 'string') {
+    const videoId = getYouTubeVideoId(body.url);
+    if (!videoId) return respond(request, { error: 'Enter a valid YouTube video link.' }, 400);
+    const params = new URLSearchParams({ part: 'snippet', id: videoId, key: youtubeApiKey });
+    const videoResponse = await fetch(`https://www.googleapis.com/youtube/v3/videos?${params.toString()}`);
+    const payload = await videoResponse.json().catch(() => ({}));
+    if (!videoResponse.ok) {
+      const reason = payload?.error?.errors?.[0]?.reason;
+      const message = reason === 'quotaExceeded'
+        ? 'YouTube API daily quota is used up. Try again later.'
+        : 'Could not fetch the YouTube title. Check the API key and YouTube Data API v3 setup.';
+      return respond(request, { error: message }, videoResponse.status === 403 ? 502 : 503);
+    }
+    const video = Array.isArray(payload.items) ? payload.items[0] : null;
+    if (!video?.snippet?.title) return respond(request, { error: 'YouTube video was not found.' }, 404);
+    return respond(request, {
+      metadata: {
+        videoId,
+        title: String(video.snippet.title).slice(0, 300),
+        channel: String(video.snippet.channelTitle || '').slice(0, 200),
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+      },
+    });
+  }
+
+  const query = typeof body.query === 'string' ? body.query.trim().slice(0, 200) : '';
   if (query.length < 2) return respond(request, { error: 'Enter at least two characters to search.' }, 400);
 
   const params = new URLSearchParams({ part: 'snippet', type: 'video', maxResults: '10', q: query, key: youtubeApiKey });
