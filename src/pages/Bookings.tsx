@@ -363,7 +363,7 @@ export function Bookings({ openBookingId, openBookingEdit = false, onBookingOpen
                 <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{year}</h2>
                 <span className="text-xs text-slate-400">{yearBookings.length} {yearBookings.length === 1 ? 'booking' : 'bookings'}</span>
               </summary>
-              <div className="space-y-2.5">
+              <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
                 {yearBookings.map((b) => (
             <div
               key={b.id}
@@ -371,41 +371,46 @@ export function Bookings({ openBookingId, openBookingEdit = false, onBookingOpen
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setDetailBooking(b); }}
               role="button"
               tabIndex={0}
-              className="group flex w-full items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-amber-500/30 hover:bg-amber-50/50 dark:border-white/10 dark:bg-slate-900/50 dark:hover:border-amber-500/20 dark:hover:bg-slate-900"
+              className="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-xl border border-slate-200 bg-white p-2.5 text-left transition-colors hover:border-amber-500/30 hover:bg-amber-50/50 dark:border-white/10 dark:bg-slate-900/50 dark:hover:border-amber-500/20 dark:hover:bg-slate-900 2xl:flex 2xl:gap-4 2xl:p-4"
             >
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{b.client_name}</p>
+              <div className="min-w-0 2xl:flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5 2xl:gap-2">
+                  <p className="max-w-full truncate text-sm font-semibold text-slate-900 dark:text-white">{b.client_name}</p>
                   <Badge color={STATUS_COLORS[b.booking_status] ?? 'slate'}>{b.booking_status}</Badge>
-                  <Badge color={b.work_status === 'delivered' ? 'emerald' : b.work_status === 'pending' ? 'slate' : 'amber'}>Work: {getWorkStatusLabel(b.work_status)}</Badge>
+                  <Badge color={b.work_status === 'delivered' ? 'emerald' : b.work_status === 'pending' ? 'slate' : 'amber'}>
+                    <span className="2xl:hidden">Work: {b.work_status === 'editing_in_progress' ? 'Editing' : getWorkStatusLabel(b.work_status)}</span>
+                    <span className="hidden 2xl:inline">Work: {getWorkStatusLabel(b.work_status)}</span>
+                  </Badge>
                 </div>
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400 2xl:line-clamp-none">
                   {b.booking_no} · {b.event_function} · {formatDate(b.shoot_date)} {b.venue && `· ${b.venue}`}
                 </p>
                 <BookingDeliveryStatus booking={b} compact />
               </div>
-              <div className="text-right">
+              <div className="whitespace-nowrap text-right">
                 <p className="text-sm font-semibold text-slate-900 dark:text-white">{formatINR(Number(b.total_amount))}</p>
                 <p className="text-xs text-rose-500 dark:text-rose-400">{formatINR(bookingDue(b))} due</p>
                 {view === 'recycle' && <p className="text-[11px] text-amber-600 dark:text-amber-400">Deleted {formatDate(b.deleted_at ?? null)}</p>}
               </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); copyBookingSummary(b); }}
-                className="shrink-0 rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-amber-500 dark:hover:bg-white/10"
-                title="Copy bill summary"
-              >
-                <Copy className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setDetailBooking(b); }}
-                className="flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-900 transition-colors hover:bg-amber-400"
-                aria-label={`Open Location for ${b.booking_no}`}
-              >
-                <FolderOpen className="h-4 w-4" /> <span className="hidden sm:inline">Open Location</span><span className="sm:hidden">Open</span>
-              </button>
-              {(view === 'archived' || view === 'recycle') && <button onClick={(e) => { e.stopPropagation(); restoreBooking(b.id); }} className="text-xs text-emerald-600 dark:text-emerald-400">Restore</button>}
-              {view === 'recycle' && <button onClick={(e) => { e.stopPropagation(); setDeleteId(b.id); setPendingDelete('permanent'); setShowPin(true); }} className="text-xs text-rose-500">Delete Forever</button>}
+              <div className="col-span-2 flex items-center justify-end gap-2 2xl:gap-4">
+                <button
+                  onClick={(e) => { e.stopPropagation(); copyBookingSummary(b); }}
+                  className="shrink-0 rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-amber-500 dark:hover:bg-white/10"
+                  title="Copy bill summary"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setDetailBooking(b); }}
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-500 px-2.5 py-1.5 text-xs font-semibold text-slate-900 transition-colors hover:bg-amber-400 2xl:px-3 2xl:py-2"
+                  aria-label={`Open Location for ${b.booking_no}`}
+                >
+                  <FolderOpen className="h-4 w-4" /> <span className="hidden 2xl:inline">Open Location</span><span className="2xl:hidden">Open</span>
+                </button>
+                {(view === 'archived' || view === 'recycle') && <button onClick={(e) => { e.stopPropagation(); restoreBooking(b.id); }} className="text-xs text-emerald-600 dark:text-emerald-400">Restore</button>}
+                {view === 'recycle' && <button onClick={(e) => { e.stopPropagation(); setDeleteId(b.id); setPendingDelete('permanent'); setShowPin(true); }} className="text-xs text-rose-500">Delete Forever</button>}
+              </div>
             </div>
                 ))}
               </div>
