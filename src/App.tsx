@@ -172,6 +172,7 @@ function AdminApp() {
   const [page, setPage] = useState<PageKey>('dashboard');
   const [openLabOrderId, setOpenLabOrderId] = useState<string | null>(null);
   const [openBookingId, setOpenBookingId] = useState<string | null>(null);
+  const [openBookingEdit, setOpenBookingEdit] = useState(false);
   const pageHistory = useRef<PageKey[]>([]);
   const currentPage = useRef<PageKey>('dashboard');
 
@@ -187,8 +188,9 @@ function AdminApp() {
     navigatePage('lab');
   };
 
-  const openBooking = (bookingId: string) => {
+  const openBooking = (bookingId: string, edit = false) => {
     setOpenBookingId(bookingId);
+    setOpenBookingEdit(edit);
     navigatePage('bookings');
   };
 
@@ -211,27 +213,29 @@ function AdminApp() {
           onLabOrderOpened={() => setOpenLabOrderId(null)}
           onOpenLabOrder={openLabOrder}
           openBookingId={openBookingId}
-          onBookingOpened={() => setOpenBookingId(null)}
+          openBookingEdit={openBookingEdit}
+          onBookingOpened={() => { setOpenBookingId(null); setOpenBookingEdit(false); }}
         />
       </ErrorBoundary>
     </Layout>
   );
 }
 
-function DesktopPage({ page, onNavigate, onOpenBooking, openLabOrderId, onLabOrderOpened, onOpenLabOrder, openBookingId, onBookingOpened }: {
+function DesktopPage({ page, onNavigate, onOpenBooking, openLabOrderId, onLabOrderOpened, onOpenLabOrder, openBookingId, openBookingEdit, onBookingOpened }: {
   page: PageKey;
   onNavigate: (page: PageKey) => void;
-  onOpenBooking: (bookingId: string) => void;
+  onOpenBooking: (bookingId: string, edit?: boolean) => void;
   openLabOrderId: string | null;
   onLabOrderOpened: () => void;
   onOpenLabOrder: (orderId: string) => void;
   openBookingId: string | null;
+  openBookingEdit: boolean;
   onBookingOpened: () => void;
 }) {
   if (page === 'lab') return <LabOrders key="lab-orders" openOrderId={openLabOrderId} onOrderOpened={onLabOrderOpened} />;
   if (page === 'live-work') return <LabOrders key="live-station" stationOnly onOpenBooking={onOpenBooking} />;
   if (page === 'rentals') return <EquipmentRentals />;
-  if (page === 'bookings') return <Bookings openBookingId={openBookingId} onBookingOpened={onBookingOpened} />;
+  if (page === 'bookings') return <Bookings openBookingId={openBookingId} openBookingEdit={openBookingEdit} onBookingOpened={onBookingOpened} />;
   if (page === 'dairy') return <DairyBook />;
   if (page === 'promo') return <PromoManagement />;
   if (page === 'music') return <MusicSelection />;

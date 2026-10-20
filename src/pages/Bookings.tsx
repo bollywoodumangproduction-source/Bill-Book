@@ -169,7 +169,7 @@ function computeVideoTotal(r: BookingVideoRow): number {
   return toNum(r.qty) * toNum(r.rate);
 }
 
-export function Bookings({ openBookingId, onBookingOpened, onNavigate }: { openBookingId?: string | null; onBookingOpened?: () => void; onNavigate?: (page: PageKey) => void } = {}) {
+export function Bookings({ openBookingId, openBookingEdit = false, onBookingOpened, onNavigate }: { openBookingId?: string | null; openBookingEdit?: boolean; onBookingOpened?: () => void; onNavigate?: (page: PageKey) => void } = {}) {
   const { toast } = useToast();
   const { settings } = useSettings();
   const { refreshToken, triggerRefresh } = useRefresh();
@@ -202,9 +202,14 @@ export function Bookings({ openBookingId, onBookingOpened, onNavigate }: { openB
       return;
     }
     setView(booking.deleted_at ? 'recycle' : booking.archived_at ? 'archived' : booking.work_status === 'delivered' ? 'delivered' : 'active');
-    setDetailBooking(booking);
+    if (openBookingEdit) {
+      setEditing(booking);
+      setShowForm(true);
+    } else {
+      setDetailBooking(booking);
+    }
     onBookingOpened?.();
-  }, [openBookingId, loading, bookings, onBookingOpened, toast]);
+  }, [openBookingId, openBookingEdit, loading, bookings, onBookingOpened, toast]);
 
   const filtered = bookings.filter((b) => {
     const q = search.toLowerCase();
@@ -1582,7 +1587,7 @@ function DeliverableCheckbox({ label, checked, onChange }: { label: string; chec
   );
 }
 
-function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, onUpdated }: { booking: Booking; onClose: () => void; onEdit: () => void; onDelete: () => void; onArchive: () => void; onUpdated: (booking: Booking) => void }) {
+export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, onUpdated }: { booking: Booking; onClose: () => void; onEdit: () => void; onDelete: () => void; onArchive: () => void; onUpdated: (booking: Booking) => void }) {
   const { settings } = useSettings();
   const { toast } = useToast();
   const { triggerRefresh } = useRefresh();

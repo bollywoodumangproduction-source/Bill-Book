@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { createPortal } from 'react-dom';
 import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, TriangleAlert as AlertTriangle, Zap, CalendarClock, Images, HardDrive, FolderOpen } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { BookingDetail } from '@/pages/Bookings';
 import { photoSessionFromDatabase } from '@/lib/types';
 import type { Booking, WorkStatus, StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabExtraCharge, LabClientDeliveryStatus, StorageLocation, PageKey } from '@/lib/types';
 import { WORK_STATUSES, WORK_STATUS_LABELS } from '@/lib/types';
@@ -257,7 +258,7 @@ function sortOrdersByPriority(orders: StudioLabOrder[], deadlineAlerts: Array<{ 
   });
 }
 
-export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: () => void; onOpenBooking?: (bookingId: string) => void; onNavigate?: (page: PageKey) => void; stationOnly?: boolean } = {}) {
+export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: () => void; onOpenBooking?: (bookingId: string, edit?: boolean) => void; onNavigate?: (page: PageKey) => void; stationOnly?: boolean } = {}) {
   const { openOrderId, onOrderOpened, onOpenBooking, stationOnly = false } = props;
   const { toast } = useToast();
   const { settings } = useSettings();
@@ -271,6 +272,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
   const [selectedDeliveryYear, setSelectedDeliveryYear] = useState<string | null>(null);
   const [showReadyDeliveries, setShowReadyDeliveries] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<StudioLabOrder | null>(null);
+  const [selectedStationBooking, setSelectedStationBooking] = useState<Booking | null>(null);
   const [storageDetailsOrder, setStorageDetailsOrder] = useState<StudioLabOrder | null>(null);
   const orderDetailTouchStart = useRef<{ x: number; y: number } | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -698,7 +700,7 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
       </div>
       <button
         type="button"
-        onClick={() => onOpenBooking?.(booking.id)}
+        onClick={() => setSelectedStationBooking(booking)}
         className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-900 transition-colors hover:bg-amber-400"
       >
         <FolderOpen className="h-4 w-4" /> Open Location
@@ -1142,6 +1144,20 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
           onSaved={(saved) => { setShowForm(false); load(); setSuccessOrder(saved); toast('Saved Successfully!', 'success'); }}
         />
       </ErrorBoundary>
+      {selectedStationBooking && <ErrorBoundary>
+        <BookingDetail
+          booking={selectedStationBooking}
+          onClose={() => setSelectedStationBooking(null)}
+          onUpdated={(updated) => {
+            setSelectedStationBooking(updated);
+            setStationBookings((current) => current.map((item) => item.id === updated.id ? updated : item));
+            triggerRefresh();
+          }}
+          onEdit={() => onOpenBooking?.(selectedStationBooking.id, true)}
+          onDelete={() => onOpenBooking?.(selectedStationBooking.id)}
+          onArchive={() => onOpenBooking?.(selectedStationBooking.id)}
+        />
+      </ErrorBoundary>}
       <ErrorBoundary>
         <ViewBillModal order={viewBillOrder} onClose={() => setViewBillOrder(null)} settings={settings} onCopySummary={copyOrderSummary} />
       </ErrorBoundary>
