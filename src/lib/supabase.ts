@@ -23,6 +23,21 @@ export const supabase = createClient(
   },
 );
 
+// Use a separate client for intentionally public, read-only views. The main
+// client may carry an authenticated user's JWT, which changes the Postgres role
+// and therefore the privileges checked by a security-invoker view.
+export const supabasePublic = createClient(
+  supabaseUrl || 'https://not-configured.supabase.co',
+  supabaseAnonKey || 'not-configured-anon-key',
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  },
+);
+
 export function getSupabaseConfigurationError(): string | null {
   if (!supabaseUrl || !supabaseAnonKey) {
     return 'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the local environment and Vercel project settings.';

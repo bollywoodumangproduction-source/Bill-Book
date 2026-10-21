@@ -3,6 +3,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 const youtubeApiKey = Deno.env.get('YOUTUBE_API_KEY');
+const YOUTUBE_CACHE_TTL_MS = 5 * 60 * 1000;
+const youtubeResponseCache = new Map<string, { expiresAt: number; body: unknown }>();
 const origins = (Deno.env.get('ALLOWED_APP_ORIGINS') || 'https://bollywood-umang.vercel.app,http://localhost:5173')
   .split(',').map((origin) => origin.trim()).filter(Boolean);
 
@@ -37,6 +39,24 @@ function getYouTubeVideoId(value: unknown): string | null {
   }
 }
 
+function getCachedResponse(key: string): unknown | null {
+  const cached = youtubeResponseCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    youtubeResponseCache.delete(key);
+    return null;
+  }
+  return cached.body;
+}
+
+function cacheResponse(key: string, body: unknown) {
+  youtubeResponseCache.set(key, { expiresAt: Date.now() + YOUTUBE_CACHE_TTL_MS, body });
+  if (youtubeResponseCache.size > 100) {
+    const oldestKey = youtubeResponseCache.keys().next().value;
+    if (oldestKey) youtubeResponseCache.delete(oldestKey);
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return respond(request, { ok: true });
   if (request.method !== 'POST') return respond(request, { error: 'Method not allowed.' }, 405);
@@ -60,6 +80,9 @@ Deno.serve(async (request) => {
   if (typeof body.url === 'string') {
     const videoId = getYouTubeVideoId(body.url);
     if (!videoId) return respond(request, { error: 'Enter a valid YouTube video link.' }, 400);
+    const cacheKey = `video:${videoId}`;
+    const cached = getCachedResponse(cacheKey);
+    if (cached) return respond(request, cached);
     const params = new URLSearchParams({ part: 'snippet', id: videoId, key: youtubeApiKey });
     const videoResponse = await fetch(`https://www.googleapis.com/youtube/v3/videos?${params.toString()}`);
     const payload = await videoResponse.json().catch(() => ({}));
@@ -72,18 +95,23 @@ Deno.serve(async (request) => {
     }
     const video = Array.isArray(payload.items) ? payload.items[0] : null;
     if (!video?.snippet?.title) return respond(request, { error: 'YouTube video was not found.' }, 404);
-    return respond(request, {
+    const result = {
       metadata: {
         videoId,
         title: String(video.snippet.title).slice(0, 300),
         channel: String(video.snippet.channelTitle || '').slice(0, 200),
         url: `https://www.youtube.com/watch?v=${videoId}`,
       },
-    });
+    };
+    cacheResponse(cacheKey, result);
+    return respond(request, result);
   }
 
   const query = typeof body.query === 'string' ? body.query.trim().slice(0, 200) : '';
   if (query.length < 2) return respond(request, { error: 'Enter at least two characters to search.' }, 400);
+  const cacheKey = `search:${query.toLocaleLowerCase().replace(/\s+/g, ' ')}`;
+  const cached = getCachedResponse(cacheKey);
+  if (cached) return respond(request, cached);
 
   const params = new URLSearchParams({ part: 'snippet', type: 'video', maxResults: '10', q: query, key: youtubeApiKey });
   const youtubeResponse = await fetch(`https://www.googleapis.com/youtube/v3/search?${params.toString()}`);
@@ -107,5 +135,7 @@ Deno.serve(async (request) => {
       url: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
     }];
   }) : [];
-  return respond(request, { results });
+  const result = { results };
+  cacheResponse(cacheKey, result);
+  return respond(request, result);
 });

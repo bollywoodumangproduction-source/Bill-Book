@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { getSupabaseConfigurationError, supabase, supabaseConfigured } from '@/lib/supabase';
+import { getSupabaseConfigurationError, supabase, supabaseConfigured, supabasePublic } from '@/lib/supabase';
 import type { StudioSettings } from '@/lib/types';
 
 interface SettingsContextValue {
@@ -40,7 +40,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       if (sessionError) throw sessionError;
       const isAdmin = sessionData.session?.user.app_metadata?.role === 'admin';
       const settingsTable = isAdmin ? 'studio_settings' : 'public_studio_settings';
-      const { data, error } = await supabase
+      const settingsClient = isAdmin ? supabase : supabasePublic;
+      const { data, error } = await settingsClient
         .from(settingsTable)
         .select('*')
         .eq('id', 1)

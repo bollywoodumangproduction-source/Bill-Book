@@ -45,6 +45,33 @@ interface YouTubeSearchResult {
   url: string;
 }
 
+const YOUTUBE_SEARCH_CACHE_MS = 2 * 60 * 1000;
+const youtubeSearchCache = new Map<string, { expiresAt: number; results: YouTubeSearchResult[] }>();
+const youtubeSearchRequests = new Map<string, Promise<YouTubeSearchResult[]>>();
+
+async function searchYouTubeSongs(query: string): Promise<YouTubeSearchResult[]> {
+  const normalizedQuery = query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  const cached = youtubeSearchCache.get(normalizedQuery);
+  if (cached && cached.expiresAt > Date.now()) return cached.results;
+  const pending = youtubeSearchRequests.get(normalizedQuery);
+  if (pending) return pending;
+
+  const request = supabase.functions.invoke('youtube-song-search', { body: { query: normalizedQuery } })
+    .then(({ data, error }) => {
+      if (error || data?.error) throw new Error(data?.error || 'YouTube search failed. Check API setup and try again.');
+      const results = Array.isArray(data?.results) ? data.results as YouTubeSearchResult[] : [];
+      youtubeSearchCache.set(normalizedQuery, { expiresAt: Date.now() + YOUTUBE_SEARCH_CACHE_MS, results });
+      if (youtubeSearchCache.size > 50) {
+        const oldestKey = youtubeSearchCache.keys().next().value;
+        if (oldestKey) youtubeSearchCache.delete(oldestKey);
+      }
+      return results;
+    })
+    .finally(() => youtubeSearchRequests.delete(normalizedQuery));
+  youtubeSearchRequests.set(normalizedQuery, request);
+  return request;
+}
+
 function canonicalYouTubeUrl(value: string): string | null {
   try {
     const url = new URL(value.trim());
@@ -143,13 +170,21 @@ export function MusicSelection() {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
+    let reloadTimer: number | undefined;
+    const scheduleReload = () => {
+      if (reloadTimer !== undefined) window.clearTimeout(reloadTimer);
+      reloadTimer = window.setTimeout(() => { void load(); }, 250);
+    };
     const channel = supabase.channel('admin-music-selection')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'music_projects' }, () => { void load(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'music_cues' }, () => { void load(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'music_master_cues' }, () => { void load(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'music_event_categories' }, () => { void load(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'music_projects' }, scheduleReload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'music_cues' }, scheduleReload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'music_master_cues' }, scheduleReload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'music_event_categories' }, scheduleReload)
       .subscribe();
-    return () => { void supabase.removeChannel(channel); };
+    return () => {
+      if (reloadTimer !== undefined) window.clearTimeout(reloadTimer);
+      void supabase.removeChannel(channel);
+    };
   }, [load]);
 
   const filteredProjects = useMemo(() => {
@@ -482,13 +517,10 @@ function MusicLibraryPanel({ songs, eventCategories, project, cues, disabled, on
     setYoutubeResults([]);
     setYoutubeLoading(true);
     const terms = [song.song_title, song.singer_artist].filter(Boolean).join(' ');
-    void supabase.functions.invoke('youtube-song-search', { body: { query: terms } }).then(({ data, error }) => {
-      if (error || data?.error) {
-        toast(data?.error || 'YouTube search nahi ho payi. API key setup check karein.', 'error');
-        return;
-      }
-      setYoutubeResults(Array.isArray(data?.results) ? data.results as YouTubeSearchResult[] : []);
-    }).catch(() => toast('YouTube search nahi ho payi. Connection check karein.', 'error')).finally(() => setYoutubeLoading(false));
+    void searchYouTubeSongs(terms)
+      .then(setYoutubeResults)
+      .catch((error) => toast(error instanceof Error ? error.message : 'YouTube search nahi ho payi. Connection check karein.', 'error'))
+      .finally(() => setYoutubeLoading(false));
   };
   const chooseYouTubeSong = async (result: YouTubeSearchResult) => {
     if (!youtubeSong || !onSaveAudioLink || savingYoutubeId) return;
@@ -657,20 +689,20 @@ function AddCueModal({ projectId, eventCategories, onClose, onAdd }: { projectId
   const [searchResults, setSearchResults] = useState<YouTubeSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
+  const searchInFlight = useRef(false);
   const searchYouTube = async () => {
     const query = (searchText.trim() || trackTitle.trim());
-    if (!query) return;
+    if (!query || searchInFlight.current) return;
+    searchInFlight.current = true;
     setSearching(true);
     try {
-      const { data, error } = await supabase.functions.invoke('youtube-song-search', { body: { query } });
-      if (error || data?.error) { setSearchResults([]); toast(data?.error || 'YouTube search failed. Check API setup and try again.', 'error'); return; }
-      const results = Array.isArray(data?.results) ? data.results as YouTubeSearchResult[] : [];
+      const results = await searchYouTubeSongs(query);
       setSearchResults(results);
       if (results.length === 0) toast('No YouTube results found. Try another song or artist name.', 'info');
-    } catch {
+    } catch (error) {
       setSearchResults([]);
-      toast('YouTube search failed. Check your connection and try again.', 'error');
-    } finally { setSearching(false); }
+      toast(error instanceof Error ? error.message : 'YouTube search failed. Check your connection and try again.', 'error');
+    } finally { searchInFlight.current = false; setSearching(false); }
   };
   const save = async () => {
     if (!trackTitle.trim() || saving) return;
@@ -691,6 +723,7 @@ export function PublicMusicSelection() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const pollInFlight = useRef(false);
   const projectId = new URLSearchParams(window.location.search).get('project')?.trim() ?? '';
 
   const load = useCallback(async () => {
@@ -710,8 +743,13 @@ export function PublicMusicSelection() {
   // Refreshing this protected endpoint keeps portal lock state in sync without widening RLS.
   useEffect(() => {
     if (!projectId) return;
-    const timer = window.setInterval(() => { void load(); }, 5000);
-    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') void load(); };
+    const refreshIfIdle = () => {
+      if (document.visibilityState !== 'visible' || pollInFlight.current) return;
+      pollInFlight.current = true;
+      void load().finally(() => { pollInFlight.current = false; });
+    };
+    const timer = window.setInterval(refreshIfIdle, 5 * 60 * 1000);
+    const refreshWhenVisible = () => { refreshIfIdle(); };
     document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', refreshWhenVisible); };
   }, [load, projectId]);

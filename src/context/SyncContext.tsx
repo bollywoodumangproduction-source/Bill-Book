@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { useToast } from '@/context/ToastContext';
-import { supabase, supabaseConfigured } from '@/lib/supabase';
+import { supabasePublic, supabaseConfigured } from '@/lib/supabase';
 
 type SyncStatus = 'online' | 'offline';
 
@@ -24,7 +24,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
     // This view is readable by anon and portal users, so the status means the
     // project is reachable without weakening private studio_settings RLS.
-    const { error } = await supabase.from('public_studio_settings').select('id').limit(1);
+    const { error } = await supabasePublic.from('public_studio_settings').select('id').limit(1);
     const connected = !error;
     setSupa(connected ? 'online' : 'offline');
     return connected;
