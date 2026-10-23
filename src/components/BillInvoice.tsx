@@ -158,42 +158,67 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
 
       {/* Functions timeline */}
       {safeEvents.length > 0 && (
-        <table className={compact ? "mb-2 w-full border-collapse border border-black text-xs" : "mb-4 w-full border-collapse border border-black text-sm"}>
-          <thead>
-            <tr className="bg-gray-100">
-              <th className="border border-black px-2 py-1 text-left">Function</th>
-              {hasEventDates && <th className="border border-black px-2 py-1 text-left">Date</th>}
-              {hasEventTimes && <th className="border border-black px-2 py-1 text-left">Time</th>}
-              {hasEventVenues && <th className="border border-black px-2 py-1 text-left">Venue</th>}
-              {hasEventSides && <th className="border border-black px-2 py-1 text-left">Side</th>}
-            </tr>
-          </thead>
-          <tbody>
+        <>
+          <div className={compact ? "mb-2 space-y-2 sm:hidden print:hidden" : "mb-4 space-y-2 sm:hidden print:hidden"}>
             {safeEvents.map((e, i) => {
               const label = e.name === 'Custom' && e.customName ? e.customName : e.name;
               const startTime = e.start_time ?? e.time;
               const hasDate = Boolean(e.date);
               const hasTime = Boolean(startTime || e.end_time);
-              const hasVenue = Boolean(e.venue);
               const endDate = e.end_date_shift === 'after_day' || e.end_date_shift === 'next_date' ? nextDate(e.date) : e.date;
               const sideLabel = e.side === 'groom' ? 'Groom Side' : e.side === 'bride' ? 'Bride Side' : e.side === 'joint' ? 'Joint / Both' : '';
               return (
-                <tr key={i}>
-                  <td className="border border-black px-2 py-1">{label}</td>
-                  {hasEventDates && <td className="border border-black px-2 py-1">
-                    {hasDate && formatDate(e.date)}
-                    {hasDate && (e.end_date_shift === 'after_day' || e.end_date_shift === 'next_date') && ` - ${formatDate(endDate)}`}
-                  </td>}
-                  {hasEventTimes && <td className="border border-black px-2 py-1">
-                    {hasTime && `${formatTime12Hour(startTime)} - ${formatTime12Hour(e.end_time)}`}
-                  </td>}
-                  {hasEventVenues && <td className="border border-black px-2 py-1">{hasVenue && e.venue}</td>}
-                  {hasEventSides && <td className="border border-black px-2 py-1">{sideLabel}</td>}
-                </tr>
+                <div key={i} className="break-words rounded border border-black p-2 text-xs">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+                    <strong>{label}</strong>
+                    {hasDate && <span>{formatDate(e.date)}{(e.end_date_shift === 'after_day' || e.end_date_shift === 'next_date') && ` - ${formatDate(endDate)}`}</span>}
+                  </div>
+                  {(hasTime || e.venue || sideLabel) && <div className="mt-1 grid grid-cols-1 gap-x-3 gap-y-1 min-[360px]:grid-cols-2">
+                    {hasTime && <p><strong>Time:</strong> {formatTime12Hour(startTime)} - {formatTime12Hour(e.end_time)}</p>}
+                    {e.venue && <p className="break-words"><strong>Venue:</strong> {e.venue}</p>}
+                    {sideLabel && <p><strong>Side:</strong> {sideLabel}</p>}
+                  </div>}
+                </div>
               );
             })}
-          </tbody>
-        </table>
+          </div>
+          <table className={`${compact ? "mb-2 w-full border-collapse border border-black text-xs" : "mb-4 w-full border-collapse border border-black text-sm"} hidden sm:table print:table`}>
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="border border-black px-2 py-1 text-left">Function</th>
+                {hasEventDates && <th className="border border-black px-2 py-1 text-left">Date</th>}
+                {hasEventTimes && <th className="border border-black px-2 py-1 text-left">Time</th>}
+                {hasEventVenues && <th className="border border-black px-2 py-1 text-left">Venue</th>}
+                {hasEventSides && <th className="border border-black px-2 py-1 text-left">Side</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {safeEvents.map((e, i) => {
+                const label = e.name === 'Custom' && e.customName ? e.customName : e.name;
+                const startTime = e.start_time ?? e.time;
+                const hasDate = Boolean(e.date);
+                const hasTime = Boolean(startTime || e.end_time);
+                const hasVenue = Boolean(e.venue);
+                const endDate = e.end_date_shift === 'after_day' || e.end_date_shift === 'next_date' ? nextDate(e.date) : e.date;
+                const sideLabel = e.side === 'groom' ? 'Groom Side' : e.side === 'bride' ? 'Bride Side' : e.side === 'joint' ? 'Joint / Both' : '';
+                return (
+                  <tr key={i}>
+                    <td className="border border-black px-2 py-1">{label}</td>
+                    {hasEventDates && <td className="border border-black px-2 py-1">
+                      {hasDate && formatDate(e.date)}
+                      {hasDate && (e.end_date_shift === 'after_day' || e.end_date_shift === 'next_date') && ` - ${formatDate(endDate)}`}
+                    </td>}
+                    {hasEventTimes && <td className="border border-black px-2 py-1">
+                      {hasTime && `${formatTime12Hour(startTime)} - ${formatTime12Hour(e.end_time)}`}
+                    </td>}
+                    {hasEventVenues && <td className="border border-black px-2 py-1">{hasVenue && e.venue}</td>}
+                    {hasEventSides && <td className="border border-black px-2 py-1">{sideLabel}</td>}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
       )}
 
       {/* Compact: Delivery + Payment + Financials side-by-side */}
