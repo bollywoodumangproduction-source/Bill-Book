@@ -115,7 +115,7 @@ body::after {
   #printable-bill-sheet .bill-page th,
   #printable-bill-sheet .bill-page td {
     border: 1px solid #64748b !important;
-    padding: 4px 8px !important;
+    padding: 6px 8px !important;
     vertical-align: middle !important;
     line-height: 1.4 !important;
     overflow-wrap: break-word !important;
