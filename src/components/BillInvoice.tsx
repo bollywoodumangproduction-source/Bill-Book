@@ -1,4 +1,4 @@
-import { formatINR, formatDate, formatDateTime, formatPhone } from '@/lib/format';
+import { formatINR, formatDate, formatDateTime, formatPhone, formatTime12Hour } from '@/lib/format';
 import { getWorkStatusLabel } from '@/lib/types';
 import type { Booking, StudioSettings, BookingDeliverables } from '@/lib/types';
 import { bookingBillingSnapshot } from '@/lib/billing';
@@ -185,7 +185,7 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
                     {hasDate && (e.end_date_shift === 'after_day' || e.end_date_shift === 'next_date') && ` - ${formatDate(endDate)}`}
                   </td>}
                   {hasEventTimes && <td className="border border-black px-2 py-1">
-                    {hasTime && `${startTime || '—'} - ${e.end_time || '—'}`}
+                    {hasTime && `${formatTime12Hour(startTime)} - ${formatTime12Hour(e.end_time)}`}
                   </td>}
                   {hasEventVenues && <td className="border border-black px-2 py-1">{hasVenue && e.venue}</td>}
                   {hasEventSides && <td className="border border-black px-2 py-1">{sideLabel}</td>}

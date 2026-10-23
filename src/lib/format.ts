@@ -24,6 +24,21 @@ export function formatDateTime(dateStr: string | null | undefined): string {
   return date.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+export function formatTime12Hour(timeStr: string | null | undefined): string {
+  if (!timeStr) return '—';
+  const value = timeStr.trim();
+  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(value);
+  if (!match) return value;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return value;
+
+  const suffix = hour >= 12 ? 'PM' : 'AM';
+  const hour12 = hour % 12 || 12;
+  return `${String(hour12).padStart(2, '0')}:${match[2]} ${suffix}`;
+}
+
 export function todayISO(): string {
   const today = new Date();
   const year = today.getFullYear();
