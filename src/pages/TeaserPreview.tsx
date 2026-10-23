@@ -182,7 +182,7 @@ export function TeaserPreview() {
                 <h3 className="mb-3 font-semibold text-slate-900 dark:text-white">Cinematic Preview</h3>
                 {selected.video_url ? (
                   <div className="relative overflow-hidden rounded-xl bg-black">
-                    <UniversalMediaPreview url={selected.video_url} kind="video" />
+                    <UniversalMediaPreview url={selected.video_url} kind="video" mediaClassName="mx-auto aspect-video w-full max-w-2xl rounded-xl object-contain" />
                     {selected.watermark_text && <div className="pointer-events-none absolute right-3 top-3 rounded-lg bg-black/60 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur">{selected.watermark_text}</div>}
                   </div>
                 ) : <EmptyState icon={Play} title="No video uploaded yet" subtitle="Add a video URL in the settings below" />}
@@ -306,7 +306,7 @@ export function PublicTeaserPreview() {
           <h3 className="mb-3 font-semibold">Cinematic Teaser</h3>
           {project.video_url ? (
             <div className="relative overflow-hidden rounded-xl bg-black">
-              <UniversalMediaPreview url={project.video_url} kind="video" />
+              <UniversalMediaPreview url={project.video_url} kind="video" mediaClassName="mx-auto aspect-video w-full max-w-2xl rounded-xl border border-white/10 bg-black object-contain" />
               {project.watermark_text && <div className="pointer-events-none absolute right-3 top-3 rounded-lg bg-black/60 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur">{project.watermark_text}</div>}
             </div>
           ) : <div className="rounded-xl border border-dashed border-white/10 py-12 text-center"><Play className="mx-auto mb-3 h-7 w-7 text-slate-500" /><p className="text-sm text-slate-300">Video not yet uploaded</p></div>}

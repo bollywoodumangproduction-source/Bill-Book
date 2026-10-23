@@ -232,7 +232,7 @@ export function InvitationHub() {
               <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900/60">
                 <h3 className="mb-3 flex items-center gap-2 font-semibold text-slate-900 dark:text-white"><Video className="h-4 w-4 text-amber-500" /> Video Invite</h3>
                 {selected.video_url ? (
-                  <UniversalMediaPreview url={selected.video_url} kind="video" className="space-y-3" mediaClassName="h-[65vh] min-h-[360px] w-full rounded-xl border border-white/10 bg-black" showDownload controlsClassName="flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400" />
+                  <UniversalMediaPreview url={selected.video_url} kind="video" className="mx-auto w-full max-w-2xl space-y-3" mediaClassName="mx-auto aspect-video w-full rounded-xl border border-white/10 bg-black object-contain" showDownload controlsClassName="flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400" />
                 ) : <EmptyState icon={Video} title="No video uploaded" subtitle="Add a URL below" />}
                 <div className="mt-3"><Field label="Video URL"><input value={selected.video_url} onChange={(event) => updateProject(selected.id, { video_url: event.target.value })} onBlur={() => void flushProject(selected.id)} className={inputClass} placeholder="Paste a public MP4, Drive, Dropbox, pCloud, OneDrive, or YouTube link" /></Field></div>
               </div>
@@ -361,7 +361,7 @@ export function PublicInvitationHub() {
         {project.video_url && (
           <div className="rounded-2xl border border-white/10 bg-slate-900 p-5">
             <h3 className="mb-3 flex items-center gap-2 font-semibold"><Video className="h-4 w-4 text-amber-400" /> Video Invite</h3>
-            <UniversalMediaPreview url={project.video_url} kind="video" className="space-y-3" mediaClassName="h-[65vh] min-h-[360px] w-full rounded-xl border border-white/10 bg-black" showDownload controlsClassName="flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400" />
+            <UniversalMediaPreview url={project.video_url} kind="video" className="mx-auto w-full max-w-2xl space-y-3" mediaClassName="mx-auto aspect-video w-full rounded-xl border border-white/10 bg-black object-contain" showDownload controlsClassName="flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400" />
           </div>
         )}
 
