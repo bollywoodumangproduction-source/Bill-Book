@@ -90,7 +90,7 @@ export async function downloadA4Pdf(element: HTMLElement, filename: string): Pro
       filename,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: {
-        scale: 2,
+        scale: isInvoice ? 3 : 2,
         useCORS: true,
         backgroundColor: '#ffffff',
         ...(isInvoice ? {
@@ -115,13 +115,7 @@ export async function downloadA4Pdf(element: HTMLElement, filename: string): Pro
             style.textContent = `
               .bill-page { width: 190mm !important; max-width: 190mm !important; margin: 0 !important; padding: 0 !important; font-size: 10px !important; line-height: 1.2 !important; }
               .bill-page h1 { font-size: 16px !important; }
-              .bill-page .invoice-header { align-items: center !important; gap: 8mm !important; margin-bottom: 10px !important; padding-bottom: 8px !important; }
-              .bill-page .invoice-parties { margin-bottom: 10px !important; }
-              .bill-page .invoice-events-table { margin-bottom: 8px !important; }
-              .bill-page .invoice-delivery-box { margin-bottom: 8px !important; padding: 6px !important; }
-              .bill-page .invoice-payment-history { margin-bottom: 8px !important; }
-              .bill-page .invoice-footer { margin-top: 10px !important; padding-top: 8px !important; }
-              .bill-page .invoice-terms { margin-top: 8px !important; padding-top: 4px !important; }
+              .bill-page .invoice-header { align-items: center !important; gap: 8mm !important; }
               .bill-page .invoice-copy-label { white-space: nowrap !important; line-height: 1.2 !important; padding: 2px 6px !important; }
               .bill-page table { width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; font-size: 9px !important; }
               .bill-page th, .bill-page td { vertical-align: middle !important; padding: 3px 5px !important; line-height: 1.3 !important; overflow-wrap: break-word !important; word-break: normal !important; }
