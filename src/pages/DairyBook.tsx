@@ -35,6 +35,7 @@ const EXPENSE_CATEGORIES = [
   'Fuel',
   'Tea/Snacks',
   'Helper Wage',
+  'New Equipment',
   'Studio Maintenance',
   'Equipment Repair',
   'Travel',
