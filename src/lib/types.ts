@@ -16,6 +16,7 @@ export interface StudioSettings {
   alternate_phone?: string;
   branch_address?: string;
   upi_id?: string;
+  upi_qr_image_url?: string;
   stamp_image_url: string;
   films_logo_url: string;
   production_logo_url: string;

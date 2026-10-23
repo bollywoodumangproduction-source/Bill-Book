@@ -424,7 +424,7 @@ export function ClientDashboard() {
         )}
 
         {/* Pay Now — UPI QR when balance is due */}
-        {netDue > 0 && settings?.upi_id && (
+        {netDue > 0 && (settings?.upi_qr_image_url || settings?.upi_id) && (
           <div className="rounded-2xl border border-rose-200 bg-rose-50/50 p-5 dark:border-rose-500/20 dark:bg-rose-500/5">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
               <QrCode className="h-4 w-4 text-rose-500" /> Pay Now
@@ -432,12 +432,13 @@ export function ClientDashboard() {
             <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
               <div className="flex flex-col items-center gap-1">
                 <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=upi://pay?pa=${encodeURIComponent(settings.upi_id)}`}
+                  src={settings.upi_qr_image_url || `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=upi://pay?pa=${encodeURIComponent(settings?.upi_id || '')}`}
                   alt="UPI QR"
                   className="h-32 w-32 rounded-lg"
                 />
                 <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Scan to Pay {formatINR(netDue)}</p>
-                <p className="text-[11px] text-slate-400">{settings.upi_id}</p>
+                {settings.upi_id && <p className="text-[11px] text-slate-400">{settings.upi_id}</p>}
+                {settings.upi_qr_image_url && <p className="max-w-48 text-center text-[11px] text-slate-400">Enter the due amount in your UPI app if it is not filled automatically.</p>}
               </div>
               <div className="flex-1">
                 <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-white p-3 text-xs text-rose-700 dark:border-rose-500/20 dark:bg-white/5 dark:text-rose-300">

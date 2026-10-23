@@ -282,15 +282,15 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
             <div><p className="font-semibold">1. Client Signature</p><div className="h-3 border-b border-black" /></div>
             <div><p className="font-semibold">2. Client Signature</p><div className="h-3 border-b border-black" /></div>
           </div>
-          {s?.upi_id && netDue > 0 && (
+          {(s?.upi_qr_image_url || s?.upi_id) && netDue > 0 && (
             <div className="flex shrink-0 flex-col items-center gap-0.5">
               <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=upi://pay?pa=${encodeURIComponent(s.upi_id)}`}
+                src={s.upi_qr_image_url || `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=upi://pay?pa=${encodeURIComponent(s.upi_id || '')}`}
                 alt="UPI QR"
                 className={compact ? "h-10 w-10" : "h-16 w-16"}
               />
               <p className="text-center text-[7px] font-semibold">Scan to Pay via UPI</p>
-              <p className="max-w-16 break-all text-center text-[7px]">{s.upi_id}</p>
+              {s.upi_id && <p className="max-w-16 break-all text-center text-[7px]">{s.upi_id}</p>}
             </div>
           )}
         </div>

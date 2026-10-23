@@ -1541,9 +1541,9 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
               </button>
               {showPaymentQr && (
                 <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-slate-700 bg-slate-900 p-3">
-                  {settings?.upi_id ? (
+                  {(settings?.upi_qr_image_url || settings?.upi_id) ? (
                     <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`upi://pay?pa=${settings.upi_id}&am=${toNum(paidAmount)}&cu=INR`)}`}
+                      src={settings.upi_qr_image_url || `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`upi://pay?pa=${settings?.upi_id || ''}&am=${toNum(paidAmount)}&cu=INR`)}`}
                       alt="Payment QR code"
                       className="h-40 w-40"
                     />
@@ -1553,6 +1553,7 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
                   <div className="text-xs text-slate-300">
                     <p className="font-medium text-white">Scan to pay {formatINR(toNum(paidAmount))}</p>
                     {settings?.upi_id && <p className="mt-1 text-slate-400">UPI: {settings.upi_id}</p>}
+                    {settings?.upi_qr_image_url && <p className="mt-1 text-slate-400">Scan the uploaded studio QR. Enter the amount if your UPI app asks for it.</p>}
                   </div>
                 </div>
               )}

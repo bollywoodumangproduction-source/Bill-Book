@@ -65,6 +65,7 @@ export function SettingsPage() {
   const [editingAd, setEditingAd] = useState<PromoAd | null>(null);
 
   const [upiId, setUpiId] = useState('');
+  const [upiQrImageUrl, setUpiQrImageUrl] = useState('');
   const [masterPin, setMasterPin] = useState('');
 
   const [stampImageUrl, setStampImageUrl] = useState('');
@@ -103,6 +104,7 @@ export function SettingsPage() {
     setBranchAddress(settings.branch_address ?? '');
     setStudioEmail(settings.email ?? '');
     setUpiId(settings.upi_id ?? '');
+    setUpiQrImageUrl(settings.upi_qr_image_url ?? '');
     setMasterPin(settings.master_pin ?? '');
     setBrandStudioName(settings.studio_name ?? settings.films_title ?? '');
     setProductionBannerName(settings.production_banner_name ?? settings.production_title ?? '');
@@ -148,6 +150,7 @@ export function SettingsPage() {
       alternate_phone: alternatePhone,
       branch_address: branchAddress,
       upi_id: upiId,
+      upi_qr_image_url: upiQrImageUrl,
       master_pin: masterPin,
       films_logo_url: filmsLogoUrl,
       production_logo_url: productionLogoUrl,
@@ -239,13 +242,21 @@ export function SettingsPage() {
         <Field label="UPI ID">
           <input value={upiId} onChange={(e) => setUpiId(e.target.value)} placeholder="yourname@upi" className={inputClass} />
         </Field>
-        {upiQrUrl ? (
+        <ImageUpload
+          value={upiQrImageUrl}
+          onChange={setUpiQrImageUrl}
+          label="Upload UPI QR Image (Optional)"
+          description="Use your existing UPI QR image. It will be saved with studio settings and used on bills. Uploaded QR images may require the payer to enter the amount manually."
+          placeholderIcon={QrCode}
+        />
+        {upiQrImageUrl || upiQrUrl ? (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-slate-800/40">
-            <img src={upiQrUrl} alt="UPI QR Code" className="h-44 w-44 rounded-lg" />
+            <img src={upiQrImageUrl || upiQrUrl} alt="UPI QR Code" className="h-44 w-44 rounded-lg object-contain" />
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Scan to pay via UPI — <span className="font-medium text-slate-700 dark:text-slate-300">{upiId}</span>
+              {upiQrImageUrl ? 'Uploaded UPI QR image' : <>Scan to pay via UPI — <span className="font-medium text-slate-700 dark:text-slate-300">{upiId}</span></>}
             </p>
-            <p className="text-[11px] text-slate-400">QR is generated live from your UPI ID. No static image needed.</p>
+            {upiQrImageUrl && upiId && <p className="text-[11px] text-slate-400">The uploaded QR is used in place of the generated UPI ID QR.</p>}
+            {!upiQrImageUrl && <p className="text-[11px] text-slate-400">QR is generated live from your UPI ID.</p>}
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 dark:border-white/10 dark:bg-slate-800/40">
