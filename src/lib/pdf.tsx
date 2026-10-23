@@ -23,17 +23,37 @@ export async function downloadA4Pdf(element: HTMLElement, filename: string): Pro
   element.style.setProperty('max-width', '190mm');
   element.style.setProperty('margin', '0');
   element.style.setProperty('background', '#ffffff');
-  const margin = element.classList.contains('bill-page') ? [4, 10, 4, 10] : [10, 10, 10, 10];
+  const isInvoice = element.classList.contains('bill-page');
+  const margin = isInvoice ? [4, 10, 4, 10] : [10, 10, 10, 10];
   try {
     await html2pdf().set({
       margin,
       filename,
       image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        ...(isInvoice ? {
+          onclone: (clonedDocument: Document) => {
+            const style = clonedDocument.createElement('style');
+            style.textContent = `
+              .bill-page { width: 190mm !important; max-width: 190mm !important; margin: 0 !important; padding: 0 !important; font-size: 10px !important; line-height: 1.2 !important; }
+              .bill-page .invoice-header { align-items: center !important; gap: 8mm !important; }
+              .bill-page .invoice-copy-label { white-space: nowrap !important; line-height: 1.2 !important; padding: 2px 6px !important; }
+              .bill-page table { width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; font-size: 9px !important; }
+              .bill-page th, .bill-page td { vertical-align: middle !important; padding: 3px 5px !important; line-height: 1.3 !important; overflow-wrap: break-word !important; word-break: normal !important; }
+              .bill-page tr, .bill-page .invoice-delivery-row { break-inside: avoid !important; page-break-inside: avoid !important; }
+              .bill-page img { max-height: 28mm !important; object-fit: contain !important; }
+            `;
+            clonedDocument.head.appendChild(style);
+          },
+        } : {}),
+      },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      // `avoid-all` can push the entire bill onto a second, mostly blank page.
-      // Respect explicit CSS page breaks while letting one-page bills stay on one A4 sheet.
-      pagebreak: { mode: ['css'], avoid: ['tr', '.invoice-header', '.invoice-signature', '.invoice-delivery-row'] },
+      // Invoice downloads are rasterized onto a single fitted canvas; avoid CSS page-break rules
+      // that can add an empty second page. Other PDF documents keep the existing row/header guards.
+      pagebreak: isInvoice ? { mode: [] } : { mode: ['css'], avoid: ['tr', '.invoice-header', '.invoice-signature'] },
     }).from(element).save();
   } finally {
     if (originalStyle === null) element.removeAttribute('style');
