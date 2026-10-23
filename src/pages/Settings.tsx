@@ -166,8 +166,17 @@ export function SettingsPage() {
       });
       toast('Settings updated successfully!', 'success');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not save settings. Please try again.';
-      toast(message, 'error');
+      const details = error && typeof error === 'object'
+        ? error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown }
+        : null;
+      const message = error instanceof Error
+        ? error.message
+        : typeof details?.message === 'string'
+          ? [details.message, details.details, details.hint]
+            .filter((part) => typeof part === 'string' && part)
+            .join(' ')
+          : 'Could not save settings. Please try again.';
+      toast(details?.code ? `${message} (code: ${String(details.code)})` : message, 'error');
     } finally {
       setSaving(false);
     }
