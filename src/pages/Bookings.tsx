@@ -2348,9 +2348,42 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
 
 function BillPreviewModal({ booking, settings, open, onClose, showStamp, onToggleStamp, onDualPrint }: { booking: Booking; settings: StudioSettings | null; open: boolean; onClose: () => void; showStamp: boolean; onToggleStamp: () => void; onDualPrint: () => void }) {
   const previewId = `invoice-preview-${booking.id}`;
-  const download = async () => {
-    const element = document.getElementById(previewId)?.querySelector<HTMLElement>('.bill-page');
-    if (element) await downloadA4Pdf(element, buildPdfFilename(booking.client_name, booking.booking_no));
+  const [downloadCopyType, setDownloadCopyType] = useState<'original' | 'client' | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  useEffect(() => {
+    if (!downloadCopyType) return;
+    if (!open) {
+      setDownloadCopyType(null);
+      setIsDownloading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timeout = window.setTimeout(async () => {
+      try {
+        const element = document.getElementById(previewId)?.querySelector<HTMLElement>('.bill-page');
+        if (!element) throw new Error('Invoice preview is not ready.');
+        const copySuffix = downloadCopyType === 'client' ? `${booking.booking_no}_ClientCopy` : booking.booking_no;
+        await downloadA4Pdf(element, buildPdfFilename(booking.client_name, copySuffix));
+      } catch {
+        window.alert('Could not download the bill. Please try again.');
+      } finally {
+        if (!cancelled) {
+          setDownloadCopyType(null);
+          setIsDownloading(false);
+        }
+      }
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [booking.booking_no, booking.client_name, downloadCopyType, open, previewId]);
+
+  const startDownload = (copyType: 'original' | 'client') => {
+    setIsDownloading(true);
+    setDownloadCopyType(copyType);
   };
   const copyPublicLink = async () => {
     const link = `${window.location.origin}/view/${booking.id}`;
@@ -2362,7 +2395,7 @@ function BillPreviewModal({ booking, settings, open, onClose, showStamp, onToggl
     <Modal open={open} onClose={onClose} title="Invoice Preview" size="xl" dismissible={false}>
       <div className="w-full max-w-[100vw] overflow-x-auto px-2 sm:px-4">
         <div id={previewId} className="mx-auto w-full max-w-[794px] bg-slate-950/80 p-2 sm:p-4">
-          <BillInvoice booking={booking} settings={settings} showStamp={showStamp} />
+          <BillInvoice booking={booking} settings={settings} showStamp={showStamp} copyTypeOverride={downloadCopyType ?? undefined} />
         </div>
       </div>
       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-white/10 pt-4">
@@ -2378,8 +2411,11 @@ function BillPreviewModal({ booking, settings, open, onClose, showStamp, onToggl
         <button onClick={onDualPrint} className="flex items-center gap-2 rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-600">
           🖨️ Print 2-in-1 (Half Cut / 2 Copies per A4)
         </button>
-        <button onClick={download} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-amber-400">
-          <Download className="h-4 w-4" /> Download / Save
+        <button onClick={() => startDownload('original')} disabled={isDownloading} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-amber-400 disabled:cursor-wait disabled:opacity-60">
+          <Download className="h-4 w-4" /> {isDownloading ? 'Preparing PDF…' : 'Download Studio Copy'}
+        </button>
+        <button onClick={() => startDownload('client')} disabled={isDownloading} className="flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-wait disabled:opacity-60">
+          <Download className="h-4 w-4" /> Download Client Copy
         </button>
         <button onClick={copyPublicLink} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
           <ExternalLink className="h-4 w-4" /> Copy Public Link
