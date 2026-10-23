@@ -241,7 +241,7 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
                 {delivList.map((d, i) => {
                   const receipt = getDeliverableReceipt(booking.deliverables_data ?? DEFAULT_DELIVERABLES, delivList, i);
                   return (
-                    <div key={deliveryItemKey(delivList, i)} className="flex items-start justify-between gap-2 border-b border-gray-300 py-0.5 last:border-0">
+                    <div key={deliveryItemKey(delivList, i)} className="invoice-delivery-row box-border flex w-full min-w-0 items-start justify-between gap-2 border-b border-gray-300 py-0.5 last:border-0">
                       <span className="min-w-0 break-words">{d}</span>
                       <span className="shrink-0 whitespace-nowrap text-right">{receipt ? `Received · ${formatDate(receipt.received_at)}` : 'Pending'}</span>
                     </div>
@@ -272,13 +272,13 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
       ) : (
         <>
           {delivList.length > 0 && (
-            <div className="mb-4 rounded border border-black p-2">
+            <div className="invoice-delivery-box mb-4 rounded border border-black p-2">
               <p className="mb-1 text-sm font-bold">Delivery Data:</p>
               <div className="space-y-0.5 text-xs">
                 {delivList.map((d, i) => {
                   const receipt = getDeliverableReceipt(booking.deliverables_data ?? DEFAULT_DELIVERABLES, delivList, i);
                   return (
-                    <div key={deliveryItemKey(delivList, i)} className="flex items-start justify-between gap-3 border-b border-gray-300 py-1 last:border-0">
+                    <div key={deliveryItemKey(delivList, i)} className="invoice-delivery-row box-border flex w-full min-w-0 items-start justify-between gap-3 border-b border-gray-300 py-1 last:border-0">
                       <span className="min-w-0 break-words">{d}</span>
                       <span className="shrink-0 whitespace-nowrap text-right">{receipt ? `Received · ${formatDate(receipt.received_at)}` : 'Pending'}</span>
                     </div>

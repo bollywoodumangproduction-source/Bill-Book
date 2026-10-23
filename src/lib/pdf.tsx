@@ -23,16 +23,17 @@ export async function downloadA4Pdf(element: HTMLElement, filename: string): Pro
   element.style.setProperty('max-width', '190mm');
   element.style.setProperty('margin', '0');
   element.style.setProperty('background', '#ffffff');
+  const margin = element.classList.contains('bill-page') ? [4, 10, 4, 10] : [10, 10, 10, 10];
   try {
     await html2pdf().set({
-      margin: [10, 10, 10, 10],
+      margin,
       filename,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
       // `avoid-all` can push the entire bill onto a second, mostly blank page.
       // Respect explicit CSS page breaks while letting one-page bills stay on one A4 sheet.
-      pagebreak: { mode: ['css'], avoid: ['tr', '.invoice-header', '.invoice-signature'] },
+      pagebreak: { mode: ['css'], avoid: ['tr', '.invoice-header', '.invoice-signature', '.invoice-delivery-row'] },
     }).from(element).save();
   } finally {
     if (originalStyle === null) element.removeAttribute('style');
