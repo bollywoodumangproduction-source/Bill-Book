@@ -75,11 +75,13 @@ export async function downloadA4Pdf(element: HTMLElement, filename: string): Pro
     set: (options: object) => PdfWorker;
   };
   const originalStyle = element.getAttribute('style');
+  const originalExportMarker = element.getAttribute('data-pdf-export-target');
   element.style.setProperty('box-sizing', 'border-box');
   element.style.setProperty('width', '190mm');
   element.style.setProperty('max-width', '190mm');
   element.style.setProperty('margin', '0');
   element.style.setProperty('background', '#ffffff');
+  element.setAttribute('data-pdf-export-target', 'invoice');
   const isInvoice = element.classList.contains('bill-page');
   const margin = isInvoice ? [4, 10, 4, 10] : [10, 10, 10, 10];
   try {
@@ -93,6 +95,22 @@ export async function downloadA4Pdf(element: HTMLElement, filename: string): Pro
         backgroundColor: '#ffffff',
         ...(isInvoice ? {
           onclone: (clonedDocument: Document) => {
+            // The bill is inside a scrollable preview modal. html2canvas keeps
+            // ancestor overflow/max-height clipping unless we remove it in
+            // the cloned document, which cuts off payment rows and terms.
+            const clonedTarget = clonedDocument.querySelector<HTMLElement>('[data-pdf-export-target="invoice"]');
+            let ancestor = clonedTarget?.parentElement ?? null;
+            while (ancestor && ancestor !== clonedDocument.body) {
+              ancestor.style.setProperty('overflow', 'visible', 'important');
+              ancestor.style.setProperty('overflow-x', 'visible', 'important');
+              ancestor.style.setProperty('overflow-y', 'visible', 'important');
+              ancestor.style.setProperty('max-height', 'none', 'important');
+              ancestor.style.setProperty('height', 'auto', 'important');
+              ancestor = ancestor.parentElement;
+            }
+            clonedDocument.documentElement.style.setProperty('overflow', 'visible', 'important');
+            clonedDocument.body.style.setProperty('overflow', 'visible', 'important');
+
             const style = clonedDocument.createElement('style');
             style.textContent = `
               .bill-page { width: 190mm !important; max-width: 190mm !important; margin: 0 !important; padding: 0 !important; font-size: 10px !important; line-height: 1.2 !important; }
@@ -126,6 +144,8 @@ export async function downloadA4Pdf(element: HTMLElement, filename: string): Pro
   } finally {
     if (originalStyle === null) element.removeAttribute('style');
     else element.setAttribute('style', originalStyle);
+    if (originalExportMarker === null) element.removeAttribute('data-pdf-export-target');
+    else element.setAttribute('data-pdf-export-target', originalExportMarker);
   }
 }
 
