@@ -53,7 +53,7 @@ export function Payments() {
 
   const load = useCallback(async () => {
     const [paymentsResult, bookingsResult, ordersResult] = await Promise.all([
-      supabase.from('payments').select('*').order('date', { ascending: false }),
+      supabase.from('payments').select('*').order('created_at', { ascending: false }),
       supabase.from('bookings').select('id,booking_no,client_name'),
       supabase.from('studio_lab_orders').select('id,order_no,partner_name,studio_name,project_name'),
     ]);
