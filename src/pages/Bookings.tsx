@@ -2319,8 +2319,8 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
 
   return (
     <>
-      <main className="min-h-full w-full overflow-y-auto">
-        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-800 bg-[#0B1121]/95 px-3 py-3 shadow-md backdrop-blur-md sm:px-6">
+      <main className="min-h-full w-full">
+        <header className="fixed inset-x-0 top-14 z-40 flex items-center gap-3 border-b border-slate-800 bg-[#0B1121]/95 px-3 py-3 shadow-md backdrop-blur-md md:left-60 md:top-0 sm:px-6">
           <button type="button" onClick={onClose} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 transition-colors hover:border-amber-500/50 hover:text-amber-300">
             <ArrowLeft className="h-4 w-4" /> <span className="hidden sm:inline">Back to Bookings</span><span className="sm:hidden">Back</span>
           </button>
@@ -2330,7 +2330,7 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
           </div>
           <Badge color={booking.work_status === 'delivered' ? 'emerald' : booking.work_status === 'pending' ? 'slate' : 'amber'}>{getWorkStatusLabel(booking.work_status)}</Badge>
         </header>
-        <div className="mx-auto w-full max-w-6xl p-3 sm:p-5 lg:p-6">
+        <div className="mx-auto w-full max-w-6xl px-3 pb-3 pt-[4.5rem] sm:px-5 sm:pb-5 sm:pt-20 lg:px-6 lg:pb-6">
           {modalBody}
         </div>
       </main>
