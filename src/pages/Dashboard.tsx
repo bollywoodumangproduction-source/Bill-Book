@@ -326,7 +326,7 @@ function SummaryCard({
     <div className={`min-w-0 rounded-xl border bg-gradient-to-br p-3.5 ${colors[color]}`}>
       <Icon className="mb-2 h-5 w-5" />
       <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-0.5 text-lg font-bold text-slate-900 dark:text-white">{value}</p>
+      <p className="mt-0.5 break-all text-base font-bold leading-tight text-slate-900 sm:text-lg dark:text-white">{value}</p>
     </div>
   );
 }

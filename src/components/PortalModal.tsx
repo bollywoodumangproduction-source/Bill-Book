@@ -492,18 +492,18 @@ function ClientDetailView({ booking, settings, ads, photoSession }: { booking: B
         )}
 
         {/* Payment Summary */}
-        <div className="mt-4 grid grid-cols-3 gap-3 border-t border-slate-100 pt-3 dark:border-white/5">
-          <div className="rounded-lg bg-emerald-50 p-3 text-center dark:bg-emerald-500/10">
+        <div className="mt-4 grid min-w-0 grid-cols-3 gap-2 border-t border-slate-100 pt-3 sm:gap-3 dark:border-white/5">
+          <div className="min-w-0 rounded-lg bg-emerald-50 p-2 text-center sm:p-3 dark:bg-emerald-500/10">
             <p className="text-xs text-slate-500 dark:text-slate-400">Advance Paid</p>
-            <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatINR(billing.totalPayments)}</p>
+            <p className="break-all text-xs font-bold leading-tight text-emerald-600 sm:text-sm dark:text-emerald-400">{formatINR(billing.totalPayments)}</p>
           </div>
-          <div className="rounded-lg bg-amber-50 p-3 text-center dark:bg-amber-500/10">
+          <div className="min-w-0 rounded-lg bg-amber-50 p-2 text-center sm:p-3 dark:bg-amber-500/10">
             <p className="text-xs text-slate-500 dark:text-slate-400">Total</p>
-            <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{formatINR(billing.grandTotal)}</p>
+            <p className="break-all text-xs font-bold leading-tight text-amber-600 sm:text-sm dark:text-amber-400">{formatINR(billing.grandTotal)}</p>
           </div>
-          <div className="rounded-lg bg-rose-50 p-3 text-center dark:bg-rose-500/10">
+          <div className="min-w-0 rounded-lg bg-rose-50 p-2 text-center sm:p-3 dark:bg-rose-500/10">
             <p className="text-xs text-slate-500 dark:text-slate-400">Remaining</p>
-            <p className="text-sm font-bold text-rose-600 dark:text-rose-400">{formatINR(billing.balanceDue)}</p>
+            <p className="break-all text-xs font-bold leading-tight text-rose-600 sm:text-sm dark:text-rose-400">{formatINR(billing.balanceDue)}</p>
           </div>
         </div>
 
@@ -540,11 +540,11 @@ function PromoAdCard({ ad }: { ad: PromoAd }) {
 
 function InfoRow({ icon: Icon, label, value }: { icon: typeof Calendar; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 dark:bg-white/5">
-      <Icon className="h-4 w-4 text-amber-500" />
-      <div>
+    <div className="flex min-w-0 items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 dark:bg-white/5">
+      <Icon className="h-4 w-4 shrink-0 text-amber-500" />
+      <div className="min-w-0">
         <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-        <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{value}</p>
+        <p className="break-words text-sm font-medium text-slate-800 dark:text-slate-200">{value}</p>
       </div>
     </div>
   );
