@@ -139,6 +139,12 @@ export function DairyBook() {
       const matchesFrom = !dateFrom || (e.entry_date ?? '') >= dateFrom;
       const matchesTo = !dateTo || (e.entry_date ?? '') <= dateTo;
       return Boolean(e.deleted_at) === showArchived && matchesSearch && matchesType && matchesFrom && matchesTo;
+    }).sort((a, b) => {
+      const byEntryDate = (b.entry_date ?? '').localeCompare(a.entry_date ?? '');
+      if (byEntryDate) return byEntryDate;
+      const byLastUpdate = Date.parse(b.updated_at || b.created_at || '') - Date.parse(a.updated_at || a.created_at || '');
+      if (Number.isFinite(byLastUpdate) && byLastUpdate) return byLastUpdate;
+      return (b.created_at ?? '').localeCompare(a.created_at ?? '') || b.id.localeCompare(a.id);
     });
   }, [entries, search, typeFilter, dateFrom, dateTo, showArchived, partnerNamesByEntry]);
 
@@ -563,7 +569,7 @@ function ManualEntryForm({
     if (saving) return;
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt <= 0) { toast('Valid amount is required', 'error'); return; }
-    const payload: Omit<DairyBookEntry, 'id' | 'created_at' | 'updated_at' | 'is_demo' | 'isDemo'> = {
+    const payload: Omit<DairyBookEntry, 'id' | 'created_at' | 'is_demo' | 'isDemo'> = {
       entry_type: entryType,
       is_auto: false,
       source_table: null,
@@ -575,6 +581,7 @@ function ManualEntryForm({
       payment_mode: paymentMode,
       note,
       entry_date: entryDate,
+      updated_at: new Date().toISOString(),
     };
     setSaving(true);
     try {
