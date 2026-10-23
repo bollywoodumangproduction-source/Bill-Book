@@ -134,37 +134,43 @@ export function SettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
-    await update({
-      films_title: filmsTitle,
-      films_subtitle: filmsSubtitle,
-      production_title: productionTitle,
-      production_subtitle: productionSubtitle,
-      address: filmsAddress,
-      phone: filmsPhone,
-      email: filmsEmail,
-      films_insta: filmsInsta,
-      production_insta: productionInsta,
-      bank_name: bankName,
-      bank_details: bankDetails,
-      whatsapp_number: whatsappNumber,
-      alternate_phone: alternatePhone,
-      branch_address: branchAddress,
-      upi_id: upiId,
-      upi_qr_image_url: upiQrImageUrl,
-      master_pin: masterPin,
-      films_logo_url: filmsLogoUrl,
-      production_logo_url: productionLogoUrl,
-      production_terms: productionTerms,
-      stamp_image_url: stampImageUrl,
-      terms_conditions: terms,
-      studio_name: brandStudioName,
-      production_banner_name: productionBannerName,
-      studio_whatsapp: studioWhatsapp,
-      studio_call_number: studioCallNumber,
-      studio_instagram_url: studioInstagramUrl,
-    });
-    setSaving(false);
-    toast('Settings updated successfully!', 'success');
+    try {
+      await update({
+        films_title: filmsTitle,
+        films_subtitle: filmsSubtitle,
+        production_title: productionTitle,
+        production_subtitle: productionSubtitle,
+        address: filmsAddress,
+        phone: filmsPhone,
+        email: filmsEmail,
+        films_insta: filmsInsta,
+        production_insta: productionInsta,
+        bank_name: bankName,
+        bank_details: bankDetails,
+        whatsapp_number: whatsappNumber,
+        alternate_phone: alternatePhone,
+        branch_address: branchAddress,
+        upi_id: upiId,
+        upi_qr_image_url: upiQrImageUrl,
+        master_pin: masterPin,
+        films_logo_url: filmsLogoUrl,
+        production_logo_url: productionLogoUrl,
+        production_terms: productionTerms,
+        stamp_image_url: stampImageUrl,
+        terms_conditions: terms,
+        studio_name: brandStudioName,
+        production_banner_name: productionBannerName,
+        studio_whatsapp: studioWhatsapp,
+        studio_call_number: studioCallNumber,
+        studio_instagram_url: studioInstagramUrl,
+      });
+      toast('Settings updated successfully!', 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not save settings. Please try again.';
+      toast(message, 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) {
