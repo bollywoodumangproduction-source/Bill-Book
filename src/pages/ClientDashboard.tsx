@@ -424,12 +424,12 @@ export function ClientDashboard() {
         )}
 
         {/* Pay Now — UPI QR when balance is due */}
-        {netDue > 0 && (settings?.upi_qr_image_url || settings?.upi_id) && (
+        {netDue > 0 && (
           <div className="rounded-2xl border border-rose-200 bg-rose-50/50 p-5 dark:border-rose-500/20 dark:bg-rose-500/5">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
               <QrCode className="h-4 w-4 text-rose-500" /> Pay Now
             </h2>
-            <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
+            {(settings?.upi_qr_image_url || settings?.upi_id) ? <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
               <div className="flex flex-col items-center gap-1">
                 <img
                   src={settings.upi_qr_image_url || `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=upi://pay?pa=${encodeURIComponent(settings?.upi_id || '')}`}
@@ -446,7 +446,7 @@ export function ClientDashboard() {
                   Your remaining balance of {formatINR(netDue)} can be paid via UPI. Once the studio confirms your payment, your deliverables and download links will be unlocked.
                 </div>
               </div>
-            </div>
+            </div> : <p className="text-sm text-slate-600 dark:text-slate-300">UPI payment details are not configured. Please contact the studio to arrange payment of {formatINR(netDue)}.</p>}
           </div>
         )}
 
@@ -783,12 +783,12 @@ function LabOrderDashboard({
           </div>
         )}
 
-        {netDue > 0 && (settings?.upi_qr_image_url || settings?.upi_id) && (
+        {netDue > 0 && (
           <div className="rounded-2xl border border-rose-200 bg-rose-50/50 p-5 dark:border-rose-500/20 dark:bg-rose-500/5">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
               <QrCode className="h-4 w-4 text-rose-500" /> Pay Now
             </h2>
-            <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
+            {(settings?.upi_qr_image_url || settings?.upi_id) ? <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
               <div className="flex flex-col items-center gap-1">
                 <img
                   src={settings.upi_qr_image_url || `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=upi://pay?pa=${encodeURIComponent(settings.upi_id || '')}`}
@@ -805,7 +805,7 @@ function LabOrderDashboard({
                   Your remaining balance of {formatINR(netDue)} can be paid via UPI. Once the studio confirms your payment, your order will be updated.
                 </div>
               </div>
-            </div>
+            </div> : <p className="text-sm text-slate-600 dark:text-slate-300">UPI payment details are not configured. Please contact the studio to arrange payment of {formatINR(netDue)}.</p>}
           </div>
         )}
 
