@@ -237,10 +237,15 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
           {delivList.length > 0 && (
             <div className="min-w-0 flex-1 rounded border border-black p-1">
               <p className="mb-0.5 text-xs font-bold">Delivery Data:</p>
-              <div className="grid grid-cols-2 gap-0.5 text-xs">
+              <div className="space-y-0.5 text-[10px]">
                 {delivList.map((d, i) => {
                   const receipt = getDeliverableReceipt(booking.deliverables_data ?? DEFAULT_DELIVERABLES, delivList, i);
-                  return <p key={deliveryItemKey(delivList, i)}>{d} — {receipt ? `Received · ${formatDate(receipt.received_at)}` : 'Pending'}</p>;
+                  return (
+                    <div key={deliveryItemKey(delivList, i)} className="flex items-start justify-between gap-2 border-b border-gray-300 py-0.5 last:border-0">
+                      <span className="min-w-0 break-words">{d}</span>
+                      <span className="shrink-0 whitespace-nowrap text-right">{receipt ? `Received · ${formatDate(receipt.received_at)}` : 'Pending'}</span>
+                    </div>
+                  );
                 })}
               </div>
             </div>
@@ -267,12 +272,17 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
       ) : (
         <>
           {delivList.length > 0 && (
-            <div className="mb-4">
+            <div className="mb-4 rounded border border-black p-2">
               <p className="mb-1 text-sm font-bold">Delivery Data:</p>
-              <div className="grid grid-cols-2 gap-1 text-xs">
+              <div className="space-y-0.5 text-xs">
                 {delivList.map((d, i) => {
                   const receipt = getDeliverableReceipt(booking.deliverables_data ?? DEFAULT_DELIVERABLES, delivList, i);
-                  return <p key={deliveryItemKey(delivList, i)}>{d} — {receipt ? `Received · ${formatDate(receipt.received_at)}` : 'Pending'}</p>;
+                  return (
+                    <div key={deliveryItemKey(delivList, i)} className="flex items-start justify-between gap-3 border-b border-gray-300 py-1 last:border-0">
+                      <span className="min-w-0 break-words">{d}</span>
+                      <span className="shrink-0 whitespace-nowrap text-right">{receipt ? `Received · ${formatDate(receipt.received_at)}` : 'Pending'}</span>
+                    </div>
+                  );
                 })}
               </div>
             </div>
