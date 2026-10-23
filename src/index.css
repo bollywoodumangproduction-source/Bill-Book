@@ -79,9 +79,9 @@ body::after {
     width: 190mm !important;
     max-width: 190mm !important;
     margin: 0 !important;
-    padding: 0 !important;
-    font-size: 10px !important;
-    line-height: 1.2 !important;
+    padding: 5mm !important;
+    font-size: 13px !important;
+    line-height: 1.45 !important;
     break-after: avoid-page !important;
     page-break-after: avoid !important;
   }
@@ -103,22 +103,21 @@ body::after {
   }
 
   #printable-bill-sheet .bill-page h1 {
-    font-size: 16px !important;
+    font-size: 22px !important;
   }
 
   #printable-bill-sheet .bill-page table {
     width: 100% !important;
     table-layout: fixed !important;
     border-collapse: collapse !important;
-    font-size: 9px !important;
   }
 
   #printable-bill-sheet .bill-page th,
   #printable-bill-sheet .bill-page td {
     border: 1px solid #64748b !important;
-    padding: 3px 5px !important;
+    padding: 4px 8px !important;
     vertical-align: middle !important;
-    line-height: 1.3 !important;
+    line-height: 1.4 !important;
     overflow-wrap: break-word !important;
     word-break: normal !important;
   }

@@ -113,12 +113,12 @@ export async function downloadA4Pdf(element: HTMLElement, filename: string): Pro
 
             const style = clonedDocument.createElement('style');
             style.textContent = `
-              .bill-page { width: 190mm !important; max-width: 190mm !important; margin: 0 !important; padding: 0 !important; font-size: 10px !important; line-height: 1.2 !important; }
-              .bill-page h1 { font-size: 16px !important; }
+              .bill-page { width: 190mm !important; max-width: 190mm !important; margin: 0 !important; padding: 5mm !important; font-size: 13px !important; line-height: 1.45 !important; }
+              .bill-page h1 { font-size: 22px !important; }
               .bill-page .invoice-header { align-items: center !important; gap: 8mm !important; }
               .bill-page .invoice-copy-label { white-space: nowrap !important; line-height: 1.2 !important; padding: 2px 6px !important; }
-              .bill-page table { width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; font-size: 9px !important; }
-              .bill-page th, .bill-page td { vertical-align: middle !important; padding: 3px 5px !important; line-height: 1.3 !important; overflow-wrap: break-word !important; word-break: normal !important; }
+              .bill-page table { width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; }
+              .bill-page th, .bill-page td { vertical-align: middle !important; padding: 4px 8px !important; line-height: 1.4 !important; overflow-wrap: break-word !important; word-break: normal !important; }
               .bill-page tr, .bill-page .invoice-delivery-row { break-inside: avoid !important; page-break-inside: avoid !important; }
               .bill-page img { max-height: 28mm !important; object-fit: contain !important; }
             `;
