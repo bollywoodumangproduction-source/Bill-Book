@@ -141,7 +141,7 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
       </div>
 
       {/* Client + Event info side-by-side */}
-      <div className={compact ? "mb-2 flex justify-between text-xs" : "mb-4 flex justify-between text-sm"}>
+      <div className={`invoice-parties ${compact ? "mb-2 flex justify-between text-xs" : "mb-4 flex justify-between text-sm"}`}>
         <div>
           <p><strong>{booking.is_dual_side ? 'Groom:' : 'Client:'}</strong> {booking.client_name}</p>
           {booking.is_dual_side && booking.bride_name && <p><strong>Bride:</strong> {booking.bride_name}</p>}
@@ -182,7 +182,7 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
               );
             })}
           </div>
-          <table className={`${compact ? "mb-2 w-full border-collapse border border-black text-xs" : "mb-4 w-full border-collapse border border-black text-sm"} hidden sm:table print:table`}>
+          <table className={`invoice-events-table ${compact ? "mb-2 w-full border-collapse border border-black text-xs" : "mb-4 w-full border-collapse border border-black text-sm"} hidden sm:table print:table`}>
             <thead>
               <tr className="bg-gray-100">
                 <th className="border border-black px-2 py-1 text-left">Function</th>
@@ -289,7 +289,7 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
           )}
 
           {paymentHistory.length > 0 && (
-            <div className="mb-4">
+            <div className="invoice-payment-history mb-4">
               <p className="mb-1 text-sm font-bold">Payment History:</p>
               <table className="w-full border-collapse border border-black text-xs">
                 <thead><tr className="bg-gray-100"><th className="border border-black px-2 py-1 text-left">Date</th><th className="border border-black px-2 py-1 text-left">Mode</th><th className="border border-black px-2 py-1 text-left">Reason / Note</th><th className="border border-black px-2 py-1 text-right">Amount Paid</th></tr></thead>
@@ -311,7 +311,7 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
       )}
 
       {/* Footer: UPI QR + Stamp + Signature */}
-      <div className={compact ? "mt-2 flex flex-wrap items-end justify-between gap-2 border-t border-black pt-1" : "mt-6 flex flex-wrap items-end justify-between gap-3 border-t border-black pt-4"}>
+      <div className={`invoice-footer ${compact ? "mt-2 flex flex-wrap items-end justify-between gap-2 border-t border-black pt-1" : "mt-6 flex flex-wrap items-end justify-between gap-3 border-t border-black pt-4"}`}>
         <div className="flex min-w-0 flex-1 items-end gap-2">
           <div className="min-w-0 flex-1 space-y-1.5 text-[9px]">
             <div><p className="font-semibold">1. Client Signature</p><div className="h-3 border-b border-black" /></div>
@@ -341,7 +341,7 @@ export function BillInvoice({ booking, settings, compact = false, showStamp = tr
 
       {/* Terms */}
       {s?.terms_conditions && (
-        <div className={compact ? "mt-1 border-t border-black pt-0.5" : "mt-4 border-t border-black pt-2"}>
+        <div className={`invoice-terms ${compact ? "mt-1 border-t border-black pt-0.5" : "mt-4 border-t border-black pt-2"}`}>
           <p className={compact ? "mb-0 text-[10px] font-bold" : "mb-1 text-xs font-bold"}>Terms &amp; Conditions:</p>
           <div className={compact ? "whitespace-pre-line text-[10px] text-gray-700 max-h-12 overflow-hidden" : "whitespace-pre-line text-xs text-gray-700"}>{s.terms_conditions}</div>
         </div>
