@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase';
 export interface UploadedImageAsset {
   publicUrl: string;
   previewUrl: string;
+  fileName: string;
 }
 
 export interface ImageUploadContext {
@@ -26,6 +27,52 @@ function r2UploadApiUrl(): string {
 
 function supabasePublicApiKey(): string {
   return (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '').trim();
+}
+
+/**
+ * Reduce Photo Selection storage before the file leaves the browser. WebP
+ * keeps transparency and is supported by current Chrome/Edge browsers. Leave
+ * animated GIFs and unsupported/failed conversions untouched so uploads keep
+ * working and animations are not flattened.
+ */
+async function compressPhotoForUpload(file: File): Promise<File> {
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(file.type)) return file;
+  if (typeof createImageBitmap !== 'function') return file;
+
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return file;
+  }
+
+  try {
+    const maxDimension = 1920;
+    const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) return file;
+    context.drawImage(bitmap, 0, 0, width, height);
+
+    const compressed = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/webp', 0.82);
+    });
+    if (!compressed || compressed.size >= file.size) return file;
+
+    const baseName = file.name.replace(/\.[^.]+$/, '') || 'photo';
+    return new File([compressed], `${baseName}.webp`, {
+      type: 'image/webp',
+      lastModified: file.lastModified,
+    });
+  } catch {
+    return file;
+  } finally {
+    bitmap.close();
+  }
 }
 
 async function requireAdminSession() {
@@ -44,6 +91,8 @@ export async function uploadImageAsset(file: File, purpose: string, context: Ima
     throw new Error('Choose an image file.');
   }
 
+  const uploadFile = await compressPhotoForUpload(file);
+
   const session = await requireAdminSession();
 
   const response = await fetch(r2UploadApiUrl(), {
@@ -53,7 +102,7 @@ export async function uploadImageAsset(file: File, purpose: string, context: Ima
       Authorization: `Bearer ${session.access_token}`,
       apikey: supabasePublicApiKey(),
     },
-    body: JSON.stringify({ fileName: file.name, contentType: file.type, fileSize: file.size, purpose, ...context }),
+    body: JSON.stringify({ fileName: uploadFile.name, contentType: uploadFile.type, fileSize: uploadFile.size, purpose, ...context }),
   });
   if (!response.ok) {
     const failure = await response.json().catch(() => null) as { error?: unknown } | null;
@@ -76,13 +125,13 @@ export async function uploadImageAsset(file: File, purpose: string, context: Ima
 
   const upload = await fetch(signed.uploadUrl, {
     method: signed.method || 'PUT',
-    headers: { 'Content-Type': file.type, ...(signed.headers || {}) },
-    body: file,
+    headers: { 'Content-Type': uploadFile.type, ...(signed.headers || {}) },
+    body: uploadFile,
   });
   if (!upload.ok) {
     throw new Error('Cloudflare R2 did not accept the image. Try again.');
   }
-  return { publicUrl: signed.publicUrl, previewUrl: signed.previewUrl || signed.publicUrl };
+  return { publicUrl: signed.publicUrl, previewUrl: signed.previewUrl || signed.publicUrl, fileName: uploadFile.name };
 }
 
 export async function deletePhotoSelectionSessionAssets(sessionId: string): Promise<number> {

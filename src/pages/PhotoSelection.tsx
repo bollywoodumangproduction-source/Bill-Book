@@ -524,7 +524,7 @@ function SessionDetail({
         const file = selectedFiles[index];
         try {
           const asset = await uploadImageAsset(file, 'photo-selection', { sessionId: session.id, folder: uploadFolder });
-          uploaded.push({ id: newId(), folder: uploadFolder, fileName: file.name, previewUrl: asset.previewUrl, originalUrl: asset.publicUrl, selected: false });
+          uploaded.push({ id: newId(), folder: uploadFolder, fileName: asset.fileName, originalFileName: file.name, previewUrl: asset.previewUrl, originalUrl: asset.publicUrl, selected: false });
         } catch (error) {
           failures.push(`${file.name}: ${error instanceof Error ? error.message : 'Upload failed'}`);
         } finally {
@@ -1266,17 +1266,58 @@ function FileCopierModal({ session, onClose }: { session: ClientSelectionSession
     }
     try {
       setCopying(true);
-      setProgress('Select root folder...');
+      setProgress('Choose the local folder that contains the original photos...');
       const rootHandle = await directoryPicker();
+      const sourceExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.avif', '.gif', '.tif', '.tiff', '.bmp', '.heic', '.cr3', '.arw', '.nef'];
+      const sourceFiles: Array<{ photo: (typeof selectedPhotos)[number]; sourceHandle: any; originalName: string }> = [];
+      const failedFiles: string[] = [];
+      for (const photo of selectedPhotos) {
+        const originalName = photo.originalFileName || photo.fileName;
+        const nameCandidates = new Set([originalName]);
+        if (!photo.originalFileName && /\.webp$/i.test(photo.fileName)) {
+          const baseName = photo.fileName.replace(/\.webp$/i, '');
+          sourceExtensions.forEach((extension) => {
+            nameCandidates.add(`${baseName}${extension}`);
+            nameCandidates.add(`${baseName}${extension.toUpperCase()}`);
+          });
+        }
+
+        try {
+          let sourceHandle: any = null;
+          const sourceDirectories: any[] = [];
+          try { sourceDirectories.push(await rootHandle.getDirectoryHandle(photo.folder)); } catch (error) {
+            if ((error as DOMException).name !== 'NotFoundError') throw error;
+          }
+          sourceDirectories.push(rootHandle);
+          for (const directory of sourceDirectories) {
+            for (const candidate of nameCandidates) {
+              try {
+                sourceHandle = await directory.getFileHandle(candidate);
+                break;
+              } catch (error) {
+                if ((error as DOMException).name !== 'NotFoundError') throw error;
+              }
+            }
+            if (sourceHandle) break;
+          }
+          if (!sourceHandle) throw new Error('Original file not found');
+          sourceFiles.push({ photo, sourceHandle, originalName: sourceHandle.name || originalName });
+        } catch {
+          failedFiles.push(originalName);
+        }
+      }
+
       const selectedDir = await rootHandle.getDirectoryHandle('PhotoSelect', { create: true });
 
-      for (const photo of selectedPhotos) {
-        setProgress(`Copying ${photo.fileName} → ${photo.folder}/`);
+      const reservedNames = new Map<string, Set<string>>();
+      const copyJobs: Array<{ photo: (typeof selectedPhotos)[number]; sourceHandle: any; originalName: string; folderHandle: any; copyName: string }> = [];
+      for (const { photo, sourceHandle, originalName } of sourceFiles) {
         const folderHandle = await selectedDir.getDirectoryHandle(photo.folder, { create: true });
-        const extensionIndex = photo.fileName.lastIndexOf('.');
-        const baseName = extensionIndex > 0 ? photo.fileName.slice(0, extensionIndex) : photo.fileName;
-        const extension = extensionIndex > 0 ? photo.fileName.slice(extensionIndex) : '';
-        let copyName = photo.fileName;
+        const extensionIndex = originalName.lastIndexOf('.');
+        const baseName = extensionIndex > 0 ? originalName.slice(0, extensionIndex) : originalName;
+        const extension = extensionIndex > 0 ? originalName.slice(extensionIndex) : '';
+        const reserved = reservedNames.get(photo.folder) ?? new Set<string>();
+        let copyName = originalName;
         let suffix = 2;
         while (true) {
           try {
@@ -1284,20 +1325,48 @@ function FileCopierModal({ session, onClose }: { session: ClientSelectionSession
             copyName = `${baseName} (${suffix++})${extension}`;
           } catch (error) {
             if ((error as DOMException).name !== 'NotFoundError') throw error;
+            if (reserved.has(copyName)) {
+              copyName = `${baseName} (${suffix++})${extension}`;
+              continue;
+            }
             break;
           }
         }
-        const fileHandle = await folderHandle.getFileHandle(copyName, { create: true });
-        const writable = await fileHandle.createWritable();
-
-        const response = await fetch(photo.previewUrl);
-        const blob = await response.blob();
-        await writable.write(blob);
-        await writable.close();
+        reserved.add(copyName);
+        reservedNames.set(photo.folder, reserved);
+        copyJobs.push({ photo, sourceHandle, originalName, folderHandle, copyName });
       }
 
-      setProgress(`Done! ${selectedPhotos.length} files copied to /PhotoSelect/`);
-      toast(`${selectedPhotos.length} files copied successfully`, 'success');
+      let nextJob = 0;
+      let copied = 0;
+      const copyWorkers = Array.from({ length: Math.min(4, copyJobs.length) }, async () => {
+        while (true) {
+          const index = nextJob++;
+          if (index >= copyJobs.length) return;
+          const { photo, sourceHandle, originalName, folderHandle, copyName } = copyJobs[index];
+          setProgress(`Copying original ${copied + 1}/${copyJobs.length}: ${originalName} → ${photo.folder}/`);
+          let writable: any = null;
+          try {
+            const fileHandle = await folderHandle.getFileHandle(copyName, { create: true });
+            writable = await fileHandle.createWritable();
+            const originalFile = await sourceHandle.getFile();
+            await writable.write(originalFile);
+            await writable.close();
+            writable = null;
+            copied += 1;
+          } catch {
+            try { await writable?.abort(); } catch { /* Ignore cleanup errors and continue with the next image. */ }
+            failedFiles.push(originalName);
+          }
+        }
+      });
+      await Promise.all(copyWorkers);
+
+      const failureSummary = failedFiles.length
+        ? `Successfully copied ${copied} files. Failed to find ${failedFiles.length} files: ${failedFiles.slice(0, 3).join(', ')}${failedFiles.length > 3 ? ', …' : ''}`
+        : `Successfully copied ${copied} files to /PhotoSelect/`;
+      setProgress(failureSummary);
+      toast(failureSummary, failedFiles.length ? 'info' : 'success');
     } catch (err: any) {
       if (err.name === 'AbortError') { setProgress('Cancelled'); }
       else { setProgress(`Error: ${err.message}`); toast('Copy failed', 'error'); }
@@ -1317,12 +1386,12 @@ function FileCopierModal({ session, onClose }: { session: ClientSelectionSession
           <div className="flex items-start gap-3 rounded-lg border border-sky-200 bg-sky-50 p-3 dark:border-sky-500/20 dark:bg-sky-500/10">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />
             <p className="text-xs text-sky-700 dark:text-sky-300">
-              Uses the native File System Access API. Works on Chrome, Edge, and Brave. Selected photos are copied without image recompression to <code className="font-mono">/PhotoSelect/[Folder]/filename</code>. Existing destination files are kept; duplicate names receive a numbered suffix.
+              Photo uploads are optimized to WebP for client viewing. Choose the local folder containing your original photos; selected originals are copied unchanged to <code className="font-mono">/PhotoSelect/[Folder]/filename</code>. Works on Chrome, Edge, and Brave.
             </p>
           </div>
           <div className="rounded-lg border border-slate-200 p-4 dark:border-white/10">
             <p className="text-sm font-semibold text-slate-900 dark:text-white">{selectedPhotos.length} selected photos ready to copy</p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Copy only: source files are not moved or deleted. Image bytes and embedded metadata are preserved.</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Copies the original local files, not the compressed WebP previews. Originals stay in the source folder; duplicate names receive a numbered suffix.</p>
           </div>
           {progress && <p className="text-xs text-slate-500 dark:text-slate-400">{progress}</p>}
           {!directoryPicker && (

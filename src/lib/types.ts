@@ -724,6 +724,7 @@ export interface PhotoItem {
   id: string;
   folder: string;
   fileName: string;
+  originalFileName?: string;
   previewUrl: string;
   originalUrl?: string;
   selected: boolean;
