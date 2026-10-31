@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams } from 'react-router-dom';
 import {
   Images,
@@ -16,6 +17,9 @@ import {
   AlertCircle,
   Maximize2,
   ArrowLeft,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { ClientSelectionSession, Partner, PhotoItem } from '@/lib/types';
@@ -38,6 +42,8 @@ export function PublicPhotoSelection() {
   const [activeFolder, setActiveFolder] = useState('All');
   const [focusPhoto, setFocusPhoto] = useState<PhotoItem | null>(null);
   const [focusIndex, setFocusIndex] = useState(0);
+  const [lightboxZoom, setLightboxZoom] = useState(1);
+  const [lightboxRotation, setLightboxRotation] = useState(0);
   const [showProofing, setShowProofing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -178,7 +184,16 @@ export function PublicPhotoSelection() {
     const nextIndex = (focusIndex + direction + visiblePhotos.length) % visiblePhotos.length;
     setFocusIndex(nextIndex);
     setFocusPhoto(visiblePhotos[nextIndex]);
+    setLightboxZoom(1);
+    setLightboxRotation(0);
   }, [focusIndex, visiblePhotos]);
+
+  useEffect(() => {
+    if (activeFocusPhoto) {
+      setLightboxZoom(1);
+      setLightboxRotation(0);
+    }
+  }, [activeFocusPhoto?.id]);
 
   // Desktop shortcuts only apply while the fullscreen viewer is open.
   useEffect(() => {
@@ -198,6 +213,9 @@ export function PublicPhotoSelection() {
       } else if ((e.code === 'Space' || e.key.toLowerCase() === 's') && !isLocked) {
         e.preventDefault();
         void togglePhoto(activeFocusPhoto.id);
+      } else if (e.key.toLowerCase() === 'r') {
+        e.preventDefault();
+        setLightboxRotation((rotation) => (rotation + 90) % 360);
       }
     };
     window.addEventListener('keydown', handler);
@@ -450,25 +468,29 @@ export function PublicPhotoSelection() {
       </div>
 
       {/* Fullscreen desktop lightbox. */}
-      {activeFocusPhoto && (
-        <div className="fixed inset-0 z-[200] flex flex-col bg-slate-950/98 text-white" role="dialog" aria-modal="true" aria-label="Photo viewer">
-          <header className="relative flex h-16 shrink-0 items-center border-b border-white/10 px-4">
-            <button onClick={closeLightbox} className="z-10 flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/10">
-              <ArrowLeft className="h-5 w-5" /> Back
+      {activeFocusPhoto && createPortal(
+        <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-950/95 text-white backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Photo viewer">
+          <header className="relative z-10 flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-slate-950/80 px-3 sm:px-6">
+            <button onClick={closeLightbox} className="z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:h-auto sm:w-auto sm:gap-2 sm:rounded-lg sm:bg-transparent sm:px-3 sm:py-2" aria-label="Back / close photo viewer">
+              <ArrowLeft className="h-5 w-5" /><span className="hidden sm:inline">Back</span>
             </button>
-            <div className="pointer-events-none absolute inset-x-20 text-center text-sm font-semibold text-slate-100">
+            <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-center text-sm font-semibold tabular-nums text-slate-100">
               {focusIndex + 1} of {visiblePhotos.length}
             </div>
-            <button onClick={closeLightbox} className="ml-auto z-10 rounded-lg p-2 text-slate-200 transition hover:bg-white/10" aria-label="Close viewer">
-              <X className="h-6 w-6" />
-            </button>
+            <div className="z-10 ml-auto flex items-center gap-1">
+              <button onClick={() => setLightboxRotation((rotation) => (rotation + 90) % 360)} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10" aria-label="Rotate photo clockwise" title="Rotate photo (R)"><RotateCw className="h-5 w-5" /></button>
+              <button onClick={() => setLightboxZoom((zoom) => Math.max(1, Number((zoom - 0.25).toFixed(2))))} disabled={lightboxZoom <= 1} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10 disabled:opacity-40" aria-label="Zoom out"><ZoomOut className="h-5 w-5" /></button>
+              <button onClick={() => setLightboxZoom((zoom) => Math.min(3, Number((zoom + 0.25).toFixed(2))))} disabled={lightboxZoom >= 3} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10 disabled:opacity-40" aria-label="Zoom in"><ZoomIn className="h-5 w-5" /></button>
+              <button onClick={closeLightbox} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10" aria-label="Close viewer"><X className="h-6 w-6" /></button>
+            </div>
           </header>
 
-          <main className="relative min-h-0 flex-1 px-16 py-4 sm:px-24 sm:py-6">
+          <main className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-14 py-4 sm:px-20 sm:py-6">
             <img
               src={activeFocusPhoto.originalUrl || activeFocusPhoto.previewUrl}
               alt={activeFocusPhoto.fileName}
-              className="h-full w-full object-contain select-none"
+              className="h-full w-full select-none object-contain transition-transform duration-200"
+              style={{ transform: `scale(${lightboxZoom}) rotate(${lightboxRotation}deg)` }}
               decoding="async"
               draggable={false}
               onContextMenu={(e) => e.preventDefault()}
@@ -485,7 +507,7 @@ export function PublicPhotoSelection() {
             )}
           </main>
 
-          <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-white/10 bg-slate-950/95 px-4 py-3">
+          <footer className="flex min-h-16 shrink-0 items-center justify-between gap-4 border-t border-white/10 bg-slate-950/80 px-4 py-3 sm:px-6">
             <button
               onClick={() => void togglePhoto(activeFocusPhoto.id)}
               disabled={bulkUpdating || isLocked}
@@ -495,7 +517,8 @@ export function PublicPhotoSelection() {
             </button>
             <p className="min-w-0 truncate text-right text-xs text-slate-400">{activeFocusPhoto.folder} / {activeFocusPhoto.fileName}</p>
           </footer>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* Proofing preview modal */}
