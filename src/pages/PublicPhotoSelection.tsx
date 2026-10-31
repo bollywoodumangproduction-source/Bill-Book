@@ -48,7 +48,17 @@ export function PublicPhotoSelection() {
     if (!pin) { setLoading(false); return false; }
     const { data, error } = await supabase.functions.invoke('public-share', { body: { action: 'photo-verify', id: sessionId, pin } });
     if (error || !data?.session) {
-      setPinErrorMessage(data?.error || error?.message || 'Could not verify this gallery. Please try again.');
+      let message = data?.error as string | undefined;
+      const response = error && typeof error === 'object' && 'context' in error
+        ? (error as { context?: unknown }).context
+        : undefined;
+      if (!message && response instanceof Response) {
+        const body = await response.clone().json().catch(() => null) as { error?: string } | null;
+        message = body?.error;
+      }
+      setPinErrorMessage(message || (error?.name === 'FunctionsHttpError'
+        ? 'Could not verify this gallery. Check the PIN and try again.'
+        : error?.message || 'Could not verify this gallery. Please try again.'));
       return false;
     }
     setSession(withPhotoSessionCounts(data.session as ClientSelectionSession));
@@ -95,7 +105,6 @@ export function PublicPhotoSelection() {
       setPinError(false);
     } else {
       setPinError(true);
-      toast(pinErrorMessage, 'error');
     }
   };
 
