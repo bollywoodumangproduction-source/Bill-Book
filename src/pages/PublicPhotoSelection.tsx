@@ -29,11 +29,11 @@ export function PublicPhotoSelection() {
   const [session, setSession] = useState<ClientSelectionSession | null>(null);
   const [partner, setPartner] = useState<Partner | null>(null);
   const [loading, setLoading] = useState(true);
-  const [linkExists, setLinkExists] = useState(false);
   const [pinVerified, setPinVerified] = useState(false);
   const [verifiedPin, setVerifiedPin] = useState('');
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
+  const [pinErrorMessage, setPinErrorMessage] = useState('Incorrect PIN. Please try again.');
   const [activeFolder, setActiveFolder] = useState('All');
   const [focusPhoto, setFocusPhoto] = useState<PhotoItem | null>(null);
   const [focusIndex, setFocusIndex] = useState(0);
@@ -45,20 +45,18 @@ export function PublicPhotoSelection() {
 
   const load = useCallback(async (pin?: string) => {
     if (!sessionId) { setLoading(false); return false; }
-    if (!pin) {
-      const { data } = await supabase.functions.invoke('public-share', { body: { action: 'photo-check', id: sessionId } });
-      setLinkExists(Boolean(data?.exists));
-      setLoading(false);
-      return Boolean(data?.exists);
-    }
+    if (!pin) { setLoading(false); return false; }
     const { data, error } = await supabase.functions.invoke('public-share', { body: { action: 'photo-verify', id: sessionId, pin } });
-    if (error || !data?.session) return false;
+    if (error || !data?.session) {
+      setPinErrorMessage(data?.error || error?.message || 'Could not verify this gallery. Please try again.');
+      return false;
+    }
     setSession(withPhotoSessionCounts(data.session as ClientSelectionSession));
     setPartner((data.partner as Partner | null) ?? null);
     return true;
   }, [sessionId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setLoading(false); }, [sessionId]);
 
   useEffect(() => { setVisiblePhotoLimit(120); }, [activeFolder, sessionId]);
 
@@ -97,7 +95,7 @@ export function PublicPhotoSelection() {
       setPinError(false);
     } else {
       setPinError(true);
-      toast('PIN was incorrect or the gallery is unavailable.', 'error');
+      toast(pinErrorMessage, 'error');
     }
   };
 
@@ -205,18 +203,6 @@ export function PublicPhotoSelection() {
     );
   }
 
-  if (!linkExists) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-center text-white">
-        <div>
-          <Images className="mx-auto mb-4 h-10 w-10 text-amber-400" />
-          <h1 className="text-xl font-bold">Selection link not found</h1>
-          <p className="mt-2 text-sm text-slate-400">Please ask the studio to resend your selection link.</p>
-        </div>
-      </div>
-    );
-  }
-
   // PIN gate
   if (!pinVerified) {
     return (
@@ -240,7 +226,7 @@ export function PublicPhotoSelection() {
             className={`w-full rounded-xl border bg-slate-800 px-4 py-3 text-center text-2xl font-bold tracking-[0.5em] text-white placeholder-slate-600 outline-none transition ${pinError ? 'border-rose-500' : 'border-white/10 focus:border-amber-500'}`}
             placeholder="••••"
           />
-          {pinError && <p className="mt-2 text-center text-xs text-rose-400">Incorrect PIN. Please try again.</p>}
+          {pinError && <p className="mt-2 text-center text-xs text-rose-400">{pinErrorMessage}</p>}
           <button onClick={verifyPin} disabled={pinInput.length !== 4} className="mt-4 w-full rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-400 disabled:opacity-40">
             Unlock Gallery
           </button>
