@@ -14,7 +14,7 @@ function json(body, status, origin, allowed) {
     headers.set('Access-Control-Allow-Origin', origin);
     headers.set('Vary', 'Origin');
     headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type, apikey');
     headers.set('Access-Control-Max-Age', '86400');
   }
   return new Response(JSON.stringify(body), { status, headers });
@@ -91,7 +91,7 @@ export default {
         headers: {
           'Access-Control-Allow-Origin': origin,
           'Access-Control-Allow-Methods': 'POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+          'Access-Control-Allow-Headers': 'Authorization, Content-Type, apikey',
           'Access-Control-Max-Age': '86400',
           Vary: 'Origin',
         },
@@ -105,8 +105,12 @@ export default {
 
     try {
       const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
+      // Prefer the same public key that the app uses. This avoids auth
+      // failures if the Worker's optional fallback key drifts from Vercel.
+      const supabaseApiKey = request.headers.get('apikey') || env.SUPABASE_ANON_KEY;
+      if (!supabaseApiKey) return json({ error: 'Supabase authentication is not configured for uploads.' }, 503, origin, allowed);
       const userResponse = await fetch(`${baseUrl}/auth/v1/user`, {
-        headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+        headers: { apikey: supabaseApiKey, Authorization: `Bearer ${token}` },
       });
       if (!userResponse.ok) return json({ error: 'Administrator sign-in is required.' }, 401, origin, allowed);
       const user = await userResponse.json();
@@ -134,7 +138,7 @@ export default {
       sessionUrl.searchParams.set('id', `eq.${sessionId}`);
       sessionUrl.searchParams.set('select', 'id');
       const sessionResponse = await fetch(sessionUrl, {
-        headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+        headers: { apikey: supabaseApiKey, Authorization: `Bearer ${token}` },
       });
       if (!sessionResponse.ok) return json({ error: 'Could not validate the Photo Selection session.' }, 503, origin, allowed);
       const sessions = await sessionResponse.json();
