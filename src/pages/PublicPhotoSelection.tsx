@@ -41,7 +41,8 @@ export function PublicPhotoSelection() {
   const [submitting, setSubmitting] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
-  const [visiblePhotoLimit, setVisiblePhotoLimit] = useState(120);
+  const [visiblePhotoLimit, setVisiblePhotoLimit] = useState(240);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
 
   const load = useCallback(async (pin?: string) => {
     if (!sessionId) { setLoading(false); return false; }
@@ -70,7 +71,7 @@ export function PublicPhotoSelection() {
 
   useEffect(() => { setLoading(false); }, [sessionId]);
 
-  useEffect(() => { setVisiblePhotoLimit(120); }, [activeFolder, sessionId]);
+  useEffect(() => { setVisiblePhotoLimit(240); }, [activeFolder, sessionId]);
 
   // Refresh lock/proof status without exposing the session table to anonymous clients.
   useEffect(() => {
@@ -111,12 +112,12 @@ export function PublicPhotoSelection() {
   };
 
   const togglePhoto = useCallback(async (photoId: string) => {
-    if (!session || session.isLocked) return;
+    if (!session || session.isLocked || bulkUpdating) return;
     const photos = session.photos.map((p) => p.id === photoId ? { ...p, selected: !p.selected } : p);
     const { data, error } = await supabase.functions.invoke('public-share', { body: { action: 'photo-update', sessionId: session.id, pin: verifiedPin, photos } });
     if (error || !data?.session) { toast(data?.error || 'Could not save your selection.', 'error'); return; }
     setSession(withPhotoSessionCounts(data.session as ClientSelectionSession));
-  }, [session, verifiedPin, toast]);
+  }, [session, verifiedPin, toast, bulkUpdating]);
 
   const visiblePhotos = useMemo(() => {
     if (!session) return [];
@@ -128,14 +129,32 @@ export function PublicPhotoSelection() {
     const sentinel = loadMoreRef.current;
     if (!sentinel || visiblePhotoLimit >= visiblePhotos.length) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) setVisiblePhotoLimit((limit) => Math.min(limit + 120, visiblePhotos.length));
-    }, { rootMargin: '700px' });
+      if (entries.some((entry) => entry.isIntersecting)) setVisiblePhotoLimit((limit) => Math.min(limit + 240, visiblePhotos.length));
+    }, { rootMargin: '1200px' });
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [visiblePhotoLimit, visiblePhotos.length]);
 
   const selectedCount = session?.photos.filter((p) => p.selected).length ?? 0;
   const totalCount = session?.photos.length ?? 0;
+
+  const setFolderSelection = async (selected: boolean) => {
+    if (!session || session.isLocked || bulkUpdating) return;
+    const folderPhotos = session.photos.filter((photo) => activeFolder === 'All' || photo.folder === activeFolder);
+    if (!folderPhotos.some((photo) => photo.selected !== selected)) return;
+    const folderIds = new Set(folderPhotos.map((photo) => photo.id));
+    const photos = session.photos.map((photo) => folderIds.has(photo.id) ? { ...photo, selected } : photo);
+    setBulkUpdating(true);
+    const { data, error } = await supabase.functions.invoke('public-share', {
+      body: { action: 'photo-update', sessionId: session.id, pin: verifiedPin, photos },
+    });
+    setBulkUpdating(false);
+    if (error || !data?.session) {
+      toast(data?.error || 'Could not save your selection.', 'error');
+      return;
+    }
+    setSession(withPhotoSessionCounts(data.session as ClientSelectionSession));
+  };
 
   const folderBreakdown = useMemo(() => {
     if (!session) return [];
@@ -298,6 +317,26 @@ export function PublicPhotoSelection() {
               ))}
             </div>
           )}
+          {!isLocked && visiblePhotos.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void setFolderSelection(true)}
+                disabled={bulkUpdating || visiblePhotos.every((photo) => photo.selected)}
+                className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-40"
+              >
+                {bulkUpdating ? 'Saving…' : `Select all ${activeFolder === 'All' ? 'photos' : `in ${activeFolder}`}`}
+              </button>
+              <button
+                type="button"
+                onClick={() => void setFolderSelection(false)}
+                disabled={bulkUpdating || visiblePhotos.every((photo) => !photo.selected)}
+                className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-white/5 disabled:opacity-40"
+              >
+                Clear selection
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -339,7 +378,7 @@ export function PublicPhotoSelection() {
                 {/* Selection tick */}
                 <button
                   onClick={() => togglePhoto(photo.id)}
-                  disabled={isLocked}
+                  disabled={isLocked || bulkUpdating}
                   className={`absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full shadow-lg transition ${photo.selected ? 'bg-emerald-500 text-white' : 'bg-black/50 text-white opacity-0 group-hover:opacity-100'} ${isLocked ? 'cursor-not-allowed' : 'hover:scale-110'}`}
                 >
                   <CheckCircle2 className="h-4 w-4" />
@@ -356,7 +395,7 @@ export function PublicPhotoSelection() {
                 {/* Click to toggle */}
                 <button
                   onClick={() => togglePhoto(photo.id)}
-                  disabled={isLocked}
+                  disabled={isLocked || bulkUpdating}
                   className="absolute inset-0 z-0"
                   aria-label="Toggle selection"
                 />
@@ -422,6 +461,7 @@ export function PublicPhotoSelection() {
               <div className="mt-3 flex items-center gap-3">
                 <button
                   onClick={() => togglePhoto(focusPhoto.id)}
+                  disabled={bulkUpdating || isLocked}
                   className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold ${focusPhoto.selected ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-slate-950'}`}
                 >
                   <CheckCircle2 className="h-4 w-4" /> {focusPhoto.selected ? 'Selected' : 'Select'}
