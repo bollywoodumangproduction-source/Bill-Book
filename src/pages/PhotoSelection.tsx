@@ -36,7 +36,7 @@ import { inputClass, selectClass, textareaClass, Field } from '@/components/ui/F
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { copyToClipboard } from '@/lib/clipboard';
-import { uploadImage, uploadImageAsset } from '@/lib/imageStorage';
+import { deletePhotoSelectionSessionAssets, uploadImage, uploadImageAsset } from '@/lib/imageStorage';
 
 function now(): string {
   return new Date().toISOString();
@@ -286,9 +286,17 @@ export function PhotoSelection() {
   };
 
   const deleteSession = async (id: string) => {
-    await supabase.from('photo_selection_sessions').delete().eq('id', id);
-    await load();
-    toast('Session deleted', 'info');
+    try {
+      const deletedImages = await deletePhotoSelectionSessionAssets(id);
+      const { data, error } = await supabase.from('photo_selection_sessions').delete().eq('id', id).select('id').maybeSingle();
+      if (error) throw new Error(`R2 images were deleted, but the Supabase session could not be deleted: ${error.message}`);
+      if (!data) throw new Error('R2 images were deleted, but the Supabase session record was not removed. Try Delete again.');
+      await load();
+      toast(`Session and ${deletedImages} R2 image${deletedImages === 1 ? '' : 's'} permanently deleted`, 'success');
+    } catch (error) {
+      await load();
+      toast(error instanceof Error ? error.message : 'Could not delete this Photo Selection session.', 'error');
+    }
   };
 
   return (
@@ -359,7 +367,12 @@ export function PhotoSelection() {
             bookings={bookings}
             labOrders={labOrders}
             onUpdate={(patch) => updateSession(selected.id, patch)}
-            onDelete={() => { setSelectedId(''); void deleteSession(selected.id); }}
+            onDelete={() => {
+              const confirmed = window.confirm('Permanently delete this Photo Selection session and all its R2 images? This cannot be undone.');
+              if (!confirmed) return;
+              setSelectedId('');
+              void deleteSession(selected.id);
+            }}
             onRefresh={load}
           />
         </section>

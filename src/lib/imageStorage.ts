@@ -19,27 +19,39 @@ export interface ImageUploadContext {
   folder?: string;
 }
 
+function r2UploadApiUrl(): string {
+  return import.meta.env.VITE_R2_UPLOAD_API_URL?.trim()
+    || 'https://photo-selection-r2-upload.bollywoodumangproduction.workers.dev';
+}
+
+function supabasePublicApiKey(): string {
+  return (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '').trim();
+}
+
+async function requireAdminSession() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token || session.user.app_metadata?.role !== 'admin') {
+    throw new Error('Administrator sign-in is required.');
+  }
+  return session;
+}
+
 export async function uploadImageAsset(file: File, purpose: string, context: ImageUploadContext = {}): Promise<UploadedImageAsset> {
   // This endpoint is public and protected by the Worker's origin and admin
   // session checks. Keep a production fallback so uploads still work if a
   // Vercel build is missing the optional environment variable.
-  const endpoint = import.meta.env.VITE_R2_UPLOAD_API_URL?.trim()
-    || 'https://photo-selection-r2-upload.bollywoodumangproduction.workers.dev';
   if (!file.type.startsWith('image/')) {
     throw new Error('Choose an image file.');
   }
 
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token || session.user.app_metadata?.role !== 'admin') {
-    throw new Error('Administrator sign-in is required to upload images.');
-  }
+  const session = await requireAdminSession();
 
-  const response = await fetch(endpoint, {
+  const response = await fetch(r2UploadApiUrl(), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${session.access_token}`,
-      apikey: (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '').trim(),
+      apikey: supabasePublicApiKey(),
     },
     body: JSON.stringify({ fileName: file.name, contentType: file.type, fileSize: file.size, purpose, ...context }),
   });
@@ -71,6 +83,27 @@ export async function uploadImageAsset(file: File, purpose: string, context: Ima
     throw new Error('Cloudflare R2 did not accept the image. Try again.');
   }
   return { publicUrl: signed.publicUrl, previewUrl: signed.previewUrl || signed.publicUrl };
+}
+
+export async function deletePhotoSelectionSessionAssets(sessionId: string): Promise<number> {
+  const session = await requireAdminSession();
+  const response = await fetch(r2UploadApiUrl(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+      apikey: supabasePublicApiKey(),
+    },
+    body: JSON.stringify({ action: 'delete-session', sessionId }),
+  });
+  const result = await response.json().catch(() => null) as { error?: unknown; deletedObjects?: unknown } | null;
+  if (!response.ok) {
+    const message = typeof result?.error === 'string' && result.error.trim()
+      ? result.error
+      : 'Could not permanently delete this session’s R2 images.';
+    throw new Error(message);
+  }
+  return typeof result?.deletedObjects === 'number' ? result.deletedObjects : 0;
 }
 
 export async function uploadImage(file: File, purpose: string, context: ImageUploadContext = {}): Promise<string> {

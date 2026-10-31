@@ -1,6 +1,8 @@
 # Photo Selection R2 upload signer
 
-This Worker is only for Photo Selection originals and proof sheets. It checks a Supabase Auth JWT, requires the `admin` app-metadata role, verifies that the Photo Selection session exists, and issues a five-minute signed PUT URL into the `photo-selection` bucket. Application records remain in Supabase.
+This Worker is only for Photo Selection originals and proof sheets. It checks a Supabase Auth JWT and requires the `admin` app-metadata role. For uploads it verifies the session and issues a five-minute signed PUT URL into the `photo-selection` bucket. For session deletion it verifies the same session, lists only that session's image/proof prefixes, and permanently deletes those R2 objects. Application records remain in Supabase and are deleted by the app after R2 cleanup succeeds.
+
+The delete action accepts only a validated session UUID. It never accepts arbitrary bucket names or object keys; it cleans only `photo-selection/<session-id>/` and `photo-selection-proof/<session-id>/`.
 
 ## Before deploying
 
