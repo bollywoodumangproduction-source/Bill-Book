@@ -103,13 +103,16 @@ export function PortalModal({ open, onClose, portalType, adminPreview = false }:
       .from('photo_selection_sessions')
       .select('*')
       .eq('bill_id', bookingRecord.booking_no)
-      .maybeSingle();
-    if (data) {
-      setClientPhotoSession(photoSessionFromDatabase(data as Record<string, any>));
+      .order('updated_at', { ascending: false })
+      .limit(1);
+    const latestPhotoSession = data?.[0];
+    if (latestPhotoSession) {
+      setClientPhotoSession(photoSessionFromDatabase(latestPhotoSession as Record<string, any>));
       return;
     }
-    const { data: phoneData } = await supabase.from('photo_selection_sessions').select('*').eq('phone', bookingRecord.client_mobile).maybeSingle();
-    setClientPhotoSession(phoneData ? photoSessionFromDatabase(phoneData as Record<string, any>) : null);
+    const { data: phonePhotos } = await supabase.from('photo_selection_sessions').select('*').eq('phone', bookingRecord.client_mobile).order('updated_at', { ascending: false }).limit(1);
+    const latestPhonePhoto = phonePhotos?.[0];
+    setClientPhotoSession(latestPhonePhoto ? photoSessionFromDatabase(latestPhonePhoto as Record<string, any>) : null);
   }, []);
 
   useEffect(() => {

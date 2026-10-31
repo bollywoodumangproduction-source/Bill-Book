@@ -125,15 +125,15 @@ export function ClientDashboard() {
         supabase.from('teaser_projects').select('*').eq('booking_id', b.id).maybeSingle(),
         supabase.from('invitation_projects').select('*').eq('booking_id', b.id).maybeSingle(),
         supabase.from('music_projects').select('*').eq('booking_id', b.id).is('archived_at', null).maybeSingle(),
-        supabase.from('photo_selection_sessions').select('*').eq('bill_id', b.booking_no).maybeSingle(),
+        supabase.from('photo_selection_sessions').select('*').eq('bill_id', b.booking_no).order('updated_at', { ascending: false }).limit(1),
       ]);
       setTeaserProject((teaserRes.data as TeaserProject | null) ?? null);
       setInvitationProject((inviteRes.data as InvitationProject | null) ?? null);
       setMusicProject((musicRes.data as MusicProject | null) ?? null);
-      let photoData = photoRes.data;
+      let photoData = photoRes.data?.[0] ?? null;
       if (!photoData && b.client_mobile) {
-        const { data: phonePhoto } = await supabase.from('photo_selection_sessions').select('*').eq('phone', b.client_mobile).maybeSingle();
-        photoData = phonePhoto;
+        const { data: phonePhotos } = await supabase.from('photo_selection_sessions').select('*').eq('phone', b.client_mobile).order('updated_at', { ascending: false }).limit(1);
+        photoData = phonePhotos?.[0] ?? null;
       }
       setPhotoSession(photoData ? photoSessionFromDatabase(photoData as Record<string, any>) : null);
     } else {
