@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, TriangleAlert as AlertTriangle, Zap, CalendarClock, Images, HardDrive, FolderOpen } from 'lucide-react';
+import { Plus, Search, Sparkles, Clapperboard, CreditCard as Edit3, Trash2, Truck, MessageCircle, Eye, X, Archive, Video, Book, User, Phone, MapPin, Printer, Copy, CircleCheck as CheckCircle2, Download, FileText, Wallet, TriangleAlert as AlertTriangle, Zap, CalendarClock, Images, HardDrive, FolderOpen, ExternalLink } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { photoSessionFromDatabase } from '@/lib/types';
 import type { Booking, WorkStatus, StudioLabOrder, VideoRow, AlbumRow, PaperRow, LabClientRow, StudioSettings, Partner, LabPaymentInstallment, LabExtraCharge, LabClientDeliveryStatus, StorageLocation, PageKey } from '@/lib/types';
@@ -1184,9 +1184,9 @@ export function LabOrders(props: { openOrderId?: string | null; onOrderOpened?: 
           />
         </ErrorBoundary>
       )}
-      {createPortal(
+      {(printOrder || successOrder) && createPortal(
         <div id="printable-bill-sheet" aria-hidden>
-          {(printOrder || successOrder) && <LabOrderPrintTemplate order={(printOrder || successOrder)!} settings={settings} />}
+          <LabOrderPrintTemplate order={(printOrder || successOrder)!} settings={settings} />
         </div>,
         document.body,
       )}
@@ -1284,7 +1284,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
   const [showStamp, setShowStamp] = useState(true);
   const [termsText, setTermsText] = useState(settings?.production_terms?.trim() || DEFAULT_PRODUCTION_TERMS);
   const [editingTerms, setEditingTerms] = useState(false);
-  const printId = `lab-bill-print-${order?.id ?? 'preview'}`;
+  const printId = 'printable-bill-sheet';
   const exportFilename = order ? buildLabOrderDocumentFilename(order) : 'lab-order.pdf';
   useEffect(() => {
     if (!order) return;
@@ -1349,10 +1349,17 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
 
   const handlePrintA4 = () => {
     setPrintPreview(true);
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => setPrintPreview(false), 400);
-    }, 120);
+    window.setTimeout(() => {
+      const handleAfterPrint = () => setPrintPreview(false);
+      window.addEventListener('afterprint', handleAfterPrint, { once: true });
+      window.requestAnimationFrame(() => window.print());
+    }, 150);
+  };
+
+  const copyPublicLink = async () => {
+    const link = `${window.location.origin}/view-lab/${order.id}`;
+    const copied = await copyToClipboard(link);
+    toast(copied ? 'Public lab invoice link copied.' : 'Could not copy public lab invoice link.', copied ? 'success' : 'error');
   };
 
   const handleDownloadPdf = async () => {
@@ -1580,6 +1587,7 @@ function ViewBillModal({ order, onClose, settings, onCopySummary }: { order: Stu
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => sendLabWhatsApp(order, settings)} className="flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600"><MessageCircle className="h-4 w-4" /> Send on WhatsApp</button>
               <button onClick={handleDownloadPdf} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"><Download className="h-4 w-4" /> Download PDF</button>
+              <button type="button" onClick={() => void copyPublicLink()} className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm text-blue-700 hover:bg-blue-500/20 dark:text-blue-200"><ExternalLink className="h-4 w-4" /> Copy Public Link</button>
               <button onClick={handlePrintA4} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-amber-400">Print A4</button>
             </div>
           </div>
@@ -1614,7 +1622,7 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
   const { toast } = useToast();
   const { update: updateSettings } = useSettings();
   const slipPreviewId = `lab-slip-preview-${order?.id ?? 'preview'}`;
-  const slipPrintId = `lab-slip-print-${order?.id ?? 'preview'}`;
+  const slipPrintId = 'printable-bill-sheet';
   const exportFilename = order ? buildLabOrderDocumentFilename(order) : 'lab-order.pdf';
   const [printPreview, setPrintPreview] = useState(false);
   const [showStamp, setShowStamp] = useState(true);
@@ -1659,10 +1667,11 @@ function LabWorkSlipModal({ order, onClose, settings, onDualPrint }: { order: St
   };
   const handlePrintA4 = () => {
     setPrintPreview(true);
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => setPrintPreview(false), 400);
-    }, 120);
+    window.setTimeout(() => {
+      const handleAfterPrint = () => setPrintPreview(false);
+      window.addEventListener('afterprint', handleAfterPrint, { once: true });
+      window.requestAnimationFrame(() => window.print());
+    }, 150);
   };
 
   return (

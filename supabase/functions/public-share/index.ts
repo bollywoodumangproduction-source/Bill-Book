@@ -49,6 +49,56 @@ function safeBooking(row: Record<string, unknown> | null) {
   return Object.fromEntries(publicFields.filter((field) => field in row).map((field) => [field, row[field]]));
 }
 
+function safeLabOrder(row: Record<string, any> | null) {
+  if (!row) return null;
+  const videoFields = ['video_type', 'quality', 'qty', 'rate', 'total'];
+  const paperFields = ['id', 'paper_type', 'sheets', 'extra_sheets', 'rate', 'total'];
+  const albumFields = [
+    'id', 'album_type', 'size', 'packaging', 'packaging_rate', 'packaging_total',
+    'mini_album', 'mini_only', 'bag_only', 'bag_size', 'bag_rate', 'bag_total',
+    'mini_qty', 'mini_rate', 'mini_total', 'total',
+  ];
+  const clients = Array.isArray(row.clients) ? row.clients.map((client: Record<string, any>) => ({
+    id: client.id,
+    client_name: client.client_name,
+    event_address: client.event_address,
+    video_rows: Array.isArray(client.video_rows) ? client.video_rows.map((item: Record<string, unknown>) => pickFields(item, videoFields)) : [],
+    album_rows: Array.isArray(client.album_rows) ? client.album_rows.map((album: Record<string, any>) => ({
+      ...pickFields(album, albumFields),
+      papers: Array.isArray(album.papers) ? album.papers.map((paper: Record<string, unknown>) => pickFields(paper, paperFields)) : [],
+    })) : [],
+    video_total: client.video_total,
+    album_total: client.album_total,
+    delivery_status: client.delivery_status,
+    dispatch_mode: client.dispatch_mode,
+    delivered_at: client.delivered_at,
+  })) : [];
+  const publicFields = [
+    'id', 'order_no', 'partner_name', 'studio_name', 'studio_mobile', 'studio_address',
+    'project_name', 'work_type', 'total_album_bill', 'total_video_bill', 'current_order_total',
+    'billing_version', 'tax_rate', 'tax_amount', 'discount_amount', 'previous_back_due',
+    'master_total', 'advance_paid', 'net_due', 'net_final_due', 'payment_mode', 'payment_date',
+    'payment_note', 'order_status', 'album_status', 'video_status', 'album_started_at',
+    'video_started_at', 'album_completed_at', 'video_completed_at', 'delivered_at',
+    'delivery_mode', 'parcel_tracking_details', 'created_at', 'is_emergency',
+    'promised_delivery_date', 'album_required_date', 'video_delivery_date', 'date_pending',
+  ];
+  const safe = Object.fromEntries(publicFields.filter((field) => field in row).map((field) => [field, row[field]]));
+  safe.clients = clients;
+  safe.video_rows = Array.isArray(row.video_rows) ? row.video_rows.map((item: Record<string, unknown>) => pickFields(item, videoFields)) : [];
+  safe.album_rows = Array.isArray(row.album_rows) ? row.album_rows.map((album: Record<string, any>) => ({
+    ...pickFields(album, albumFields),
+    papers: Array.isArray(album.papers) ? album.papers.map((paper: Record<string, unknown>) => pickFields(paper, paperFields)) : [],
+  })) : [];
+  safe.extra_items = Array.isArray(row.extra_items) ? row.extra_items.map((item: Record<string, unknown>) => pickFields(item, ['id', 'client_id', 'client_name', 'description', 'quantity', 'unit_rate', 'line_amount'])) : [];
+  safe.payment_history = Array.isArray(row.payment_history) ? row.payment_history.map((payment: Record<string, unknown>) => pickFields(payment, ['id', 'amount', 'payment_date', 'payment_mode', 'note', 'created_at', 'client_id', 'client_name'])) : [];
+  return safe;
+}
+
+function pickFields(row: Record<string, unknown>, fields: string[]) {
+  return Object.fromEntries(fields.filter((field) => field in row).map((field) => [field, row[field]]));
+}
+
 function safeTeaser(project: Record<string, any>, booking: Record<string, any> | null) {
   const amounts = booking
     ? [booking.total_amount, booking.discount, booking.advance_paid].map(Number)
@@ -215,6 +265,11 @@ async function handle(request: Request, body: Record<string, unknown>) {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return response(request, { error: 'Invoice not found.' }, 404);
     const { data, error } = await db.from('bookings').select('*').eq('id', id).maybeSingle();
     return !error && data ? response(request, { booking: safeBooking(data) }) : response(request, { error: 'Invoice not found.' }, 404);
+  }
+  if (action === 'lab-invoice') {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return response(request, { error: 'Invoice not found.' }, 404);
+    const { data, error } = await db.from('studio_lab_orders').select('*').eq('id', id).maybeSingle();
+    return !error && data ? response(request, { order: safeLabOrder(data) }) : response(request, { error: 'Invoice not found.' }, 404);
   }
   if (action === 'teaser' || action === 'invitation') {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return response(request, { error: 'Project not found.' }, 404);

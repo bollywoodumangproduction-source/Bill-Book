@@ -18,6 +18,9 @@ import {
   Settings2,
   Sparkles,
   AlertCircle,
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type {
@@ -420,6 +423,7 @@ function SessionDetail({
   const [uploadFolder, setUploadFolder] = useState(session.folders[0] ?? 'Card 1');
   const [activeFolder, setActiveFolder] = useState(session.folders[0] ?? 'Card 1');
   const [uploadProgress, setUploadProgress] = useState('');
+  const [lightboxPhotoId, setLightboxPhotoId] = useState<string | null>(null);
 
   useEffect(() => {
     const firstFolder = session.folders[0] ?? 'Card 1';
@@ -449,6 +453,9 @@ function SessionDetail({
   }, [session.id, session.clientType, session.labOrderNo, session.billId, session.packageSheets, session.extraSheetRate, onUpdate, session]);
 
   const selectedCount = session.photos.filter((p) => p.selected).length;
+  const activePhotos = useMemo(() => session.photos.filter((photo) => photo.folder === activeFolder), [session.photos, activeFolder]);
+  const lightboxIndex = activePhotos.findIndex((photo) => photo.id === lightboxPhotoId);
+  const lightboxPhoto = lightboxIndex >= 0 ? activePhotos[lightboxIndex] : null;
   const uploadedTotalSheets = session.proofSheets.filter((s) => s.sheetNumber !== 0).length;
   const totalSheets = session.total_sheets && session.total_sheets > 0 ? session.total_sheets : uploadedTotalSheets;
   const extraSheets = Math.max(0, totalSheets - session.packageSheets);
@@ -545,10 +552,37 @@ function SessionDetail({
     onUpdate({ photos: session.photos.filter((p) => p.id !== photoId) });
   };
 
-  const togglePhotoSelected = (photoId: string) => {
+  const togglePhotoSelected = useCallback((photoId: string) => {
     const photos = session.photos.map((p) => p.id === photoId ? { ...p, selected: !p.selected } : p);
-    onUpdate({ photos });
-  };
+    void onUpdate({ photos });
+  }, [onUpdate, session.photos]);
+
+  const moveLightbox = useCallback((direction: -1 | 1) => {
+    if (lightboxIndex < 0 || activePhotos.length < 2) return;
+    const nextIndex = (lightboxIndex + direction + activePhotos.length) % activePhotos.length;
+    setLightboxPhotoId(activePhotos[nextIndex].id);
+  }, [lightboxIndex, activePhotos]);
+
+  useEffect(() => {
+    if (!lightboxPhoto) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setLightboxPhotoId(null);
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        moveLightbox(-1);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        moveLightbox(1);
+      } else if (event.code === 'Space' || event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        togglePhotoSelected(lightboxPhoto.id);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lightboxPhoto, moveLightbox, togglePhotoSelected]);
 
   const folderBreakdown = session.folders.map((folder) => ({
     folder,
@@ -659,13 +693,15 @@ function SessionDetail({
           {uploadProgress && <span role="status" className="text-xs text-slate-500">{uploadProgress}</span>}
         </div>
 
-        {session.photos.filter((photo) => photo.folder === activeFolder).length === 0 ? (
+        {activePhotos.length === 0 ? (
           <EmptyState icon={Images} title={`No photos in ${activeFolder || 'this folder'}`} subtitle="Upload photos to this folder" />
         ) : (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-            {session.photos.filter((photo) => photo.folder === activeFolder).map((photo) => (
+            {activePhotos.map((photo) => (
               <div key={photo.id} className="group relative overflow-hidden rounded-xl border border-slate-200 dark:border-white/10">
-                <img src={photo.previewUrl} alt={photo.fileName} className="aspect-square w-full object-cover" loading="lazy" decoding="async" draggable={false} />
+                <button type="button" onClick={() => setLightboxPhotoId(photo.id)} aria-label={`View ${photo.fileName}`} className="block w-full cursor-zoom-in">
+                  <img src={photo.previewUrl} alt={photo.fileName} className="aspect-square w-full object-cover" loading="lazy" decoding="async" draggable={false} />
+                </button>
                 {photo.selected && (
                   <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg">
                     <CheckCircle2 className="h-4 w-4" />
@@ -734,6 +770,43 @@ function SessionDetail({
           orders={labOrders.filter((order) => order.partner_name === session.partnerName || order.studio_name === session.partnerName)}
           onClose={() => setShowPartner(false)}
         />
+      )}
+      {lightboxPhoto && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Photo viewer: ${lightboxPhoto.fileName}`}
+          className="fixed inset-0 z-[100] flex flex-col bg-slate-950/95 text-white backdrop-blur-sm"
+          onClick={(event) => { if (event.target === event.currentTarget) setLightboxPhotoId(null); }}
+        >
+          <header className="relative z-10 flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-slate-950/80 px-4 sm:px-6">
+            <button type="button" onClick={() => setLightboxPhotoId(null)} className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10" aria-label="Back / close photo viewer">
+              <ArrowLeft className="h-5 w-5" /><span className="hidden sm:inline">Back</span>
+            </button>
+            <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-center">
+              <p className="text-sm font-semibold tabular-nums">{lightboxIndex + 1} of {activePhotos.length}</p>
+              <p className="max-w-[42vw] truncate text-xs text-slate-400">{lightboxPhoto.fileName}</p>
+            </div>
+            <button type="button" onClick={() => setLightboxPhotoId(null)} className="rounded-lg p-2 text-slate-300 transition hover:bg-white/10 hover:text-white" aria-label="Close photo viewer"><X className="h-5 w-5" /></button>
+          </header>
+
+          <main className="relative flex min-h-0 flex-1 items-center justify-center px-14 py-4 sm:px-20 sm:py-6">
+            <button type="button" onClick={() => moveLightbox(-1)} disabled={activePhotos.length < 2} aria-label="Previous photo" className="absolute left-2 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-slate-800/80 text-white shadow-lg transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40 sm:left-5 sm:h-14 sm:w-14">
+              <ChevronLeft className="h-7 w-7" />
+            </button>
+            <img src={lightboxPhoto.previewUrl} alt={lightboxPhoto.fileName} className="h-full w-full select-none object-contain" draggable={false} />
+            <button type="button" onClick={() => moveLightbox(1)} disabled={activePhotos.length < 2} aria-label="Next photo" className="absolute right-2 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-slate-800/80 text-white shadow-lg transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40 sm:right-5 sm:h-14 sm:w-14">
+              <ChevronRight className="h-7 w-7" />
+            </button>
+          </main>
+
+          <footer className="flex min-h-16 shrink-0 items-center border-t border-white/10 bg-slate-950/80 px-4 py-3 sm:px-6">
+            <button type="button" onClick={() => togglePhotoSelected(lightboxPhoto.id)} aria-pressed={lightboxPhoto.selected} className={`inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-lg transition ${lightboxPhoto.selected ? 'bg-emerald-500 text-white hover:bg-emerald-400' : 'bg-sky-600 text-white hover:bg-sky-500'}`}>
+              <CheckCircle2 className="h-5 w-5" />{lightboxPhoto.selected ? 'Selected' : 'Select'}
+            </button>
+            <span className="ml-4 hidden text-xs text-slate-400 md:inline">← / → Navigate · Space or S Select · Esc Close</span>
+          </footer>
+        </div>
       )}
     </div>
   );

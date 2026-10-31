@@ -1,7 +1,7 @@
 export const EVENT_FUNCTIONS = [
   'Haldi',
   'Mehndi',
-  'Wedding/Barat',
+  'Wedding',
   'Vidai',
   'Reception',
   'Nikah',
@@ -92,7 +92,7 @@ export const BOOKING_FUNCTION_NAMES = [
   'Haldi',
   'Mehndi',
   'Sangeet',
-  'Wedding/Barat',
+  'Wedding',
   'Vidai',
   'Reception',
   'Nikah',

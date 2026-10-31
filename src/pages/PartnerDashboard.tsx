@@ -495,7 +495,7 @@ export function PartnerDashboardContent({
   });
   return (
     <div
-      className={`${adminPreview ? 'min-h-0 px-1 py-1 pb-2' : 'min-h-screen px-1 pb-4 pt-16 sm:px-4 sm:pt-20'} w-full bg-slate-950 text-white`}
+      className={`${adminPreview ? 'min-h-0 px-1 py-1 pb-2' : 'min-h-screen px-1 pb-4 pt-16 sm:px-4 sm:pt-20'} w-full min-w-0 max-w-full overflow-x-clip bg-slate-950 text-white`}
       onTouchStart={(event) => {
         if (adminPreview) return;
         const touch = event.touches[0];
@@ -510,7 +510,7 @@ export function PartnerDashboardContent({
         guardedBack();
       }}
     >
-      <div className="mx-auto max-w-5xl space-y-3 sm:space-y-5">
+      <div className="mx-auto w-full min-w-0 max-w-5xl space-y-3 sm:space-y-5">
         {!adminPreview && <header className="fixed left-0 right-0 top-0 z-50 flex h-14 w-full items-center justify-between gap-2 border-b border-slate-800/80 bg-slate-950/95 px-2 backdrop-blur-md sm:gap-4 sm:px-4 lg:px-8">
           <div className="flex min-w-0 max-w-[44%] items-center gap-1.5 sm:max-w-none sm:gap-2.5">
             <img

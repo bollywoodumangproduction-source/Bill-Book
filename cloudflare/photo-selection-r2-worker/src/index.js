@@ -70,85 +70,24 @@ async function presignPut(env, key) {
   return `https://${host}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
 }
 
-function canonicalQueryString(entries) {
-  return [...entries]
-    .map(([name, value]) => [rfc3986(name), rfc3986(value)])
-    .sort(([leftName, leftValue], [rightName, rightValue]) => leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue))
-    .map(([name, value]) => `${name}=${value}`)
-    .join('&');
-}
-
-async function signedR2Request(env, method, canonicalUri, queryEntries = [], body = '') {
-  const host = `${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
-  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
-  const dateStamp = amzDate.slice(0, 8);
-  const scope = `${dateStamp}/auto/s3/aws4_request`;
-  const payloadHash = await sha256(body);
-  const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
-  const canonicalHeaders = [
-    `host:${host}`,
-    `x-amz-content-sha256:${payloadHash}`,
-    `x-amz-date:${amzDate}`,
-  ].join('\n') + '\n';
-  const canonicalQuery = canonicalQueryString(queryEntries);
-  const canonicalRequest = [method, canonicalUri, canonicalQuery, `${canonicalHeaders}${signedHeaders}`, payloadHash].join('\n');
-  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, await sha256(canonicalRequest)].join('\n');
-  const dateKey = await hmac(encoder.encode(`AWS4${env.R2_SECRET_ACCESS_KEY}`), dateStamp);
-  const regionKey = await hmac(dateKey, 'auto');
-  const serviceKey = await hmac(regionKey, 's3');
-  const signingKey = await hmac(serviceKey, 'aws4_request');
-  const signature = toHex(await hmac(signingKey, stringToSign));
-  const url = `https://${host}${canonicalUri}${canonicalQuery ? `?${canonicalQuery}` : ''}`;
-  const headers = {
-    Authorization: `AWS4-HMAC-SHA256 Credential=${env.R2_ACCESS_KEY_ID}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
-    'x-amz-content-sha256': payloadHash,
-    'x-amz-date': amzDate,
-  };
-  if (body) headers['Content-Type'] = 'application/xml';
-  return fetch(url, { method, headers, ...(body ? { body } : {}) });
-}
-
-function decodeXml(value) {
-  return value.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'").replace(/&amp;/g, '&');
-}
-
-function xmlTag(xml, tag) {
-  const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
-  return match ? decodeXml(match[1]) : '';
-}
-
-async function listR2Keys(env, prefix) {
-  const path = `/${rfc3986(env.BUCKET_NAME)}`;
+async function listR2Keys(bucket, prefix) {
   const keys = [];
-  let continuationToken = '';
+  let cursor;
   do {
-    const query = [['list-type', '2'], ['max-keys', '1000'], ['prefix', prefix]];
-    if (continuationToken) query.push(['continuation-token', continuationToken]);
-    const response = await signedR2Request(env, 'GET', path, query);
-    if (!response.ok) throw new Error('R2 could not list this session’s images.');
-    const xml = await response.text();
-    for (const match of xml.matchAll(/<Key>([\s\S]*?)<\/Key>/g)) keys.push(decodeXml(match[1]));
-    const truncated = xmlTag(xml, 'IsTruncated') === 'true';
-    continuationToken = truncated ? xmlTag(xml, 'NextContinuationToken') : '';
-    if (truncated && !continuationToken) throw new Error('R2 returned an incomplete image list.');
-  } while (continuationToken);
+    const page = await bucket.list({ prefix, limit: 1000, ...(cursor ? { cursor } : {}) });
+    keys.push(...page.objects.map((object) => object.key));
+    if (page.truncated && !page.cursor) throw new Error('R2 returned an incomplete image list.');
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
   return keys;
 }
 
-async function deleteR2Keys(env, keys) {
-  let deleted = 0;
+async function deleteR2Keys(bucket, keys) {
   for (let index = 0; index < keys.length; index += 1000) {
-    const batch = keys.slice(index, index + 1000);
-    const body = `<Delete><Quiet>true</Quiet>${batch.map((key) => `<Object><Key>${key.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</Key></Object>`).join('')}</Delete>`;
-    const response = await signedR2Request(env, 'POST', `/${rfc3986(env.BUCKET_NAME)}`, [['delete', '']], body);
-    const result = await response.text();
-    if (!response.ok || /<Error>/.test(result)) throw new Error('R2 could not permanently delete every session image.');
-    deleted += batch.length;
+    await bucket.delete(keys.slice(index, index + 1000));
   }
-  return deleted;
+  return keys.length;
 }
-
 async function deletePhotoSessionAssets(env, sessionId, supabaseUrl, apiKey, token, origin, allowed) {
   const sessionUrl = new URL(`${supabaseUrl}/rest/v1/photo_selection_sessions`);
   sessionUrl.searchParams.set('id', `eq.${sessionId}`);
@@ -159,11 +98,12 @@ async function deletePhotoSessionAssets(env, sessionId, supabaseUrl, apiKey, tok
   if (!sessionResponse.ok) return json({ error: 'Could not validate the Photo Selection session.' }, 503, origin, allowed);
   const sessions = await sessionResponse.json();
   if (!sessions.some((session) => session.id === sessionId)) return json({ error: 'Photo Selection session was not found.' }, 404, origin, allowed);
+  if (!env.PHOTO_SELECTION_BUCKET) return json({ error: 'Photo Selection R2 bucket binding is not configured.' }, 503, origin, allowed);
 
   const prefixes = [`photo-selection/${sessionId}/`, `photo-selection-proof/${sessionId}/`];
   const keys = [];
-  for (const prefix of prefixes) keys.push(...await listR2Keys(env, prefix));
-  const deletedObjects = await deleteR2Keys(env, keys);
+  for (const prefix of prefixes) keys.push(...await listR2Keys(env.PHOTO_SELECTION_BUCKET, prefix));
+  const deletedObjects = await deleteR2Keys(env.PHOTO_SELECTION_BUCKET, keys);
   return json({ deletedObjects }, 200, origin, allowed);
 }
 

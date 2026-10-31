@@ -17,6 +17,7 @@ import { EquipmentRentals } from '@/pages/EquipmentRentals';
 import { Payments } from '@/pages/Payments';
 import { DairyBook } from '@/pages/DairyBook';
 import { PublicInvoice } from '@/pages/PublicInvoice';
+import { PublicLabInvoice } from '@/pages/PublicLabInvoice';
 import { ClientLogin } from '@/pages/ClientLogin';
 import { ClientDashboard } from '@/pages/ClientDashboard';
 import { ClientLandingPage, PartnerLandingPage } from '@/pages/LandingPages';
@@ -399,6 +400,7 @@ export default function App() {
                   <Route path="/photo-selection" element={<PhotoSelection />} />
                   <Route path="/select/:sessionId" element={<PublicPhotoSelection />} />
                   <Route path="/view/:bookingId" element={<PublicInvoice />} />
+                  <Route path="/view-lab/:orderId" element={<PublicLabInvoice />} />
                   <Route path="/proposal/:token" element={<PublicProposalView />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

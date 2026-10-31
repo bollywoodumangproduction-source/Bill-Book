@@ -10,6 +10,10 @@ R2_PUBLIC_BASE_URL = "https://pub-f92010c832294f76bf595c15c0909dc5.r2.dev"
 ALLOWED_ORIGINS = "https://bollywood-umang.vercel.app,http://localhost:5173"
 MAX_UPLOAD_BYTES = "104857600"
 
+[[r2_buckets]]
+binding = "PHOTO_SELECTION_BUCKET"
+bucket_name = "photo-selection"
+
 # Set these as Worker secrets (never commit their values):
 # npx wrangler secret put SUPABASE_ANON_KEY
 # npx wrangler secret put R2_ACCESS_KEY_ID

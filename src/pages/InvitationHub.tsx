@@ -240,7 +240,7 @@ export function InvitationHub() {
               <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900/60">
                 <h3 className="mb-3 flex items-center gap-2 font-semibold text-slate-900 dark:text-white"><FileText className="h-4 w-4 text-amber-500" /> Interactive PDF Card</h3>
                 {selected.pdf_url ? (
-                  <UniversalMediaPreview url={selected.pdf_url} kind="pdf" className="space-y-3" mediaClassName="h-[75vh] min-h-[480px] w-full rounded-xl border border-white/10" showDownload controlsClassName="flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400" />
+                  <UniversalMediaPreview url={selected.pdf_url} kind="pdf" className="space-y-3" mediaClassName="h-[min(55vh,480px)] min-h-[280px] w-full rounded-xl border border-white/10" showDownload controlsClassName="flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400" />
                 ) : <EmptyState icon={FileText} title="No PDF uploaded" subtitle="Add a URL below" />}
                 <div className="mt-3"><Field label="PDF URL"><input value={selected.pdf_url} onChange={(event) => updateProject(selected.id, { pdf_url: event.target.value })} onBlur={() => void flushProject(selected.id)} className={inputClass} placeholder="Paste a public PDF, Drive, Dropbox, pCloud, or OneDrive link" /></Field></div>
               </div>
@@ -368,7 +368,7 @@ export function PublicInvitationHub() {
         {project.pdf_url && (
           <div className="rounded-2xl border border-white/10 bg-slate-900 p-5">
             <h3 className="mb-3 flex items-center gap-2 font-semibold"><FileText className="h-4 w-4 text-amber-400" /> Interactive PDF Card</h3>
-            <UniversalMediaPreview url={project.pdf_url} kind="pdf" className="space-y-3" mediaClassName="h-[75vh] min-h-[480px] w-full rounded-xl border border-white/10" showDownload controlsClassName="flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400" />
+            <UniversalMediaPreview url={project.pdf_url} kind="pdf" className="space-y-3" mediaClassName="h-[min(55vh,480px)] min-h-[280px] w-full rounded-xl border border-white/10" showDownload controlsClassName="flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400" />
           </div>
         )}
 

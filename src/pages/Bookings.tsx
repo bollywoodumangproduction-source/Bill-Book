@@ -574,7 +574,10 @@ function BookingForm({ open, onClose, editing, existing, onSaved }: { open: bool
       setClientAddress(editing.client_address ?? '');
       setVenue(editing.venue ?? '');
       setBookingStatus(editing.booking_status ?? 'CONFIRMED');
-      setEvents(editing.events ?? []);
+      setEvents((editing.events ?? []).map((event) => ({
+        ...event,
+        name: event.name === 'Wedding/Barat' || event.name === 'Wedding/Baraat' ? 'Wedding' : event.name,
+      })));
       setIsDualSide(editing.is_dual_side ?? false);
       setBrideName(editing.bride_name ?? '');
       setBrideMobile(editing.bride_mobile ?? '');
