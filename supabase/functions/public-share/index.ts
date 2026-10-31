@@ -2,12 +2,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const encoder = new TextEncoder();
 const url = Deno.env.get('SUPABASE_URL')!;
-// Supabase is moving hosted projects from legacy service_role JWTs to named
-// secret API keys. Prefer the current default secret key, while retaining the
-// legacy variable for local environments that have not migrated yet.
-const secretKeysRaw = Deno.env.get('SUPABASE_SECRET_KEYS');
-const secretKeys = secretKeysRaw ? JSON.parse(secretKeysRaw) as Record<string, string> : {};
-const serviceKey = secretKeys.default || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+// Match portal-auth and other project functions: use Supabase's project-scoped
+// service-role key for database reads, rather than an optional key-map override.
+const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const pepper = Deno.env.get('PORTAL_PIN_PEPPER')!;
 const origins = (Deno.env.get('ALLOWED_APP_ORIGINS') || 'https://bollywood-umang.vercel.app,http://localhost:5173').split(',').map((origin) => origin.trim()).filter(Boolean);
 const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -118,7 +115,8 @@ function photoSession(row: Record<string, any>) {
 
 async function getPhoto(sessionId: string, pin: string) {
   const { data: row, error } = await db.from('photo_selection_sessions').select('*').eq('id', sessionId).maybeSingle();
-  if (error || !row) return { error: 'Selection link not found.' };
+  if (error) return { error: 'Gallery database lookup failed. Please ask the studio to check the public-share function configuration.', unavailable: true };
+  if (!row) return { error: 'Selection link not found.' };
   const provided = await hmac(`photo:${sessionId}:${pin}`);
   const expected = await hmac(`photo:${sessionId}:${String(row.pin_code ?? '')}`);
   if (!sameString(provided, expected)) return { error: 'Incorrect PIN. Please check and try again.' };
@@ -166,6 +164,7 @@ async function verifyPhoto(request: Request, sessionId: string, pin: string) {
   const rate = await rateLimit(request, sessionId);
   if (rate.blocked) return response(request, { error: 'Too many attempts. Wait 15 minutes and try again.' }, 429);
   const result = await getPhoto(sessionId, pin);
+  if (result.unavailable) return response(request, { error: result.error }, 503);
   if (result.error) {
     await db.from('portal_auth_attempts').insert({ identifier_hash: rate.identifierHash, ip_hash: rate.ipHash, succeeded: false });
     return response(request, result, 401);
@@ -181,6 +180,7 @@ async function withPhotoPin(request: Request, body: Record<string, unknown>, act
   const rate = await rateLimit(request, sessionId);
   if (rate.blocked) return response(request, { error: 'Too many attempts. Wait 15 minutes and try again.' }, 429);
   const result = await getPhoto(sessionId, pin);
+  if (result.unavailable) return response(request, { error: result.error }, 503);
   if (result.error || !result.session) {
     await db.from('portal_auth_attempts').insert({ identifier_hash: rate.identifierHash, ip_hash: rate.ipHash, succeeded: false });
     return response(request, { error: 'Gallery access could not be verified.' }, 401);
@@ -203,7 +203,8 @@ async function handle(request: Request, body: Record<string, unknown>) {
   const id = String(body.id ?? '');
   if (action === 'photo-check') {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return response(request, { exists: false });
-    const { data } = await db.from('photo_selection_sessions').select('id').eq('id', id).maybeSingle();
+    const { data, error } = await db.from('photo_selection_sessions').select('id').eq('id', id).maybeSingle();
+    if (error) return response(request, { error: 'Could not check the Photo Selection session.' }, 503);
     return response(request, { exists: !!data });
   }
   if (action === 'photo-verify') return await verifyPhoto(request, id, String(body.pin ?? ''));
