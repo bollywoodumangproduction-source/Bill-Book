@@ -1,0 +1,16 @@
+name = "photo-selection-r2-upload"
+main = "src/index.js"
+compatibility_date = "2026-10-30"
+
+[vars]
+BUCKET_NAME = "photo-selection"
+R2_ACCOUNT_ID = "ad3f6f4d6594f3733866a6dd4b132380"
+SUPABASE_URL = "https://cgfqgjltzzbbiixcltsp.supabase.co"
+R2_PUBLIC_BASE_URL = "https://pub-f92010c832294f76bf595c15c0909dc5.r2.dev"
+ALLOWED_ORIGINS = "https://bollywood-umang.vercel.app,http://localhost:5173"
+MAX_UPLOAD_BYTES = "104857600"
+
+# Set these as Worker secrets (never commit their values):
+# npx wrangler secret put SUPABASE_ANON_KEY
+# npx wrangler secret put R2_ACCESS_KEY_ID
+# npx wrangler secret put R2_SECRET_ACCESS_KEY
