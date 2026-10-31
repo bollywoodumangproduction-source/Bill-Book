@@ -42,7 +42,11 @@ export async function uploadImageAsset(file: File, purpose: string, context: Ima
     body: JSON.stringify({ fileName: file.name, contentType: file.type, fileSize: file.size, purpose, ...context }),
   });
   if (!response.ok) {
-    throw new Error('Could not prepare the secure image upload. Try again later.');
+    const failure = await response.json().catch(() => null) as { error?: unknown } | null;
+    const message = typeof failure?.error === 'string' && failure.error.trim()
+      ? failure.error
+      : 'Could not prepare the secure image upload. Try again later.';
+    throw new Error(message);
   }
 
   const signed = await response.json() as {
