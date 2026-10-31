@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Images,
   Plus,
@@ -565,6 +566,8 @@ function SessionDetail({
 
   useEffect(() => {
     if (!lightboxPhoto) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -581,7 +584,10 @@ function SessionDetail({
       }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
   }, [lightboxPhoto, moveLightbox, togglePhotoSelected]);
 
   const folderBreakdown = session.folders.map((folder) => ({
@@ -703,17 +709,17 @@ function SessionDetail({
                   <img src={photo.previewUrl} alt={photo.fileName} className="aspect-square w-full object-cover" loading="lazy" decoding="async" draggable={false} />
                 </button>
                 {photo.selected && (
-                  <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg">
+                  <div className="pointer-events-none absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg">
                     <CheckCircle2 className="h-4 w-4" />
                   </div>
                 )}
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1.5 opacity-0 transition group-hover:opacity-100">
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1.5 opacity-0 transition group-hover:opacity-100">
                   <span className="truncate text-[10px] text-white">{photo.fileName}</span>
                   <div className="flex gap-1">
-                    <button onClick={() => togglePhotoSelected(photo.id)} className={`rounded p-1 ${photo.selected ? 'bg-emerald-500 text-white' : 'bg-white/20 text-white hover:bg-white/30'}`}>
+                    <button onClick={() => togglePhotoSelected(photo.id)} className={`pointer-events-auto rounded p-1 ${photo.selected ? 'bg-emerald-500 text-white' : 'bg-white/20 text-white hover:bg-white/30'}`}>
                       <CheckCircle2 className="h-3 w-3" />
                     </button>
-                    <button onClick={() => removePhoto(photo.id)} className="rounded bg-rose-500/80 p-1 text-white hover:bg-rose-500">
+                    <button onClick={() => removePhoto(photo.id)} className="pointer-events-auto rounded bg-rose-500/80 p-1 text-white hover:bg-rose-500">
                       <Trash2 className="h-3 w-3" />
                     </button>
                   </div>
@@ -772,7 +778,7 @@ function SessionDetail({
         />
       )}
       {lightboxPhoto && (
-        <div
+        createPortal(<div
           role="dialog"
           aria-modal="true"
           aria-label={`Photo viewer: ${lightboxPhoto.fileName}`}
@@ -806,7 +812,7 @@ function SessionDetail({
             </button>
             <span className="ml-4 hidden text-xs text-slate-400 md:inline">← / → Navigate · Space or S Select · Esc Close</span>
           </footer>
-        </div>
+        </div>, document.body)
       )}
     </div>
   );
