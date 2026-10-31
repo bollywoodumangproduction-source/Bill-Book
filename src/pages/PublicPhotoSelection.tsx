@@ -46,7 +46,9 @@ export function PublicPhotoSelection() {
   const load = useCallback(async (pin?: string) => {
     if (!sessionId) { setLoading(false); return false; }
     if (!pin) { setLoading(false); return false; }
-    const { data, error } = await supabase.functions.invoke('public-share', { body: { action: 'photo-verify', id: sessionId, pin } });
+    // Send both names during the verification transition: the current public-share
+    // handler reads `id`, while older deployed versions may still read `sessionId`.
+    const { data, error } = await supabase.functions.invoke('public-share', { body: { action: 'photo-verify', id: sessionId, sessionId, pin } });
     if (error || !data?.session) {
       let message = data?.error as string | undefined;
       const response = error && typeof error === 'object' && 'context' in error
