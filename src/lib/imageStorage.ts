@@ -20,10 +20,11 @@ export interface ImageUploadContext {
 }
 
 export async function uploadImageAsset(file: File, purpose: string, context: ImageUploadContext = {}): Promise<UploadedImageAsset> {
-  const endpoint = import.meta.env.VITE_R2_UPLOAD_API_URL?.trim();
-  if (!endpoint) {
-    throw new Error('Cloudflare R2 upload API is not configured yet. The image was not uploaded.');
-  }
+  // This endpoint is public and protected by the Worker's origin and admin
+  // session checks. Keep a production fallback so uploads still work if a
+  // Vercel build is missing the optional environment variable.
+  const endpoint = import.meta.env.VITE_R2_UPLOAD_API_URL?.trim()
+    || 'https://photo-selection-r2-upload.bollywoodumangproduction.workers.dev';
   if (!file.type.startsWith('image/')) {
     throw new Error('Choose an image file.');
   }
