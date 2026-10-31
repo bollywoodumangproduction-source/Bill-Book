@@ -15,6 +15,7 @@ import {
   Layers,
   AlertCircle,
   Maximize2,
+  ArrowLeft,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { ClientSelectionSession, Partner, PhotoItem } from '@/lib/types';
@@ -137,6 +138,7 @@ export function PublicPhotoSelection() {
 
   const selectedCount = session?.photos.filter((p) => p.selected).length ?? 0;
   const totalCount = session?.photos.length ?? 0;
+  const isLocked = session?.isLocked ?? false;
 
   const setFolderSelection = async (selected: boolean) => {
     if (!session || session.isLocked || bulkUpdating) return;
@@ -165,30 +167,45 @@ export function PublicPhotoSelection() {
     }));
   }, [session]);
 
-  // Keyboard shortcuts
+  const activeFocusPhoto = useMemo(() => {
+    if (!focusPhoto) return null;
+    return visiblePhotos[focusIndex] ?? focusPhoto;
+  }, [focusPhoto, focusIndex, visiblePhotos]);
+
+  const closeLightbox = useCallback(() => setFocusPhoto(null), []);
+  const moveLightbox = useCallback((direction: -1 | 1) => {
+    if (visiblePhotos.length < 2) return;
+    const nextIndex = (focusIndex + direction + visiblePhotos.length) % visiblePhotos.length;
+    setFocusIndex(nextIndex);
+    setFocusPhoto(visiblePhotos[nextIndex]);
+  }, [focusIndex, visiblePhotos]);
+
+  // Desktop shortcuts only apply while the fullscreen viewer is open.
   useEffect(() => {
-    if (!pinVerified || !session || session.isLocked || focusPhoto) return;
+    if (!activeFocusPhoto) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const handler = (e: KeyboardEvent) => {
-      if (e.key === ' ' && visiblePhotos.length > 0) {
+      if (e.key === 'Escape') {
         e.preventDefault();
-        void togglePhoto(visiblePhotos[0].id);
-      }
-      if (e.key === 'ArrowRight' && visiblePhotos.length > 1) {
+        closeLightbox();
+      } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        // cycle focus to next
-      }
-      if (e.key === 'ArrowLeft' && visiblePhotos.length > 1) {
+        moveLightbox(-1);
+      } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-      }
-      const numKey = parseInt(e.key);
-      if (numKey >= 1 && numKey <= 9 && numKey <= visiblePhotos.length) {
+        moveLightbox(1);
+      } else if ((e.code === 'Space' || e.key.toLowerCase() === 's') && !isLocked) {
         e.preventDefault();
-        void togglePhoto(visiblePhotos[numKey - 1].id);
+        void togglePhoto(activeFocusPhoto.id);
       }
     };
     window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [pinVerified, session, visiblePhotos, togglePhoto, focusPhoto]);
+    return () => {
+      window.removeEventListener('keydown', handler);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [activeFocusPhoto, closeLightbox, isLocked, moveLightbox, togglePhoto]);
 
   const submitFinal = async () => {
     if (!session) return;
@@ -266,8 +283,6 @@ export function PublicPhotoSelection() {
   }
 
   if (!session) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-300">Loading gallery…</div>;
-
-  const isLocked = session.isLocked;
 
   return (
     <div className="min-h-screen w-full bg-slate-950 text-white">
@@ -377,28 +392,23 @@ export function PublicPhotoSelection() {
                 />
                 {/* Selection tick */}
                 <button
-                  onClick={() => togglePhoto(photo.id)}
+                  onClick={() => void togglePhoto(photo.id)}
                   disabled={isLocked || bulkUpdating}
-                  className={`absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full shadow-lg transition ${photo.selected ? 'bg-emerald-500 text-white' : 'bg-black/50 text-white opacity-0 group-hover:opacity-100'} ${isLocked ? 'cursor-not-allowed' : 'hover:scale-110'}`}
+                  className={`absolute right-2 top-2 z-20 flex h-7 w-7 items-center justify-center rounded-full shadow-lg transition ${photo.selected ? 'bg-emerald-500 text-white' : 'bg-black/50 text-white opacity-0 group-hover:opacity-100'} ${isLocked ? 'cursor-not-allowed' : 'hover:scale-110'}`}
                 >
                   <CheckCircle2 className="h-4 w-4" />
                 </button>
                 {/* Number badge */}
-                <span className="absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded bg-black/60 text-[10px] font-bold text-white">{idx + 1}</span>
-                {/* 1:1 focus button */}
+                <span className="absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded bg-black/60 text-[10px] font-bold text-white">{idx + 1}</span>
+                {/* Opening a thumbnail shows the professional fullscreen viewer. */}
                 <button
-                  onClick={() => { setFocusPhoto(photo); setFocusIndex(idx); }}
-                  className="absolute bottom-2 left-2 flex h-7 w-7 items-center justify-center rounded-lg bg-black/50 text-white opacity-0 transition hover:bg-black/70 group-hover:opacity-100"
+                  onClick={() => { setFocusIndex(idx); setFocusPhoto(photo); }}
+                  className="absolute inset-0 z-10 cursor-zoom-in"
+                  aria-label={`Open ${photo.fileName} in fullscreen viewer`}
                 >
-                  <Maximize2 className="h-3.5 w-3.5" />
+                  <span className="sr-only">Open fullscreen viewer</span>
+                  <Maximize2 className="absolute bottom-2 left-2 h-7 w-7 rounded-lg bg-black/50 p-1.5 text-white opacity-0 transition group-hover:opacity-100" />
                 </button>
-                {/* Click to toggle */}
-                <button
-                  onClick={() => togglePhoto(photo.id)}
-                  disabled={isLocked || bulkUpdating}
-                  className="absolute inset-0 z-0"
-                  aria-label="Toggle selection"
-                />
               </div>
             ))}
           </div>
@@ -439,47 +449,52 @@ export function PublicPhotoSelection() {
         </div>
       </div>
 
-      {/* 1:1 Focus modal */}
-      {focusPhoto && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95" onClick={() => setFocusPhoto(null)}>
-          <button className="absolute right-4 top-4 z-10 rounded-lg bg-white/10 p-2 text-white hover:bg-white/20" onClick={() => setFocusPhoto(null)}>
-            <X className="h-5 w-5" />
-          </button>
-          <div className="flex items-center gap-4" onClick={(e) => e.stopPropagation()}>
-            <button
-              onClick={() => {
-                const prevIdx = (focusIndex - 1 + visiblePhotos.length) % visiblePhotos.length;
-                setFocusIndex(prevIdx);
-                setFocusPhoto(visiblePhotos[prevIdx]);
-              }}
-              className="rounded-full bg-white/10 p-3 text-white hover:bg-white/20"
-            >
-              <ChevronLeft className="h-6 w-6" />
+      {/* Fullscreen desktop lightbox. */}
+      {activeFocusPhoto && (
+        <div className="fixed inset-0 z-[200] flex flex-col bg-slate-950/98 text-white" role="dialog" aria-modal="true" aria-label="Photo viewer">
+          <header className="relative flex h-16 shrink-0 items-center border-b border-white/10 px-4">
+            <button onClick={closeLightbox} className="z-10 flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/10">
+              <ArrowLeft className="h-5 w-5" /> Back
             </button>
-            <div className="flex max-h-[90vh] max-w-[90vw] flex-col items-center">
-              <img src={focusPhoto.originalUrl || focusPhoto.previewUrl} alt={focusPhoto.fileName} className="max-h-[80vh] max-w-[90vw] object-contain" decoding="async" draggable={false} onContextMenu={(e) => e.preventDefault()} />
-              <div className="mt-3 flex items-center gap-3">
-                <button
-                  onClick={() => togglePhoto(focusPhoto.id)}
-                  disabled={bulkUpdating || isLocked}
-                  className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold ${focusPhoto.selected ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-slate-950'}`}
-                >
-                  <CheckCircle2 className="h-4 w-4" /> {focusPhoto.selected ? 'Selected' : 'Select'}
-                </button>
-                <span className="text-xs text-slate-400">{focusPhoto.folder} / {focusPhoto.fileName}</span>
-              </div>
+            <div className="pointer-events-none absolute inset-x-20 text-center text-sm font-semibold text-slate-100">
+              {focusIndex + 1} of {visiblePhotos.length}
             </div>
-            <button
-              onClick={() => {
-                const nextIdx = (focusIndex + 1) % visiblePhotos.length;
-                setFocusIndex(nextIdx);
-                setFocusPhoto(visiblePhotos[nextIdx]);
-              }}
-              className="rounded-full bg-white/10 p-3 text-white hover:bg-white/20"
-            >
-              <ChevronRight className="h-6 w-6" />
+            <button onClick={closeLightbox} className="ml-auto z-10 rounded-lg p-2 text-slate-200 transition hover:bg-white/10" aria-label="Close viewer">
+              <X className="h-6 w-6" />
             </button>
-          </div>
+          </header>
+
+          <main className="relative min-h-0 flex-1 px-16 py-4 sm:px-24 sm:py-6">
+            <img
+              src={activeFocusPhoto.originalUrl || activeFocusPhoto.previewUrl}
+              alt={activeFocusPhoto.fileName}
+              className="h-full w-full object-contain select-none"
+              decoding="async"
+              draggable={false}
+              onContextMenu={(e) => e.preventDefault()}
+            />
+            {visiblePhotos.length > 1 && (
+              <>
+                <button onClick={() => moveLightbox(-1)} className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full border border-white/15 bg-black/60 p-3 text-white shadow-xl transition hover:bg-white/20 sm:left-6 sm:p-4" aria-label="Previous photo">
+                  <ChevronLeft className="h-7 w-7 sm:h-9 sm:w-9" />
+                </button>
+                <button onClick={() => moveLightbox(1)} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-white/15 bg-black/60 p-3 text-white shadow-xl transition hover:bg-white/20 sm:right-6 sm:p-4" aria-label="Next photo">
+                  <ChevronRight className="h-7 w-7 sm:h-9 sm:w-9" />
+                </button>
+              </>
+            )}
+          </main>
+
+          <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-white/10 bg-slate-950/95 px-4 py-3">
+            <button
+              onClick={() => void togglePhoto(activeFocusPhoto.id)}
+              disabled={bulkUpdating || isLocked}
+              className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${activeFocusPhoto.selected ? 'bg-emerald-500 text-white hover:bg-emerald-400' : 'bg-blue-500 text-white hover:bg-blue-400'}`}
+            >
+              <CheckCircle2 className="h-5 w-5" /> {activeFocusPhoto.selected ? 'Selected' : 'Select photo'}
+            </button>
+            <p className="min-w-0 truncate text-right text-xs text-slate-400">{activeFocusPhoto.folder} / {activeFocusPhoto.fileName}</p>
+          </footer>
         </div>
       )}
 
