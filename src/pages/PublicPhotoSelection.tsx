@@ -20,6 +20,7 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCw,
+  Minimize2,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { ClientSelectionSession, Partner, PhotoItem } from '@/lib/types';
@@ -44,10 +45,14 @@ export function PublicPhotoSelection() {
   const [focusIndex, setFocusIndex] = useState(0);
   const [lightboxZoom, setLightboxZoom] = useState(1);
   const [lightboxRotation, setLightboxRotation] = useState(0);
+  const [isBrowserFullscreen, setIsBrowserFullscreen] = useState(false);
   const [showProofing, setShowProofing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const lightboxRef = useRef<HTMLDivElement>(null);
+  const pinchStartDistanceRef = useRef<number | null>(null);
+  const pinchStartZoomRef = useRef(1);
   const [visiblePhotoLimit, setVisiblePhotoLimit] = useState(240);
   const [bulkUpdating, setBulkUpdating] = useState(false);
 
@@ -94,7 +99,8 @@ export function PublicPhotoSelection() {
     const preventDrag = (e: DragEvent) => e.preventDefault();
     const preventTouch = (e: TouchEvent) => {
       const target = e.target as HTMLElement;
-      if (target.tagName === 'IMG') e.preventDefault();
+      // Keep two-finger zoom available inside the public fullscreen lightbox.
+      if (target.tagName === 'IMG' && !lightboxRef.current?.contains(target)) e.preventDefault();
     };
     document.addEventListener('contextmenu', preventContext);
     document.addEventListener('dragstart', preventDrag);
@@ -179,6 +185,17 @@ export function PublicPhotoSelection() {
   }, [focusPhoto, focusIndex, visiblePhotos]);
 
   const closeLightbox = useCallback(() => setFocusPhoto(null), []);
+  const toggleBrowserFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await lightboxRef.current?.requestFullscreen();
+      }
+    } catch {
+      toast('Fullscreen is not available in this browser.', 'error');
+    }
+  }, [toast]);
   const moveLightbox = useCallback((direction: -1 | 1) => {
     if (visiblePhotos.length < 2) return;
     const nextIndex = (focusIndex + direction + visiblePhotos.length) % visiblePhotos.length;
@@ -194,6 +211,12 @@ export function PublicPhotoSelection() {
       setLightboxRotation(0);
     }
   }, [activeFocusPhoto?.id]);
+
+  useEffect(() => {
+    const updateFullscreen = () => setIsBrowserFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', updateFullscreen);
+    return () => document.removeEventListener('fullscreenchange', updateFullscreen);
+  }, []);
 
   // Desktop shortcuts only apply while the fullscreen viewer is open.
   useEffect(() => {
@@ -469,15 +492,16 @@ export function PublicPhotoSelection() {
 
       {/* Fullscreen desktop lightbox. */}
       {activeFocusPhoto && createPortal(
-        <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-950/95 text-white backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Photo viewer">
-          <header className="relative z-10 flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-slate-950/80 px-3 sm:px-6">
+        <div ref={lightboxRef} className="fixed inset-0 z-[9999] flex flex-col bg-slate-950/95 text-white backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Photo viewer">
+          <header className="relative z-10 grid h-16 shrink-0 grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-1 border-b border-white/10 bg-slate-950/80 px-3 sm:flex sm:justify-between sm:px-6">
             <button onClick={closeLightbox} className="z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:h-auto sm:w-auto sm:gap-2 sm:rounded-lg sm:bg-transparent sm:px-3 sm:py-2" aria-label="Back / close photo viewer">
               <ArrowLeft className="h-5 w-5" /><span className="hidden sm:inline">Back</span>
             </button>
-            <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-center text-sm font-semibold tabular-nums text-slate-100">
+            <div className="pointer-events-none absolute left-[5.25rem] top-1/2 -translate-y-1/2 whitespace-nowrap text-left text-xs font-semibold tabular-nums text-slate-100 sm:left-1/2 sm:-translate-x-1/2 sm:text-sm">
               {focusIndex + 1} of {visiblePhotos.length}
             </div>
-            <div className="z-10 ml-auto flex items-center gap-1">
+            <div className="z-10 flex items-center gap-0.5 sm:ml-auto sm:gap-1">
+              <button onClick={() => void toggleBrowserFullscreen()} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10" aria-label={isBrowserFullscreen ? 'Exit fullscreen' : 'View fullscreen'} title="View fullscreen">{isBrowserFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}</button>
               <button onClick={() => setLightboxRotation((rotation) => (rotation + 90) % 360)} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10" aria-label="Rotate photo clockwise" title="Rotate photo (R)"><RotateCw className="h-5 w-5" /></button>
               <button onClick={() => setLightboxZoom((zoom) => Math.max(1, Number((zoom - 0.25).toFixed(2))))} disabled={lightboxZoom <= 1} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10 disabled:opacity-40" aria-label="Zoom out"><ZoomOut className="h-5 w-5" /></button>
               <button onClick={() => setLightboxZoom((zoom) => Math.min(3, Number((zoom + 0.25).toFixed(2))))} disabled={lightboxZoom >= 3} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10 disabled:opacity-40" aria-label="Zoom in"><ZoomIn className="h-5 w-5" /></button>
@@ -485,7 +509,26 @@ export function PublicPhotoSelection() {
             </div>
           </header>
 
-          <main className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-14 py-4 sm:px-20 sm:py-6">
+          <main
+            className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-1 py-3 sm:px-20 sm:py-6"
+            style={{ touchAction: 'none' }}
+            onTouchStart={(event) => {
+              if (event.touches.length === 2) {
+                const [first, second] = Array.from(event.touches);
+                pinchStartDistanceRef.current = Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
+                pinchStartZoomRef.current = lightboxZoom;
+              }
+            }}
+            onTouchMove={(event) => {
+              if (event.touches.length !== 2 || !pinchStartDistanceRef.current) return;
+              event.preventDefault();
+              const [first, second] = Array.from(event.touches);
+              const distance = Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
+              const nextZoom = Math.min(3, Math.max(1, pinchStartZoomRef.current * (distance / pinchStartDistanceRef.current)));
+              setLightboxZoom(Number(nextZoom.toFixed(2)));
+            }}
+            onTouchEnd={() => { pinchStartDistanceRef.current = null; }}
+          >
             <img
               src={activeFocusPhoto.originalUrl || activeFocusPhoto.previewUrl}
               alt={activeFocusPhoto.fileName}
