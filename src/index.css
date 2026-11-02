@@ -75,6 +75,13 @@ body::after {
     padding: 0 !important;
   }
 
+  /* Two invoice copies share one A4 landscape page: Studio left, Client right. */
+  #printable-bill-sheet.dual-print-sheet {
+    width: 281mm !important;
+    max-width: 281mm !important;
+    height: 194mm !important;
+  }
+
   #printable-bill-sheet .bill-page {
     width: 190mm !important;
     max-width: 190mm !important;

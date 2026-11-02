@@ -2338,7 +2338,7 @@ export function BookingDetail({ booking, onClose, onEdit, onDelete, onArchive, o
         </div>
       </main>
       <BillPreviewModal booking={booking} settings={settings} open={isBillPreviewOpen} onClose={() => setIsBillPreviewOpen(false)} showStamp={showInvoiceStamp} onToggleStamp={() => setShowInvoiceStamp((value) => !value)} onDualPrint={() => { setIsDualPrintOpen(true); setTimeout(() => { window.print(); setIsDualPrintOpen(false); }, 100); }} />
-      {isDualPrintOpen && createPortal(<div id="printable-bill-sheet"><PrintableDualCopies>{(copyType) => <BillInvoice booking={booking} settings={settings} compact showStamp={showInvoiceStamp} copyTypeOverride={copyType} />}</PrintableDualCopies></div>, document.body)}
+      {isDualPrintOpen && createPortal(<div id="printable-bill-sheet" className="dual-print-sheet"><PrintableDualCopies>{(copyType) => <BillInvoice booking={booking} settings={settings} compact showStamp={showInvoiceStamp} copyTypeOverride={copyType} />}</PrintableDualCopies></div>, document.body)}
       {!isDualPrintOpen && createPortal(
         <div id="printable-bill-sheet" aria-hidden>
           <BillInvoice booking={booking} settings={settings} showStamp={showInvoiceStamp} />
@@ -2412,7 +2412,7 @@ function BillPreviewModal({ booking, settings, open, onClose, showStamp, onToggl
           🖨️ Print Now
         </button>
         <button onClick={onDualPrint} className="flex items-center gap-2 rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-600">
-          🖨️ Print 2-in-1 (Half Cut / 2 Copies per A4)
+          🖨️ Print 2-in-1: Studio + Client (Half Cut)
         </button>
         <button onClick={() => startDownload('original')} disabled={isDownloading} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-amber-400 disabled:cursor-wait disabled:opacity-60">
           <Download className="h-4 w-4" /> {isDownloading ? 'Preparing PDF…' : 'Download Studio Copy'}

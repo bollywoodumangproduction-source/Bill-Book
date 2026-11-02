@@ -53,8 +53,12 @@ export function PublicPhotoSelection() {
   const lightboxRef = useRef<HTMLDivElement>(null);
   const pinchStartDistanceRef = useRef<number | null>(null);
   const pinchStartZoomRef = useRef(1);
+  const panTouchStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const tapStartedAtRef = useRef(0);
+  const panMovedRef = useRef(false);
   const [visiblePhotoLimit, setVisiblePhotoLimit] = useState(240);
   const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [lightboxPan, setLightboxPan] = useState({ x: 0, y: 0 });
 
   const load = useCallback(async (pin?: string) => {
     if (!sessionId) { setLoading(false); return false; }
@@ -196,6 +200,14 @@ export function PublicPhotoSelection() {
       toast('Fullscreen is not available in this browser.', 'error');
     }
   }, [toast]);
+  const toggleLightboxZoom = useCallback(() => {
+    if (lightboxZoom > 1) {
+      setLightboxZoom(1);
+      setLightboxPan({ x: 0, y: 0 });
+    } else {
+      setLightboxZoom(2);
+    }
+  }, [lightboxZoom]);
   const moveLightbox = useCallback((direction: -1 | 1) => {
     if (visiblePhotos.length < 2) return;
     const nextIndex = (focusIndex + direction + visiblePhotos.length) % visiblePhotos.length;
@@ -203,12 +215,14 @@ export function PublicPhotoSelection() {
     setFocusPhoto(visiblePhotos[nextIndex]);
     setLightboxZoom(1);
     setLightboxRotation(0);
+    setLightboxPan({ x: 0, y: 0 });
   }, [focusIndex, visiblePhotos]);
 
   useEffect(() => {
     if (activeFocusPhoto) {
       setLightboxZoom(1);
       setLightboxRotation(0);
+      setLightboxPan({ x: 0, y: 0 });
     }
   }, [activeFocusPhoto?.id]);
 
@@ -493,16 +507,17 @@ export function PublicPhotoSelection() {
       {/* Fullscreen desktop lightbox. */}
       {activeFocusPhoto && createPortal(
         <div ref={lightboxRef} className="fixed inset-0 z-[9999] flex flex-col bg-slate-950/95 text-white backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Photo viewer">
-          <header className="relative z-10 grid h-16 shrink-0 grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-1 border-b border-white/10 bg-slate-950/80 px-3 sm:flex sm:justify-between sm:px-6">
+          <header className="relative z-10 flex h-16 shrink-0 items-center border-b border-white/10 bg-slate-950/80 px-3 sm:justify-between sm:px-6">
             <button onClick={closeLightbox} className="z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:h-auto sm:w-auto sm:gap-2 sm:rounded-lg sm:bg-transparent sm:px-3 sm:py-2" aria-label="Back / close photo viewer">
               <ArrowLeft className="h-5 w-5" /><span className="hidden sm:inline">Back</span>
             </button>
             <div className="pointer-events-none absolute left-[5.25rem] top-1/2 -translate-y-1/2 whitespace-nowrap text-left text-xs font-semibold tabular-nums text-slate-100 sm:left-1/2 sm:-translate-x-1/2 sm:text-sm">
               {focusIndex + 1} of {visiblePhotos.length}
             </div>
-            <div className="z-10 flex items-center gap-0.5 sm:ml-auto sm:gap-1">
-              <button onClick={() => void toggleBrowserFullscreen()} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10" aria-label={isBrowserFullscreen ? 'Exit fullscreen' : 'View fullscreen'} title="View fullscreen">{isBrowserFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}</button>
-              <button onClick={() => setLightboxRotation((rotation) => (rotation + 90) % 360)} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10" aria-label="Rotate photo clockwise" title="Rotate photo (R)"><RotateCw className="h-5 w-5" /></button>
+            <button onClick={() => setLightboxRotation((rotation) => (rotation + 90) % 360)} className="absolute left-[10.5rem] top-1/2 -translate-y-1/2 rounded-lg p-2 text-slate-200 transition hover:bg-white/10 sm:static sm:hidden" aria-label="Rotate photo clockwise" title="Rotate photo (R)"><RotateCw className="h-5 w-5" /></button>
+            <div className="z-10 ml-auto flex items-center gap-0.5 sm:gap-1">
+              <button onClick={() => void toggleBrowserFullscreen()} className="hidden rounded-lg p-2 text-slate-200 transition hover:bg-white/10 sm:inline-flex" aria-label={isBrowserFullscreen ? 'Exit fullscreen' : 'View fullscreen'} title="View fullscreen">{isBrowserFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}</button>
+              <button onClick={() => setLightboxRotation((rotation) => (rotation + 90) % 360)} className="hidden rounded-lg p-2 text-slate-200 transition hover:bg-white/10 sm:inline-flex" aria-label="Rotate photo clockwise" title="Rotate photo (R)"><RotateCw className="h-5 w-5" /></button>
               <button onClick={() => setLightboxZoom((zoom) => Math.max(1, Number((zoom - 0.25).toFixed(2))))} disabled={lightboxZoom <= 1} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10 disabled:opacity-40" aria-label="Zoom out"><ZoomOut className="h-5 w-5" /></button>
               <button onClick={() => setLightboxZoom((zoom) => Math.min(3, Number((zoom + 0.25).toFixed(2))))} disabled={lightboxZoom >= 3} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10 disabled:opacity-40" aria-label="Zoom in"><ZoomIn className="h-5 w-5" /></button>
               <button onClick={closeLightbox} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10" aria-label="Close viewer"><X className="h-6 w-6" /></button>
@@ -512,28 +527,61 @@ export function PublicPhotoSelection() {
           <main
             className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-1 py-3 sm:px-20 sm:py-6"
             style={{ touchAction: 'none' }}
+            onDoubleClick={toggleLightboxZoom}
             onTouchStart={(event) => {
               if (event.touches.length === 2) {
                 const [first, second] = Array.from(event.touches);
                 pinchStartDistanceRef.current = Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
                 pinchStartZoomRef.current = lightboxZoom;
+                panTouchStartRef.current = null;
+                panMovedRef.current = true;
+              } else if (event.touches.length === 1) {
+                const touch = event.touches[0];
+                panTouchStartRef.current = { x: touch.clientX, y: touch.clientY, panX: lightboxPan.x, panY: lightboxPan.y };
+                tapStartedAtRef.current = Date.now();
+                panMovedRef.current = false;
               }
             }}
             onTouchMove={(event) => {
-              if (event.touches.length !== 2 || !pinchStartDistanceRef.current) return;
+              if (event.touches.length === 2 && pinchStartDistanceRef.current) {
+                event.preventDefault();
+                const [first, second] = Array.from(event.touches);
+                const distance = Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
+                const nextZoom = Math.min(3, Math.max(1, pinchStartZoomRef.current * (distance / pinchStartDistanceRef.current)));
+                setLightboxZoom(Number(nextZoom.toFixed(2)));
+                return;
+              }
+              if (event.touches.length !== 1 || !panTouchStartRef.current || lightboxZoom <= 1) return;
               event.preventDefault();
-              const [first, second] = Array.from(event.touches);
-              const distance = Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
-              const nextZoom = Math.min(3, Math.max(1, pinchStartZoomRef.current * (distance / pinchStartDistanceRef.current)));
-              setLightboxZoom(Number(nextZoom.toFixed(2)));
+              const touch = event.touches[0];
+              const deltaX = touch.clientX - panTouchStartRef.current.x;
+              const deltaY = touch.clientY - panTouchStartRef.current.y;
+              if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) panMovedRef.current = true;
+              const maxX = Math.max(0, (window.innerWidth * (lightboxZoom - 1)) / 2);
+              const maxY = Math.max(0, (window.innerHeight * (lightboxZoom - 1)) / 2);
+              setLightboxPan({
+                x: Math.max(-maxX, Math.min(maxX, panTouchStartRef.current.panX + deltaX)),
+                y: Math.max(-maxY, Math.min(maxY, panTouchStartRef.current.panY + deltaY)),
+              });
             }}
-            onTouchEnd={() => { pinchStartDistanceRef.current = null; }}
+            onTouchEnd={(event) => {
+              const isSingleTap = event.changedTouches.length === 1 && !panMovedRef.current && Date.now() - tapStartedAtRef.current < 300;
+              const lastTapAt = Number(event.currentTarget.dataset.lastTapAt ?? 0);
+              if (isSingleTap && Date.now() - lastTapAt < 300) {
+                toggleLightboxZoom();
+                event.currentTarget.dataset.lastTapAt = '0';
+              } else if (isSingleTap) {
+                event.currentTarget.dataset.lastTapAt = String(Date.now());
+              }
+              if (event.touches.length < 2) pinchStartDistanceRef.current = null;
+              if (event.touches.length === 0) panTouchStartRef.current = null;
+            }}
           >
             <img
               src={activeFocusPhoto.originalUrl || activeFocusPhoto.previewUrl}
               alt={activeFocusPhoto.fileName}
               className="h-full w-full select-none object-contain transition-transform duration-200"
-              style={{ transform: `scale(${lightboxZoom}) rotate(${lightboxRotation}deg)` }}
+              style={{ transform: `translate(${lightboxPan.x}px, ${lightboxPan.y}px) scale(${lightboxZoom}) rotate(${lightboxRotation}deg)` }}
               decoding="async"
               draggable={false}
               onContextMenu={(e) => e.preventDefault()}
@@ -558,6 +606,7 @@ export function PublicPhotoSelection() {
             >
               <CheckCircle2 className="h-5 w-5" /> {activeFocusPhoto.selected ? 'Selected' : 'Select photo'}
             </button>
+            <button onClick={() => void toggleBrowserFullscreen()} className="rounded-lg p-2 text-slate-200 transition hover:bg-white/10 sm:hidden" aria-label={isBrowserFullscreen ? 'Exit fullscreen' : 'View fullscreen'}>{isBrowserFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}</button>
             <p className="min-w-0 truncate text-right text-xs text-slate-400">{activeFocusPhoto.folder} / {activeFocusPhoto.fileName}</p>
           </footer>
         </div>,
